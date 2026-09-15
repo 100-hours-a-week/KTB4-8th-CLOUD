@@ -2,6 +2,7 @@ environment: production
 region: ap-northeast-2
 
 images:
-  nginx: "<FRONTEND_COMMIT_SHA>"
+  web: "<FRONTEND_COMMIT_SHA>"
   backend: "<BACKEND_COMMIT_SHA>"
+  worker: "<WORKER_COMMIT_SHA>"
   ai: "<AI_COMMIT_SHA>"

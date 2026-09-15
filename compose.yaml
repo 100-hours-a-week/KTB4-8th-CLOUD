@@ -1,84 +1,177 @@
 name: keepgo-v1
 
 services:
-  nginx:
+
+  web:
     platform: linux/amd64
-    image: "${AWS_ACCOUNT_ID:?export AWS_ACCOUNT_ID first}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-nginx:${NGINX_IMAGE_TAG:?export NGINX_IMAGE_TAG first}"
+
+    image: >-
+      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web:${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}
+
     init: true
     restart: unless-stopped
+
     security_opt:
       - no-new-privileges:true
+
     ports:
       - "80:80"
       - "443:443"
+
     networks:
       - web
-    depends_on:
-      - backend
+
     volumes:
-      - "/opt/keepgo/tls:/etc/nginx/tls:ro"
+      - /opt/keepgo/tls:/etc/nginx/tls:ro
+
+    stop_grace_period: 10s
+
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-2
+        awslogs-create-group: "false"
+        awslogs-group: /keepgo/v1/web
+        awslogs-stream: "web-${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}"
 
   backend:
     platform: linux/amd64
-    image: "${AWS_ACCOUNT_ID:?export AWS_ACCOUNT_ID first}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?export BACKEND_IMAGE_TAG first}"
+
+    image: >-
+      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}
+
     init: true
     restart: unless-stopped
+
     security_opt:
       - no-new-privileges:true
+
+    expose:
+      - "8080"
+
     networks:
       - web
       - service
+
     environment:
       SPRING_PROFILES_ACTIVE: prod
-      AWS_REGION: "ap-northeast-2"
-      AWS_DEFAULT_REGION: "ap-northeast-2"
-      DB_SECRET_ID: "keepgo/prod/database"
-      GOOGLE_OAUTH_SECRET_ID: "keepgo/prod/google-oauth"
-      MAPS_SECRET_ID: "keepgo/prod/maps"
-      JWT_SECRET_ID: "keepgo/prod/jwt"
-      AI_API_BASE_URL: "http://ai-api:8000"
+
+      AWS_REGION: ap-northeast-2
+      AWS_DEFAULT_REGION: ap-northeast-2
+
+      DB_SECRET_ID: keepgo/prod/database
+      GOOGLE_OAUTH_SECRET_ID: keepgo/prod/google-oauth
+      JWT_SECRET_ID: keepgo/prod/jwt
+
+      AI_API_BASE_URL: http://ai-api:8000
+
+      MAPS_SECRET_ID: keepgo/prod/maps
+
     stop_grace_period: 30s
 
-  ai-api:
-    platform: linux/amd64
-    image: "${AWS_ACCOUNT_ID:?export AWS_ACCOUNT_ID first}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?export AI_IMAGE_TAG first}"
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    init: true
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    networks:
-      - service
-    environment:
-      AWS_REGION: "ap-northeast-2"
-      AWS_DEFAULT_REGION: "ap-northeast-2"
-      DB_SECRET_ID: "keepgo/prod/database"
-      GEMINI_SECRET_ID: "keepgo/prod/gemini"
-      MAPS_SECRET_ID: "keepgo/prod/maps"
-    stop_grace_period: 30s
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-2
+        awslogs-create-group: "false"
+        awslogs-group: /keepgo/v1/backend
+        awslogs-stream: "backend-${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}"
 
-  ai-worker:
+    # Backend 팀이 담당하는 별도 Worker 이미지
+  worker:
     platform: linux/amd64
-    image: "${AWS_ACCOUNT_ID:?export AWS_ACCOUNT_ID first}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?export AI_IMAGE_TAG first}"
-    command: python -m app.worker
+
+    image: >-
+      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-worker:${WORKER_IMAGE_TAG:?WORKER_IMAGE_TAG is required}
+
+    # Worker 이미지의 ENTRYPOINT를 사용한다.
+    # Backend 팀에서 worker 프로필의 실행 동작을 구현해야 한다.
+
     init: true
     restart: unless-stopped
+
     security_opt:
       - no-new-privileges:true
+
     networks:
       - service
+
     environment:
-      AWS_REGION: "ap-northeast-2"
-      AWS_DEFAULT_REGION: "ap-northeast-2"
-      DB_SECRET_ID: "keepgo/prod/database"
-      GEMINI_SECRET_ID: "keepgo/prod/gemini"
-      MAPS_SECRET_ID: "keepgo/prod/maps"
+      SPRING_PROFILES_ACTIVE: worker
+
+      AWS_REGION: ap-northeast-2
+      AWS_DEFAULT_REGION: ap-northeast-2
+
+      DB_SECRET_ID: keepgo/prod/database
+      GOOGLE_OAUTH_SECRET_ID: keepgo/prod/google-oauth
+
+      AI_API_BASE_URL: http://ai-api:8000
+
+      # 초기 설정값. 애플리케이션에서 읽도록 구현해야 한다.
       WORKER_BATCH_SIZE: "10"
       WORKER_CONCURRENCY: "1"
+
     stop_grace_period: 60s
+
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-2
+        awslogs-create-group: "false"
+        awslogs-group: /keepgo/v1/worker
+        awslogs-stream: "worker-${WORKER_IMAGE_TAG:?WORKER_IMAGE_TAG is required}"
+  ai-api:
+    platform: linux/amd64
+
+    image: >-
+      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?AI_IMAGE_TAG is required}
+
+    command:
+      - uvicorn
+      - api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+
+    init: true
+    restart: unless-stopped
+
+    security_opt:
+      - no-new-privileges:true
+
+    expose:
+      - "8000"
+
+    networks:
+      - service
+
+    environment:
+      AWS_REGION: ap-northeast-2
+      AWS_DEFAULT_REGION: ap-northeast-2
+
+      LLM_PROVIDER: google
+      GOOGLE_MODEL: gemini-3.5-flash-lite
+      EMBEDDING_PROVIDER: google
+      PORT: "8000"
+
+      GEMINI_SECRET_ID: keepgo/prod/gemini
+      MAPS_SECRET_ID: keepgo/prod/maps
+
+    stop_grace_period: 30s
+
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-2
+        awslogs-create-group: "false"
+        awslogs-group: /keepgo/v1/ai-api
+        awslogs-stream: "ai-api-${AI_IMAGE_TAG:?AI_IMAGE_TAG is required}"
 
 networks:
   web:
     name: keepgo-web
+    driver: bridge
   service:
     name: keepgo-service
+    driver: bridge

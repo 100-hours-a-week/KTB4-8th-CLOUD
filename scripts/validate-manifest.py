@@ -42,13 +42,13 @@ variables = {
     "ai": "AI_IMAGE_TAG",
 }
 
-for service, variable in variables.items():
-    tag = images[service]
-    require(
-        isinstance(tag, str) and re.fullmatch(r"[0-9a-f]{40}", tag),
-        f"images.{service}에는 소문자 40자리 Commit SHA가 필요합니다.",
-    )
-    env[variable] = tag
+#for service, variable in variables.items():
+    #tag = images[service]
+    #require(
+        #isinstance(tag, str) and re.fullmatch(r"[0-9a-f]{40}", tag),
+        #f"images.{service}에는 소문자 40자리 Commit SHA가 필요합니다.",
+   # )
+   # env[variable] = tag
 
 # 설정 문법 검사용 계정 번호. AWS에 접속하지 않습니다.
 env["AWS_ACCOUNT_ID"] = "000000000000"

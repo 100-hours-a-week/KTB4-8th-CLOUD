@@ -1,0 +1,84 @@
+name: keepgo-v1
+
+services:
+  nginx:
+    platform: linux/amd64
+    image: "${AWS_ACCOUNT_ID:?export AWS_ACCOUNT_ID first}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-nginx:${NGINX_IMAGE_TAG:?export NGINX_IMAGE_TAG first}"
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - web
+    depends_on:
+      - backend
+    volumes:
+      - "/opt/keepgo/tls:/etc/nginx/tls:ro"
+
+  backend:
+    platform: linux/amd64
+    image: "${AWS_ACCOUNT_ID:?export AWS_ACCOUNT_ID first}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?export BACKEND_IMAGE_TAG first}"
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - web
+      - service
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      AWS_REGION: "ap-northeast-2"
+      AWS_DEFAULT_REGION: "ap-northeast-2"
+      DB_SECRET_ID: "keepgo/prod/database"
+      GOOGLE_OAUTH_SECRET_ID: "keepgo/prod/google-oauth"
+      MAPS_SECRET_ID: "keepgo/prod/maps"
+      JWT_SECRET_ID: "keepgo/prod/jwt"
+      AI_API_BASE_URL: "http://ai-api:8000"
+    stop_grace_period: 30s
+
+  ai-api:
+    platform: linux/amd64
+    image: "${AWS_ACCOUNT_ID:?export AWS_ACCOUNT_ID first}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?export AI_IMAGE_TAG first}"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - service
+    environment:
+      AWS_REGION: "ap-northeast-2"
+      AWS_DEFAULT_REGION: "ap-northeast-2"
+      DB_SECRET_ID: "keepgo/prod/database"
+      GEMINI_SECRET_ID: "keepgo/prod/gemini"
+      MAPS_SECRET_ID: "keepgo/prod/maps"
+    stop_grace_period: 30s
+
+  ai-worker:
+    platform: linux/amd64
+    image: "${AWS_ACCOUNT_ID:?export AWS_ACCOUNT_ID first}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?export AI_IMAGE_TAG first}"
+    command: python -m app.worker
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - service
+    environment:
+      AWS_REGION: "ap-northeast-2"
+      AWS_DEFAULT_REGION: "ap-northeast-2"
+      DB_SECRET_ID: "keepgo/prod/database"
+      GEMINI_SECRET_ID: "keepgo/prod/gemini"
+      MAPS_SECRET_ID: "keepgo/prod/maps"
+      WORKER_BATCH_SIZE: "10"
+      WORKER_CONCURRENCY: "1"
+    stop_grace_period: 60s
+
+networks:
+  web:
+    name: keepgo-web
+  service:
+    name: keepgo-service

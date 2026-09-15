@@ -1,0 +1,7 @@
+environment: production
+region: ap-northeast-2
+
+images:
+  nginx: "<FRONTEND_COMMIT_SHA>"
+  backend: "<BACKEND_COMMIT_SHA>"
+  ai: "<AI_COMMIT_SHA>"

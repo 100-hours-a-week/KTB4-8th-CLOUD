@@ -75,8 +75,8 @@ def main() -> None:
         compose = yaml.safe_load(file)
     require(isinstance(compose, dict), "Compose는 YAML 객체여야 합니다.")
     require(
-        set(compose.get("services", {})) == {"web", "frontend", "backend", "ai-api", "db"},
-        "Compose에는 web, frontend, backend, ai-api, db 서비스가 필요합니다.",
+        set(compose.get("services", {})) == {"web", "frontend", "backend", "ai-api"},
+        "Compose에는 web, frontend, backend, ai-api 서비스가 필요합니다.",
     )
 
     with tempfile.TemporaryDirectory(prefix="keepgo-compose-check-") as temporary:

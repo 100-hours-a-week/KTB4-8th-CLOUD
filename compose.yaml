@@ -31,6 +31,13 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      # certbot webroot 갱신용 (nginx.conf의 /.well-known/acme-challenge/)
+      - type: bind
+        source: /opt/keepgo/acme
+        target: /var/www/acme
+        read_only: true
+        bind:
+          create_host_path: false
     mem_limit: 128m
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
@@ -65,7 +72,7 @@ services:
   backend:
     <<: *app
     image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?set BACKEND_IMAGE_TAG}"
-    networks: [web, service, database]
+    networks: [web, service]
     expose: ["8080"]
     env_file:
       - path: /opt/keepgo/runtime/backend.env
@@ -74,7 +81,8 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       DB_VENDOR: mysql
-      DB_HOST: db
+      # RDS (퍼블릭 액세스 없음, EC2 SG에서만 3306 허용). 엔드포인트는 비밀값이 아니다
+      DB_HOST: keepgo-db-v1.c9c2syg08nfm.ap-northeast-2.rds.amazonaws.com
       DB_PORT: "3306"
       DB_NAME: keepgo
       DB_TIMEZONE: Asia/Seoul
@@ -83,11 +91,29 @@ services:
       DB_DIALECT: MySQL
       AI_SERVER_API_ADDRESS: http://ai-api:8000
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
+      # TLS가 nginx에서 끝나므로 X-Forwarded-* 로 원래 https 주소를 복원
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+      # nginx client_max_body_size와 맞춘다 (Spring 기본 1MB)
+      SPRING_SERVLET_MULTIPART_MAXFILESIZE: 10MB
+      SPRING_SERVLET_MULTIPART_MAXREQUESTSIZE: 10MB
+      # 이미지에 pem이 없으므로 prepare-runtime.py가 만든 파일로 덮어쓴다
+      KEEPGO_SECURITY_JWT_PUBLICKEY: file:/run/secrets/jwt_public_key.pem
+      KEEPGO_SECURITY_JWT_PRIVATEKEY: file:/run/secrets/jwt_private_key.pem
+    secrets:
+      - source: jwt_public_key
+        target: jwt_public_key.pem
+      - source: jwt_private_key
+        target: jwt_private_key.pem
+    volumes:
+      # 프로필 사진 업로드. 호스트 디렉터리는 10001 소유
+      - type: bind
+        source: /opt/keepgo/data/uploads
+        target: /app/uploads
+        bind:
+          create_host_path: false
     depends_on:
-      db:
-        condition: service_healthy
       ai-api:
-        condition: service_healthy
+        condition: service_started
     mem_limit: 1024m
     stop_grace_period: 30s
     # Until BE provides an HTTP readiness endpoint, this only checks that port 8080 is open.
@@ -124,43 +150,12 @@ services:
       start_period: 20s
     logging: *logging
 
-  db:
-    <<: *app
-    image: mysql:8.4
-    networks: [database]
-    environment:
-      MYSQL_DATABASE: keepgo
-      MYSQL_USER: keepgo_app
-      MYSQL_PASSWORD_FILE: /run/secrets/database_password
-      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/database_root_password
-    secrets:
-      - database_password
-      - database_root_password
-    command: ["--innodb-buffer-pool-size=536870912"]
-    volumes:
-      - type: bind
-        source: /opt/keepgo/data/mysql
-        target: /var/lib/mysql
-        bind:
-          create_host_path: false
-    mem_limit: 1024m
-    stop_grace_period: 120s
-    healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=\"$$(cat /run/secrets/database_root_password)\" mysql --protocol=tcp -h 127.0.0.1 -u root -e 'SELECT 1' >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 60s
-    logging: *logging
-
 secrets:
-  database_password:
-    file: /opt/keepgo/runtime/database-password
-  database_root_password:
-    file: /opt/keepgo/runtime/database-root-password
+  jwt_public_key:
+    file: /opt/keepgo/runtime/jwt/public_key.pem
+  jwt_private_key:
+    file: /opt/keepgo/runtime/jwt/private_key.pem
 
 networks:
   web: {}
   service: {}
-  database:
-    internal: true

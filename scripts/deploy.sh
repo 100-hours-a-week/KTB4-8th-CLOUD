@@ -55,24 +55,27 @@ PY
 )"
 eval "${tag_exports}"
 
-echo "[2/7] EC2 런타임 파일 확인"
+echo "[2/7] EC2 런타임 파일 준비와 확인"
+# Secrets Manager 값을 /opt/keepgo/runtime 파일로 만든다 (값은 출력하지 않음)
+python3 "${ROOT_DIR}/scripts/prepare-runtime.py"
 for file in \
   /opt/keepgo/tls/fullchain.pem \
   /opt/keepgo/tls/privkey.pem \
   /opt/keepgo/runtime/backend.env \
   /opt/keepgo/runtime/ai.env \
-  /opt/keepgo/runtime/database-password \
-  /opt/keepgo/runtime/database-root-password; do
+  /opt/keepgo/runtime/jwt/public_key.pem \
+  /opt/keepgo/runtime/jwt/private_key.pem; do
   [[ -s "${file}" ]] || {
     echo "[Deploy] 파일이 없거나 비어 있습니다: ${file}" >&2
     exit 1
   }
 done
-[[ -d /opt/keepgo/data/mysql ]] || {
-  echo "[Deploy] DB 데이터 디렉터리가 없습니다: /opt/keepgo/data/mysql" >&2
+[[ -d /opt/keepgo/data/uploads ]] || {
+  echo "[Deploy] 업로드 디렉터리가 없습니다: /opt/keepgo/data/uploads" >&2
   exit 1
 }
-for key in DB_PASSWORD GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET VWORLD_API_KEY; do
+# TODO: Google OAuth, VWorld 키를 Secret-v1-BE에 넣으면 필수 목록에 다시 추가
+for key in DB_USERNAME DB_PASSWORD; do
   grep -q "^${key}=." /opt/keepgo/runtime/backend.env || {
     echo "[Deploy] backend.env에 ${key}가 필요합니다." >&2
     exit 1
@@ -105,7 +108,7 @@ echo "[6/7] 컨테이너 간 연결 확인"
 docker compose -f "${COMPOSE_PATH}" exec -T web \
   wget -q -O /dev/null http://frontend:3000/
 docker compose -f "${COMPOSE_PATH}" exec -T backend \
-  bash -c 'exec 3<>/dev/tcp/ai-api/8000 && exec 4<>/dev/tcp/db/3306'
+  bash -c 'exec 3<>/dev/tcp/ai-api/8000 && exec 4<>/dev/tcp/keepgo-db-v1.c9c2syg08nfm.ap-northeast-2.rds.amazonaws.com/3306'
 
 echo "[7/7] Nginx HTTP 헬스 경로 확인"
 curl --fail --silent --show-error --max-time 5 http://127.0.0.1/healthz

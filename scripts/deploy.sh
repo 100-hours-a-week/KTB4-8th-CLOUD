@@ -95,7 +95,7 @@ aws ecr get-login-password --region "${AWS_REGION}" |
   docker login --username AWS --password-stdin "${registry}"
 
 echo "[4/7] 이미지 Pull"
-docker compose -f "${COMPOSE_PATH}" pull
+docker compose -f "${COMPOSE_PATH}" pull --quiet
 
 echo "[5/7] 컨테이너 기동과 헬스 체크"
 if ! docker compose -f "${COMPOSE_PATH}" up -d --wait --wait-timeout 420 --remove-orphans; then

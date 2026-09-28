@@ -4,5 +4,5 @@ region: ap-northeast-2
 images:
   nginx: "d3ca2acd3def66ec6997fec6e4a6c78b21054250"
   frontend: "d3ca2acd3def66ec6997fec6e4a6c78b21054250"
-  backend: "06df019fa4f1bb0a3faeef116bdcf1f1135f6dae"
+  backend: "db8619aa621a8f36a1bba4e6c80b52f14ec0f905"
   ai: "f7476b55777510e71ca9e2f2eaeaef6191e2ce6f"

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       execute:
-        description: "Prodution 배포를 실행"
+        description: "설정 확인 후 EC2에 실제 배포"
         required: true
         type: boolean
         default: false
@@ -24,99 +24,117 @@ jobs:
     name: Validate deployment configuration
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-    
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-
       - name: Install YAML parser
         run: python -m pip install "PyYAML==6.0.3"
-
-      - name: Validate deployment structure
+      - name: Validate configuration structure
         run: python scripts/validate-manifest.py --structure-only
+      - name: Check deployment scripts
+        run: |
+          bash -n scripts/deploy.sh
+          python -m py_compile scripts/validate-manifest.py
+      - name: Require real image tags for deployment
+        if: inputs.execute == true
+        run: python scripts/validate-manifest.py
 
   deploy:
     name: Deploy to production
     needs: validate
-
-    if: ${{ inputs.execute == true }}
-
+    if: inputs.execute == true
     runs-on: ubuntu-24.04
-
-    timeout-minutes: 15
-
+    timeout-minutes: 30
     environment:
       name: production
-
     permissions:
       id-token: write
       contents: read
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
+      - name: Check deployment variables
+        env:
+          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          INSTANCE_ID: ${{ vars.PRODUCTION_EC2_INSTANCE_ID }}
+        run: |
+          test -n "${DEPLOY_ROLE_ARN}" || { echo "AWS_DEPLOY_ROLE_ARN is missing" >&2; exit 1; }
+          [[ "${INSTANCE_ID}" =~ ^i-[0-9a-f]{8,17}$ ]] || { echo "PRODUCTION_EC2_INSTANCE_ID is invalid" >&2; exit 1; }
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials with OIDC
         uses: aws-actions/configure-aws-credentials@v6.2.4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: keepgo-production-deploy
 
-      - name: Resolve AWS account
+      - name: Verify AWS account
         run: |
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-
+          test "${ACCOUNT_ID}" = "602601433533" || { echo "Unexpected AWS account: ${ACCOUNT_ID}" >&2; exit 1; }
           echo "AWS_ACCOUNT_ID=${ACCOUNT_ID}" >> "${GITHUB_ENV}"
-          echo "Authenticated AWS account: ${ACCOUNT_ID}"
 
-      - name: Send deployment command
+      - name: Send deployment command to EC2
         id: deploy-command
+        env:
+          INSTANCE_ID: ${{ vars.PRODUCTION_EC2_INSTANCE_ID }}
+          CLOUD_SHA: ${{ github.sha }}
         run: |
-          COMMAND_ID="$(
-            aws ssm send-command --instance-ids "${{ vars.PRODUCTION_EC2_INSTANCE_ID }}" \
-              --document-name "AWS-RunShellScript" \
-              --comment "KeepGo production deployment ${GITHUB_SHA}" \
-              --parameters commands="[
-                \"cd /opt/keepgo/cloud\",
-                \"git fetch origin\",
-                \"git checkout ${GITHUB_SHA}\",
-                \"export AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID}\",
-                \"export AWS_REGION=${AWS_REGION}\",
-                \"bash scripts/deploy.sh\"
-                ]" \
-                --query "Command.CommandId" \
-                --output text
-            )"
-
+          parameters="$(jq -nc \
+            --arg sha "${CLOUD_SHA}" \
+            --arg account "${AWS_ACCOUNT_ID}" \
+            --arg region "${AWS_REGION}" \
+            '{commands: [
+              "set -euo pipefail",
+              "test -d /opt/keepgo/cloud/.git",
+              "git -c safe.directory=/opt/keepgo/cloud -C /opt/keepgo/cloud fetch origin",
+              ("git -c safe.directory=/opt/keepgo/cloud -C /opt/keepgo/cloud checkout --detach " + $sha),
+              ("export CLOUD_COMMIT_SHA=" + $sha),
+              ("export AWS_ACCOUNT_ID=" + $account),
+              ("export AWS_REGION=" + $region),
+              "bash /opt/keepgo/cloud/scripts/deploy.sh"
+            ]}')"
+          COMMAND_ID="$(aws ssm send-command \
+            --region "${AWS_REGION}" \
+            --instance-ids "${INSTANCE_ID}" \
+            --document-name AWS-RunShellScript \
+            --comment "KeepGo production deployment ${CLOUD_SHA}" \
+            --parameters "${parameters}" \
+            --query Command.CommandId --output text)"
           echo "command_id=${COMMAND_ID}" >> "${GITHUB_OUTPUT}"
           echo "SSM Command ID: ${COMMAND_ID}"
 
-      - name: Wait for deployment
-        run: aws ssm wait command-executed --region "${AWS_REGION}" --command-id "${{ steps.deploy-command.outputs.command_id }}" --instance-id "${{ vars.PRODUCTION_EC2_INSTANCE_ID }}"
-
-      - name : Check deployment result
+      - name: Wait for deployment result
+        env:
+          INSTANCE_ID: ${{ vars.PRODUCTION_EC2_INSTANCE_ID }}
+          COMMAND_ID: ${{ steps.deploy-command.outputs.command_id }}
         run: |
-          STATUS="$(aws ssm get-command-invocation \
-                    --region "${AWS_REGION}" \
-                    --command-id "${{ steps.deploy-command.outputs.command_id }}" \
-                    --instance-id "${{ vars.PRODUCTION_EC2_INSTANCE_ID }}" \
-                    --query "Status" \
-                    --output text
-                    )"
+          status="Pending"
+          for attempt in {1..120}; do
+            status="$(aws ssm get-command-invocation \
+              --region "${AWS_REGION}" --command-id "${COMMAND_ID}" \
+              --instance-id "${INSTANCE_ID}" --query Status --output text 2>/dev/null || true)"
+            case "${status}" in
+              Success) break ;;
+              Failed|Cancelled|TimedOut|Cancelling) break ;;
+            esac
+            sleep 10
+          done
+          aws ssm get-command-invocation \
+            --region "${AWS_REGION}" --command-id "${COMMAND_ID}" \
+            --instance-id "${INSTANCE_ID}" \
+            --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+            --output json
+          test "${status}" = "Success" || { echo "Deployment failed or timed out: ${status}" >&2; exit 1; }
 
       - name: Deployment summary
+        env:
+          COMMAND_ID: ${{ steps.deploy-command.outputs.command_id }}
         run: |
-          echo "Cloud commit : ${GITHUB_SHA}"
-          echo "AWS account : ${AWS_ACCOUNT_ID}"
-          echo "Region : ${AWS_REGION}"
-          echo "SSM command : ${{ steps.deploy-command.outputs.command_id }}"
+          echo "Cloud commit: ${GITHUB_SHA}"
+          echo "AWS account: ${AWS_ACCOUNT_ID}"
+          echo "SSM command: ${COMMAND_ID}"

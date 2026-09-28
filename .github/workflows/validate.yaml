@@ -33,3 +33,8 @@ jobs:
 
       - name: Validate configuration structure
         run: python scripts/validate-manifest.py --structure-only
+
+      - name: Check deployment scripts
+        run: |
+          bash -n scripts/deploy.sh
+          python -m py_compile scripts/validate-manifest.py

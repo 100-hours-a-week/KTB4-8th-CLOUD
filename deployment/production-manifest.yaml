@@ -2,7 +2,7 @@ environment: production
 region: ap-northeast-2
 
 images:
-  nginx: "723d9b2657ac8acfbe4480c90d327cc3c700c014"
-  frontend: "723d9b2657ac8acfbe4480c90d327cc3c700c014"
-  backend: "a4542145ba78b08815ff7680ce78db6d7e510518"
+  nginx: "e995b79e45fc053630b5b96ec18f080d3d667b74"
+  frontend: "e995b79e45fc053630b5b96ec18f080d3d667b74"
+  backend: "550c77aecca40361cf33277bd26db862eb468b95"
   ai: "f7476b55777510e71ca9e2f2eaeaef6191e2ce6f"

@@ -5,6 +5,7 @@ import argparse
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -68,14 +69,33 @@ def main() -> None:
         "FE와 Nginx는 같은 FE CI 실행의 Commit SHA여야 합니다.",
     )
 
-    subprocess.run(
-        [
-            "docker", "compose", "-f", str(ROOT / "compose.yaml"),
-            "config", "--quiet", "--no-env-resolution",
-        ],
-        env=env,
-        check=True,
+    # CI runners do not have the EC2-only env and secret files. Validate the
+    # same Compose model with temporary stand-ins for those host files.
+    with (ROOT / "compose.yaml").open(encoding="utf-8") as file:
+        compose = yaml.safe_load(file)
+    require(isinstance(compose, dict), "Compose는 YAML 객체여야 합니다.")
+    require(
+        set(compose.get("services", {})) == {"web", "frontend", "backend", "ai-api", "db"},
+        "Compose에는 web, frontend, backend, ai-api, db 서비스가 필요합니다.",
     )
+
+    with tempfile.TemporaryDirectory(prefix="keepgo-compose-check-") as temporary:
+        temporary_dir = Path(temporary)
+        placeholder = temporary_dir / "placeholder.env"
+        placeholder.write_text("# CI validation placeholder\n", encoding="utf-8")
+        for service in ("backend", "ai-api"):
+            for env_file in compose["services"][service]["env_file"]:
+                env_file["path"] = str(placeholder)
+        for secret in compose["secrets"].values():
+            secret["file"] = str(placeholder)
+
+        compose_path = temporary_dir / "compose.yaml"
+        compose_path.write_text(yaml.safe_dump(compose, sort_keys=False), encoding="utf-8")
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_path), "config", "--quiet"],
+            env=env,
+            check=True,
+        )
     if args.structure_only:
         print("설정 구조 검증 성공 (BE SHA와 이미지 존재 여부는 배포 전 확인)")
     else:

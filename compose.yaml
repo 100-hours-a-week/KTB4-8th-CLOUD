@@ -1,177 +1,166 @@
 name: keepgo-v1
 
+x-app: &app
+  platform: linux/amd64
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
-
   web:
-    platform: linux/amd64
-
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web:${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}
-
-    init: true
-    restart: unless-stopped
-
-    security_opt:
-      - no-new-privileges:true
-
+    <<: *app
+    image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-nginx:${NGINX_IMAGE_TAG:?set NGINX_IMAGE_TAG}"
     ports:
       - "80:80"
       - "443:443"
-
-    networks:
-      - web
-
+    networks: [web]
+    depends_on:
+      frontend:
+        condition: service_healthy
     volumes:
-      - /opt/keepgo/tls:/etc/nginx/tls:ro
+      - type: bind
+        source: /opt/keepgo/tls
+        target: /etc/nginx/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging: *logging
 
-    stop_grace_period: 10s
-
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/web
-        awslogs-stream: "web-${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}"
+  frontend:
+    <<: *app
+    image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web:${WEB_IMAGE_TAG:?set WEB_IMAGE_TAG}"
+    networks: [web]
+    expose: ["3000"]
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    mem_limit: 512m
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/', {redirect:'manual'}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *logging
 
   backend:
-    platform: linux/amd64
-
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}
-
-    init: true
-    restart: unless-stopped
-
-    security_opt:
-      - no-new-privileges:true
-
-    expose:
-      - "8080"
-
-    networks:
-      - web
-      - service
-
+    <<: *app
+    image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?set BACKEND_IMAGE_TAG}"
+    networks: [web, service, database]
+    expose: ["8080"]
+    env_file:
+      - path: /opt/keepgo/runtime/backend.env
+        format: raw
+        required: true
     environment:
       SPRING_PROFILES_ACTIVE: prod
-
-      AWS_REGION: ap-northeast-2
-      AWS_DEFAULT_REGION: ap-northeast-2
-
-      DB_SECRET_ID: keepgo/prod/database
-      GOOGLE_OAUTH_SECRET_ID: keepgo/prod/google-oauth
-      JWT_SECRET_ID: keepgo/prod/jwt
-
-      AI_API_BASE_URL: http://ai-api:8000
-
-      MAPS_SECRET_ID: keepgo/prod/maps
-
+      DB_VENDOR: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: keepgo
+      DB_TIMEZONE: Asia/Seoul
+      DB_USERNAME: keepgo_app
+      DB_DRIVER: com.mysql.cj.jdbc.Driver
+      DB_DIALECT: MySQL
+      AI_SERVER_API_ADDRESS: http://ai-api:8000
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
+    depends_on:
+      db:
+        condition: service_healthy
+      ai-api:
+        condition: service_healthy
+    mem_limit: 1024m
     stop_grace_period: 30s
+    # Until BE provides an HTTP readiness endpoint, this only checks that port 8080 is open.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 90s
+    logging: *logging
 
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/backend
-        awslogs-stream: "backend-${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}"
-
-    # Backend 팀이 담당하는 별도 Worker 이미지
-  worker:
-    platform: linux/amd64
-
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-worker:${WORKER_IMAGE_TAG:?WORKER_IMAGE_TAG is required}
-
-    # Worker 이미지의 ENTRYPOINT를 사용한다.
-    # Backend 팀에서 worker 프로필의 실행 동작을 구현해야 한다.
-
-    init: true
-    restart: unless-stopped
-
-    security_opt:
-      - no-new-privileges:true
-
-    networks:
-      - service
-
-    environment:
-      SPRING_PROFILES_ACTIVE: worker
-
-      AWS_REGION: ap-northeast-2
-      AWS_DEFAULT_REGION: ap-northeast-2
-
-      DB_SECRET_ID: keepgo/prod/database
-      GOOGLE_OAUTH_SECRET_ID: keepgo/prod/google-oauth
-
-      AI_API_BASE_URL: http://ai-api:8000
-
-      # 초기 설정값. 애플리케이션에서 읽도록 구현해야 한다.
-      WORKER_BATCH_SIZE: "10"
-      WORKER_CONCURRENCY: "1"
-
-    stop_grace_period: 60s
-
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/worker
-        awslogs-stream: "worker-${WORKER_IMAGE_TAG:?WORKER_IMAGE_TAG is required}"
   ai-api:
-    platform: linux/amd64
-
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?AI_IMAGE_TAG is required}
-
-    command:
-      - uvicorn
-      - api.main:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-
-    init: true
-    restart: unless-stopped
-
-    security_opt:
-      - no-new-privileges:true
-
-    expose:
-      - "8000"
-
-    networks:
-      - service
-
+    <<: *app
+    image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?set AI_IMAGE_TAG}"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    networks: [service]
+    expose: ["8000"]
+    env_file:
+      - path: /opt/keepgo/runtime/ai.env
+        format: raw
+        required: true
     environment:
-      AWS_REGION: ap-northeast-2
-      AWS_DEFAULT_REGION: ap-northeast-2
-
       LLM_PROVIDER: google
-      GOOGLE_MODEL: gemini-3.5-flash-lite
+      GOOGLE_MODEL: gemini-3.8-flash
       EMBEDDING_PROVIDER: google
-      PORT: "8000"
-
-      GEMINI_SECRET_ID: keepgo/prod/gemini
-      MAPS_SECRET_ID: keepgo/prod/maps
-
+      CHROMA_PATH: /app/chroma
+    mem_limit: 768m
     stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *logging
 
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/ai-api
-        awslogs-stream: "ai-api-${AI_IMAGE_TAG:?AI_IMAGE_TAG is required}"
+  db:
+    <<: *app
+    image: mysql:8.4
+    networks: [database]
+    environment:
+      MYSQL_DATABASE: keepgo
+      MYSQL_USER: keepgo_app
+      MYSQL_PASSWORD_FILE: /run/secrets/database_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/database_root_password
+    secrets:
+      - database_password
+      - database_root_password
+    command: ["--innodb-buffer-pool-size=536870912"]
+    volumes:
+      - type: bind
+        source: /opt/keepgo/data/mysql
+        target: /var/lib/mysql
+        bind:
+          create_host_path: false
+    mem_limit: 1024m
+    stop_grace_period: 120s
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$(cat /run/secrets/database_root_password)\" mysql --protocol=tcp -h 127.0.0.1 -u root -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    logging: *logging
+
+secrets:
+  database_password:
+    file: /opt/keepgo/runtime/database-password
+  database_root_password:
+    file: /opt/keepgo/runtime/database-root-password
 
 networks:
-  web:
-    name: keepgo-web
-    driver: bridge
-  service:
-    name: keepgo-service
-    driver: bridge
+  web: {}
+  service: {}
+  database:
+    internal: true

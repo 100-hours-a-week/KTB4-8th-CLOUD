@@ -11,8 +11,9 @@ from deploy import Engine, main
 
 
 def manifest():
-    return {"environment": "production", "region": "ap-northeast-2",
+    return {"schema_version": 1, "environment": "production", "region": "ap-northeast-2",
             "images": {s: "a" * 40 for s in release.SERVICES},
+            "digests": {s: "sha256:" + "a" * 64 for s in release.SERVICES},
             "sources": {g: {"sha": "a" * 40, "run_id": 1} for g in release.GROUPS}}
 
 
@@ -77,24 +78,22 @@ class ContractTests(unittest.TestCase):
                     main()
                 engine.assert_not_called()
 
-    def test_backend_and_worker_can_use_different_shas(self):
+    def test_backend_version_is_independent_of_frontend(self):
         m = manifest()
-        m["images"]["worker"] = "b" * 40
-        m["sources"]["worker"]["sha"] = "b" * 40
+        m["images"]["backend"] = "b" * 40
+        m["sources"]["backend"]["sha"] = "b" * 40
         release.validate_manifest(m)
 
     def test_frontend_mixed_pair_rejected(self):
         m = manifest()
-        m["images"]["nginx"] = "b" * 40
+        m["images"]["web"] = "b" * 40
         with self.assertRaises(ValueError):
             release.validate_manifest(m)
 
-    def test_placeholder_is_not_deployable(self):
+    def test_unpinned_baseline_is_not_deployable(self):
         m = manifest()
-        for group, services in release.GROUPS.items():
-            m["sources"][group] = {"sha": f"<{group.upper()}_COMMIT_SHA>", "run_id": 0}
-            for service in services:
-                m["images"][service] = m["sources"][group]["sha"]
+        m["sources"]["backend"]["run_id"] = None
+        m["digests"] = dict.fromkeys(release.SERVICES)
         release.validate_manifest(m, structure_only=True)
         with self.assertRaises(ValueError):
             release.validate_manifest(m)
@@ -110,20 +109,22 @@ class ContractTests(unittest.TestCase):
         new["compose"]["services"]["backend"]["image"] = "new"
         self.assertEqual(["backend"], release.changed_services(old, new))
 
-    def test_worker_only_plan(self):
-        old, new = snapshot(), snapshot()
-        new["compose"]["services"]["worker"]["image"] = "new"
-        self.assertEqual(["worker"], release.changed_services(old, new))
+    def test_worker_is_not_a_release_service(self):
+        m = manifest()
+        m["images"]["worker"] = "b" * 40
+        with self.assertRaises(ValueError):
+            release.validate_manifest(m)
 
     def test_frontend_plan(self):
         old, new = snapshot(), snapshot()
         new["compose"]["services"]["web"]["image"] = "new"
-        self.assertEqual(["web", "nginx"], release.changed_services(old, new))
+        with self.assertRaisesRegex(ValueError, "Only Backend"):
+            release.changed_services(old, new)
 
     def test_config_change_is_deployed(self):
         old, new = snapshot(), snapshot()
-        new["compose"]["services"]["ai-api"]["environment"] = {"NEW": "value"}
-        self.assertEqual(["ai-api"], release.changed_services(old, new))
+        new["compose"]["services"]["backend"]["environment"] = {"NEW": "value"}
+        self.assertEqual(["backend"], release.changed_services(old, new))
 
     def test_shared_network_change_requires_maintenance(self):
         old, new = snapshot(), snapshot()
@@ -184,12 +185,12 @@ class TransactionTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.engine.deploy()
 
-    def test_first_deploy_failure_has_no_invented_rollback(self):
+    def test_first_deploy_requires_adoption_without_stopping_containers(self):
         (self.engine.state / "current.json").unlink()
-        self.engine.fail_verify = 1
-        self.assertEqual(1, self.engine.deploy())
+        with self.assertRaisesRegex(RuntimeError, "adopt"):
+            self.engine.deploy()
         self.assertIsNone(self.engine.read("current"))
-        self.assertIsNotNone(self.engine.read("frozen"))
+        self.assertFalse(any(c[0] == "replace" for c in self.engine.calls))
 
     def test_unmanaged_existing_containers_refused(self):
         (self.engine.state / "current.json").unlink()
@@ -204,13 +205,14 @@ class TransactionTests(unittest.TestCase):
         self.assertIsNone(self.engine.read("inflight"))
         self.assertIsNotNone(self.engine.read("frozen"))
 
-    def test_stop_precedes_start_and_backend_does_not_restart_worker(self):
+    def test_stop_precedes_start_and_backend_only_is_recreated(self):
         self.engine.replace = Engine.replace.__get__(self.engine)
         self.engine.replace(self.old, self.engine.target, ["backend"])
         calls = [c[1] for c in self.engine.calls if c[0] == "compose"]
         self.assertEqual(("stop", "backend"), calls[0])
         self.assertEqual(("up", "-d", "--no-deps", "--force-recreate", "backend"), calls[1])
-        self.assertEqual(("exec", "-T", "nginx", "nginx", "-s", "reload"), calls[2])
+        self.assertEqual(("exec", "-T", "web", "nginx", "-s", "reload"), calls[2])
+        self.assertEqual(3, len(calls))
 
     def test_new_fixed_image_can_deploy_after_failed_candidate(self):
         self.engine.fail_verify = 1
@@ -218,34 +220,28 @@ class TransactionTests(unittest.TestCase):
         self.engine.target["compose"]["services"]["backend"]["image"] = "backend@sha256:" + "c" * 64
         self.assertEqual(0, self.engine.deploy())
 
-    def test_worker_failure_preserves_successful_backend(self):
-        self.engine.target["compose"]["services"]["worker"]["image"] = "worker-new"
-        original_verify = self.engine.verify
-        def verify(value, **kwargs):
-            if value["compose"]["services"]["worker"]["image"] == "worker-new":
-                raise RuntimeError("new worker unhealthy")
-            original_verify(value)
-        self.engine.verify = verify
-        self.assertEqual(1, self.engine.deploy())
-        current = self.engine.read("current")
-        self.assertEqual(self.engine.target["compose"]["services"]["backend"], current["compose"]["services"]["backend"])
-        self.assertEqual(self.old["compose"]["services"]["worker"], current["compose"]["services"]["worker"])
+    def test_other_service_change_is_refused_before_backend_replacement(self):
+        self.engine.target["compose"]["services"]["ai-api"]["image"] = "ai-new"
+        with self.assertRaisesRegex(ValueError, "Only Backend"):
+            self.engine.deploy()
+        self.assertEqual(self.old, self.engine.read("current"))
+        self.assertFalse(any(c[0] == "replace" for c in self.engine.calls))
 
     def test_failed_config_not_retried_when_another_service_changes(self):
         self.engine.target = copy.deepcopy(self.old)
         self.engine.target["compose"]["services"]["backend"]["environment"] = {"BAD": "setting"}
         self.engine.fail_verify = 1
         self.assertEqual(1, self.engine.deploy())
-        self.engine.target["compose"]["services"]["worker"]["image"] = "worker-new"
+        self.engine.target["revision"] = "c" * 40
         with self.assertRaises(RuntimeError):
             self.engine.deploy()
 
-    def test_frontend_config_failure_does_not_block_unchanged_nginx(self):
+    def test_backend_config_failure_does_not_block_unchanged_frontend(self):
         self.engine.target = copy.deepcopy(self.old)
-        self.engine.target["compose"]["services"]["web"]["environment"] = {"SETTING": "bad"}
+        self.engine.target["compose"]["services"]["backend"]["environment"] = {"SETTING": "bad"}
         self.engine.fail_verify = 1
         self.assertEqual(1, self.engine.deploy())
-        self.engine.target["compose"]["services"]["web"]["environment"] = {"SETTING": "fixed"}
+        self.engine.target["compose"]["services"]["backend"]["environment"] = {"SETTING": "fixed"}
         self.assertEqual(0, self.engine.deploy())
 
     def test_alarm_must_exist_and_be_ok(self):
@@ -272,28 +268,28 @@ class TransactionTests(unittest.TestCase):
 
 class ProvenanceTests(unittest.TestCase):
     def setUp(self):
-        self.policy = {"frontend": {"repository": "owner/frontend", "workflow": ".github/workflows/ci.yaml",
+        self.policy = {"backend": {"repository": "owner/backend", "workflow": ".github/workflows/ci.yaml",
                                    "required_jobs": ["build", "test"]}}
         self.ci = {"head_sha": "a" * 40, "head_branch": "main", "event": "push", "status": "completed",
                    "conclusion": "success", "path": ".github/workflows/ci.yaml",
-                   "head_repository": {"full_name": "owner/frontend"}}
+                   "head_repository": {"full_name": "owner/backend"}}
 
     def test_skipped_job_rejected_even_if_workflow_successful(self):
         with patch("release.github", side_effect=[self.ci, {"sha": "a" * 40}, {"jobs": [
                 {"name": "build", "conclusion": "success"}, {"name": "test", "conclusion": "skipped"}]}]):
             with self.assertRaises(ValueError):
-                release.verify_source("frontend", {"sha": "a" * 40, "run_id": 1}, self.policy, "token")
+                release.verify_source("backend", {"sha": "a" * 40, "run_id": 1}, self.policy, "token")
 
     def test_outdated_source_sha_rejected(self):
         with patch("release.github", side_effect=[self.ci, {"sha": "b" * 40}]):
             with self.assertRaises(ValueError):
-                release.verify_source("frontend", {"sha": "a" * 40, "run_id": 1}, self.policy, "token")
+                release.verify_source("backend", {"sha": "a" * 40, "run_id": 1}, self.policy, "token")
 
     def test_wrong_workflow_rejected(self):
         self.ci["path"] = ".github/workflows/untrusted.yaml"
         with patch("release.github", return_value=self.ci):
             with self.assertRaises(ValueError):
-                release.verify_source("frontend", {"sha": "a" * 40, "run_id": 1}, self.policy, "token")
+                release.verify_source("backend", {"sha": "a" * 40, "run_id": 1}, self.policy, "token")
 
 
 if __name__ == "__main__":

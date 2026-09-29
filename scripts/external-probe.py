@@ -9,7 +9,7 @@ healthy = 1
 try:
     if not origin.startswith("https://"):
         raise ValueError("HTTPS required")
-    for path in ("/", "/api/health/ready"):
+    for path in ("/", "/healthz"):
         with urllib.request.urlopen(origin + path, timeout=10) as response:
             if response.status != 200 or not response.url.startswith(origin + "/"):
                 raise RuntimeError("Probe failed")

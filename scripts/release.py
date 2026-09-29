@@ -9,15 +9,32 @@ import tempfile
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-GROUPS = {"frontend": ("web", "nginx"), "backend": ("backend",), "worker": ("worker",), "ai": ("ai-api",)}
-SERVICES = {s for values in GROUPS.values() for s in values}
-ORDER = ["ai-api", "backend", "worker", "web", "nginx"]
+GROUPS = {"backend": ("backend",)}  # 이번 단계의 자동 배포 대상
+REPOSITORIES = {"web": "keepgo-nginx", "frontend": "keepgo-web",
+                "backend": "keepgo-backend", "ai-api": "keepgo-ai"}
+SERVICES = set(REPOSITORIES)
+ORDER = ["ai-api", "backend", "frontend", "web"]
+IMAGE_ENV = {"web": "NGINX_IMAGE_TAG", "frontend": "WEB_IMAGE_TAG",
+             "backend": "BACKEND_IMAGE_TAG", "ai-api": "AI_IMAGE_TAG"}
 SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def loads(value):
+    return json.loads(value, object_pairs_hook=unique_object)
+
+
 def load(path):
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return loads(Path(path).read_text(encoding="utf-8"))
 
 
 def save(path, value):
@@ -48,21 +65,31 @@ def aws_json(*args):
 
 
 def validate_manifest(m, structure_only=False):
-    if not isinstance(m, dict) or set(m) != {"environment", "region", "images", "sources"}:
-        raise ValueError("Manifest keys must be environment, region, images, sources")
+    if not isinstance(m, dict) or set(m) != {"schema_version", "environment", "region", "images", "digests", "sources"}:
+        raise ValueError("Unexpected manifest keys")
+    if type(m["schema_version"]) is not int or m["schema_version"] != 1:
+        raise ValueError("Unsupported schema_version")
     if m["environment"] != "production" or m["region"] != "ap-northeast-2":
         raise ValueError("Only production / ap-northeast-2 is supported")
-    if set(m["images"]) != SERVICES or set(m["sources"]) != set(GROUPS):
+    if (not all(isinstance(m[k], dict) for k in ("images", "digests", "sources")) or
+            set(m["images"]) != SERVICES or set(m["digests"]) != SERVICES or set(m["sources"]) != set(GROUPS)):
         raise ValueError("Unexpected services or source groups")
+    for service in SERVICES:
+        sha, digest = m["images"][service], m["digests"][service]
+        if not isinstance(sha, str) or not SHA.fullmatch(sha):
+            raise ValueError(f"{service}: lowercase 40 character commit SHA required")
+        if not (structure_only and digest is None) and (not isinstance(digest, str) or not DIGEST.fullmatch(digest)):
+            raise ValueError(f"{service}: verified ECR digest required; run pin-manifest.py during setup")
+    if m["images"]["web"] != m["images"]["frontend"]:
+        raise ValueError("Nginx and frontend must use the same FE commit SHA")
     for group, services in GROUPS.items():
         source = m["sources"][group]
-        if set(source) != {"sha", "run_id"}:
+        if not isinstance(source, dict) or set(source) != {"sha", "run_id"}:
             raise ValueError("Each source requires sha and run_id")
         sha = source["sha"]
-        placeholder = f"<{group.upper()}_COMMIT_SHA>"
-        if not isinstance(sha, str) or not (SHA.fullmatch(sha) or (structure_only and sha == placeholder)):
+        if not isinstance(sha, str) or not SHA.fullmatch(sha):
             raise ValueError(f"{group}: lowercase 40 character commit SHA required")
-        if type(source["run_id"]) is not int or source["run_id"] < (0 if structure_only else 1):
+        if not (structure_only and source["run_id"] is None) and (type(source["run_id"]) is not int or source["run_id"] < 1):
             raise ValueError(f"{group}: successful CI run_id required")
         if any(m["images"][s] != sha for s in services):
             raise ValueError(f"{group}: image tags must match the source SHA")
@@ -70,9 +97,9 @@ def validate_manifest(m, structure_only=False):
 
 def render_compose(root, manifest, account):
     env = {**os.environ, "AWS_ACCOUNT_ID": account,
-           **{s.upper().replace("-", "_") + "_IMAGE_TAG": sha for s, sha in manifest["images"].items()}}
+           **{IMAGE_ENV[s]: sha for s, sha in manifest["images"].items()}}
     result = subprocess.run(["docker", "compose", "-f", str(Path(root) / "compose.yaml"),
-                             "config", "--format", "json"], env=env, text=True, capture_output=True, timeout=60)
+                             "config", "--no-env-resolution", "--format", "json"], env=env, text=True, capture_output=True, timeout=60)
     if result.returncode:
         raise RuntimeError("docker compose config failed")
     config = json.loads(result.stdout)
@@ -81,17 +108,28 @@ def render_compose(root, manifest, account):
     return config
 
 
+def lookup_digest(service, sha):
+    info = aws_json("ecr", "describe-images", "--repository-name", REPOSITORIES[service],
+                    "--image-ids", "imageTag=" + sha)["imageDetails"]
+    if len(info) != 1 or not DIGEST.fullmatch(info[0]["imageDigest"]):
+        raise ValueError(f"No unique ECR digest for {service}")
+    return info[0]["imageDigest"]
+
+
 def resolve_images(manifest, policy, account):
     images = {}
-    for group, services in GROUPS.items():
-        for service in services:
-            repo = policy[group]["services"][service]
-            info = aws_json("ecr", "describe-images", "--repository-name", repo,
-                            "--image-ids", "imageTag=" + manifest["images"][service])["imageDetails"]
-            if len(info) != 1 or not DIGEST.fullmatch(info[0]["imageDigest"]):
-                raise ValueError(f"No unique ECR digest for {service}")
-            images[service] = f"{account}.dkr.ecr.ap-northeast-2.amazonaws.com/{repo}@{info[0]['imageDigest']}"
+    for service, repo in REPOSITORIES.items():
+        digest = lookup_digest(service, manifest["images"][service])
+        if digest != manifest["digests"][service]:
+            raise ValueError(f"ECR digest differs from the reviewed manifest: {service}")
+        images[service] = f"{account}.dkr.ecr.ap-northeast-2.amazonaws.com/{repo}@{digest}"
     return images
+
+
+def require_backend_only(before, after):
+    for service in SERVICES - {"backend"}:
+        if any(before[k][service] != after[k][service] for k in ("images", "digests")):
+            raise ValueError("Only Backend versions may change in this CD phase")
 
 
 def changed_services(old, new):
@@ -100,9 +138,8 @@ def changed_services(old, new):
     changed = {s for s in SERVICES if old["compose"]["services"][s] != new["compose"]["services"][s]}
     if any(old["compose"].get(k) != new["compose"].get(k) for k in ("networks", "volumes", "secrets", "configs")):
         raise ValueError("Shared network/volume/secret/config changes require a platform maintenance migration")
-    # 프런트엔드의 Node와 Nginx는 함께 게시하며 Backend와 Worker는 독립 배포한다.
-    if changed.intersection(GROUPS["frontend"]):
-        changed.update(GROUPS["frontend"])
+    if changed - {"backend"}:
+        raise ValueError("Only Backend may be replaced; other services require a separate maintenance change")
     return [s for s in ORDER if s in changed]
 
 
@@ -121,6 +158,8 @@ def github(path, token, method="GET", data=None):
 
 
 def verify_source(group, source, policy, token, latest=True):
+    if group not in GROUPS or type(source.get("run_id")) is not int or source["run_id"] < 1:
+        raise ValueError("Only Backend with a real successful CI run_id is accepted")
     p = policy[group]
     if "CONFIGURE" in json.dumps(p):
         raise ValueError(f"Configure source-policy.json for {group} before enabling CD")

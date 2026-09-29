@@ -2,6 +2,7 @@
 """EC2 배포 트랜잭션. 잠금과 진행 기록으로 CI 실행기 중단 후에도 상태를 추적한다."""
 import argparse
 import copy
+import hashlib
 from contextlib import contextmanager
 import json
 from pathlib import Path
@@ -46,6 +47,9 @@ class Engine:
         print(json.dumps(result), flush=True)
 
     def notify(self, status):
+        if not self.config.get("sns_topic_arn"):
+            print("Notification (SNS not configured): " + status, flush=True)
+            return
         try:
             aws("sns", "publish", "--topic-arn", self.config["sns_topic_arn"],
                 "--subject", "KeepGo v1 " + status,
@@ -75,7 +79,10 @@ class Engine:
             actual = values[service]
             expected = release["compose"]["services"][service]["image"]
             if actual["Config"]["Image"] != expected:
-                raise RuntimeError(f"Actual image drift: {service}")
+                # 기존 main은 SHA 태그로 실행된다. 태그 문자열 대신 실제 이미지 ID를 대조한다.
+                expected_id = run("docker", "image", "inspect", expected, "--format", "{{.Id}}").strip()
+                if actual["Image"] != expected_id:
+                    raise RuntimeError(f"Actual image drift: {service}")
             if healthy and (not actual["State"]["Running"] or
                             actual["State"].get("Health", {}).get("Status") != "healthy"):
                 raise RuntimeError(f"Container not healthy: {service}")
@@ -93,16 +100,22 @@ class Engine:
 
     def smoke(self, release):
         origin = self.config["public_origin"].rstrip("/")
-        for path in ("/", "/api/health/ready"):
+        for path in ("/", "/healthz"):
             with urllib.request.urlopen(origin + path, timeout=10) as response:
                 if response.status != 200 or not response.url.startswith(origin + "/"):
                     raise RuntimeError("External HTTPS smoke failed")
-        # 앱 담당 검증: 제한 시간 안에 DB job 생성, Worker와 AI 처리, 완료 결과를 확인한다.
-        output = self.compose(release, "exec", "-T", "backend", "/app/bin/smokecheck", timeout=120)
-        if json.loads(output).get("ok") is not True:
-            raise RuntimeError("Application smoke contract failed")
+        self.compose(release, "exec", "-T", "web", "wget", "-q", "-O", "/dev/null", "http://frontend:3000/")
+        # main이 사용하던 연결 검사. TCP 성공을 업무 API의 정상 응답으로 간주하지 않는다.
+        self.compose(release, "exec", "-T", "backend", "bash", "-c",
+                     'exec 3<>/dev/tcp/ai-api/8000 && exec 4<>/dev/tcp/$DB_HOST/$DB_PORT')
+
+    def check_runtime(self, release):
+        for path, expected in release.get("runtime_files", {}).items():
+            if hashlib.sha256(Path(path).read_bytes()).hexdigest() != expected:
+                raise RuntimeError("Runtime files changed; reconcile secrets during maintenance before deployment")
 
     def verify(self, release, check_alarms=True):
+        self.check_runtime(release)
         baseline = self.wait_healthy(release)
         self.smoke(release)
         deadline = time.monotonic() + self.config["bake_seconds"]
@@ -118,18 +131,23 @@ class Engine:
 
     def check_alarms(self):
         names = self.config["deployment_alarm_names"]
+        if not names:
+            return  # 알람 연동 전에는 명시적으로 빈 목록을 사용한다.
         alarms = aws_json("cloudwatch", "describe-alarms", "--alarm-names", *names)["MetricAlarms"]
         if {alarm["AlarmName"] for alarm in alarms} != set(names) or any(a["StateValue"] != "OK" for a in alarms):
             raise RuntimeError("A deployment alarm is missing, not OK, or has insufficient data")
 
     def replace(self, stop_release, target, services):
+        if set(services) - {"backend"}:
+            raise ValueError("Only Backend may be replaced")
+        self.check_runtime(target)
         # 교체 대상의 기존 컨테이너를 모두 중지한 뒤 새 컨테이너를 시작한다.
         self.compose(stop_release, "stop", *reversed(services), timeout=180)
         for service in services:
             self.compose(target, "up", "-d", "--no-deps", "--force-recreate", service, timeout=60)
         # Nginx 컨테이너를 재시작하지 않고 교체된 upstream 주소를 다시 읽는다.
-        if "nginx" not in services and {"web", "backend"}.intersection(services):
-            self.compose(target, "exec", "-T", "nginx", "nginx", "-s", "reload")
+        if "backend" in services:
+            self.compose(target, "exec", "-T", "web", "nginx", "-s", "reload")
 
     def prepare(self):
         manifest = load(self.root / "deployment/production-manifest.json")
@@ -138,7 +156,31 @@ class Engine:
         images = resolve_images(manifest, load(self.root / "deployment/source-policy.json"), self.config["aws_account_id"])
         for service, image in images.items():
             config["services"][service]["image"] = image
-        return {"revision": self.revision, "manifest": manifest, "compose": config}
+        paths = {item["path"] for s in config["services"].values() for item in s.get("env_file", [])}
+        paths.update(secret["file"] for secret in config.get("secrets", {}).values())
+        runtime_files = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}
+        return {"revision": self.revision, "manifest": manifest, "compose": config, "runtime_files": runtime_files}
+
+    def adopt(self):
+        if any(self.read(name) is not None for name in ("current", "previous", "inflight", "frozen", "blocked")):
+            raise RuntimeError("Adoption requires a fresh state directory; use recovery for an existing deployment")
+        target = self.prepare()
+        self.login()
+        self.compose(target, "pull", timeout=300)
+        actual = self.check_actual(target)
+        # main의 태그 기반 Compose 설정과 현재 컨테이너의 설정 해시까지 일치해야 채택한다.
+        tagged = copy.deepcopy(target)
+        for service in SERVICES:
+            tagged["compose"]["services"][service]["image"] = (
+                target["compose"]["services"][service]["image"].split("@")[0] + ":" + target["manifest"]["images"][service])
+        hashes = dict(line.split() for line in self.compose(tagged, "config", "--hash", "*").splitlines() if line.strip())
+        if set(hashes) != SERVICES or any(
+                actual[s]["Config"]["Labels"].get("com.docker.compose.config-hash") != hashes[s] for s in SERVICES):
+            raise RuntimeError("Existing Compose configuration differs; inspect before adopting")
+        self.verify(target)
+        self.write("current", target)
+        self.record("adopted")
+        return 0
 
     def login(self):
         token = aws("ecr", "get-login-password").strip()
@@ -189,7 +231,11 @@ class Engine:
         if self.read("frozen") or self.read("inflight"):
             raise RuntimeError("Deployment frozen or interrupted transaction requires recovery")
         old = self.read("current")
+        if old is None:
+            raise RuntimeError("Existing stack must be verified with adopt before automatic deployment")
         target = self.prepare()
+        if old.get("runtime_files") != target.get("runtime_files"):
+            raise RuntimeError("Runtime files changed; maintenance is required")
         blocked = self.read("blocked", {"images": [], "releases": []})
         if fingerprint(target["compose"]) in blocked["releases"] or any(
                 target["compose"]["services"][s]["image"] in blocked["images"] or
@@ -198,10 +244,7 @@ class Engine:
             raise RuntimeError("Release includes a failed image/configuration; reconcile manifest or publish a fix")
         services = changed_services(old, target)
         self.check_alarms()
-        if old:
-            self.check_actual(old, healthy=False)
-        elif self.inspect(target):
-            raise RuntimeError("Existing unmanaged containers; bootstrap/adoption required")
+        self.check_actual(old, healthy=False)
         if not services:
             self.verify(target)
             self.write("current", target)
@@ -212,14 +255,9 @@ class Engine:
         # 서비스 중단 전에 이전 이미지도 받아 복구 시 다운로드에 의존하지 않는다.
         if old:
             self.compose(old, "pull", *services, timeout=300)
-        if old is None:
-            if time.monotonic() > self.deadline:
-                raise TimeoutError("Preflight exhausted deployment time budget")
-            return self.transact(None, target, services)
-        # 각 단위의 성공 상태를 독립적으로 기록한다.
-        # 뒤따른 Worker 실패로 이미 검증된 Backend 배포를 되돌리지 않는다.
+        # 기존 Frontend / Nginx / AI는 유지하며 Backend만 교체한다.
         current = old
-        for group in ("ai", "backend", "worker", "frontend"):
+        for group in GROUPS:
             members = [s for s in ORDER if s in GROUPS[group] and s in services]
             if not members:
                 continue
@@ -230,6 +268,7 @@ class Engine:
             for service in members:
                 next_release["compose"]["services"][service] = target["compose"]["services"][service]
                 next_release["manifest"]["images"][service] = target["manifest"]["images"][service]
+                next_release["manifest"]["digests"][service] = target["manifest"]["digests"][service]
             next_release["manifest"]["sources"][group] = target["manifest"]["sources"][group]
             if self.transact(current, next_release, members):
                 return 1
@@ -270,19 +309,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/opt/keepgo/runtime.json")
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--mode", choices=["deploy", "rollback", "recover", "resume", "freeze"], default="deploy")
+    parser.add_argument("--mode", choices=["deploy", "rollback", "recover", "resume", "freeze", "adopt"], default="deploy")
     args = parser.parse_args()
     config = load(args.config)
     if args.mode != "freeze" and config.get("app_checks_confirmed") is not True:
-        raise ValueError("App health/smoke/queue contracts are unconfirmed; deployment and recovery verification are not enabled")
+        raise ValueError("App health and connection checks are unconfirmed; verify the runbook before enabling CD")
     if not re.fullmatch(r"[0-9]{12}", config["aws_account_id"]) or not re.fullmatch(r"[0-9a-f]{40}", args.revision):
         raise ValueError("Valid account and Cloud commit required")
     if not config["public_origin"].startswith("https://") or "CONFIGURE" in json.dumps(config):
         raise ValueError("Complete runtime.json before deploying")
-    for key, low, high in [("health_timeout_seconds", 30, 300), ("bake_seconds", 30, 300)]:
+    for key, low, high in [("health_timeout_seconds", 30, 600), ("bake_seconds", 30, 300)]:
         if not low <= config[key] <= high:
             raise ValueError(f"{key} must be between {low} and {high}")
-    if not 1 <= len(config.get("deployment_alarm_names", [])) <= 20:
+    if not isinstance(config.get("deployment_alarm_names"), list) or len(config["deployment_alarm_names"]) > 20:
         raise ValueError("Configure the deployment alarm names")
     engine = Engine(ROOT, config, args.revision)
     def interrupted(signum, frame):
@@ -291,6 +330,8 @@ def main():
     signal.signal(signal.SIGINT, interrupted)
     with lock(engine.state):
         try:
+            if args.mode == "adopt":
+                return engine.adopt()
             if args.mode == "freeze":
                 engine.write("frozen", {"reason": "operator"})
                 engine.record("frozen")

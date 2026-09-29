@@ -1,217 +1,161 @@
 name: keepgo-v1
 
-# 적용 보류: 앱의 기존 헬스 검사 경로와 명령을 확인한 뒤 활성화한다.
-# x-healthcheck: &healthcheck
-#   test: ["CMD", "/app/bin/healthcheck"]
-#   interval: 10s
-#   timeout: 5s
-#   retries: 6
-#   start_period: 30s
+x-app: &app
+  platform: linux/amd64
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
-
-  nginx:
-    platform: linux/amd64
-
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-nginx:${NGINX_IMAGE_TAG:?NGINX_IMAGE_TAG is required}
-
-    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
-
-    init: true
-    restart: unless-stopped
-
-    security_opt:
-      - no-new-privileges:true
-
+  web:
+    <<: *app
+    image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-nginx:${NGINX_IMAGE_TAG:?set NGINX_IMAGE_TAG}"
     ports:
       - "80:80"
       - "443:443"
-
-    networks:
-      - web
-
-    volumes:
-      - /opt/keepgo/tls:/etc/nginx/tls:ro
-
-    stop_grace_period: 10s
-
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/nginx
-        awslogs-stream: "nginx-${NGINX_IMAGE_TAG:?NGINX_IMAGE_TAG is required}"
-
-  web:
-    platform: linux/amd64
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web:${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}
-    init: true
-    restart: unless-stopped
-    security_opt: ["no-new-privileges:true"]
-    expose: ["3000"]
     networks: [web]
+    depends_on:
+      frontend:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: /opt/keepgo/tls
+        target: /etc/nginx/tls
+        read_only: true
+        bind:
+          create_host_path: false
+      # certbot webroot 갱신용 (nginx.conf의 /.well-known/acme-challenge/)
+      - type: bind
+        source: /opt/keepgo/acme
+        target: /var/www/acme
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
+  frontend:
+    <<: *app
+    image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web:${WEB_IMAGE_TAG:?set WEB_IMAGE_TAG}"
+    networks: [web]
+    expose: ["3000"]
     environment:
       NODE_ENV: production
-      HOSTNAME: 0.0.0.0
       PORT: "3000"
-    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
-    stop_grace_period: 30s
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/web
-        awslogs-stream: "web-${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}"
+      HOSTNAME: 0.0.0.0
+    mem_limit: 512m
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/', {redirect:'manual'}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *logging
 
   backend:
-    platform: linux/amd64
-
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}
-
-    init: true
-    restart: unless-stopped
-    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
-
-    security_opt:
-      - no-new-privileges:true
-
-    expose:
-      - "8080"
-
-    networks:
-      - web
-      - service
-
+    <<: *app
+    image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?set BACKEND_IMAGE_TAG}"
+    networks: [web, service]
+    expose: ["8080"]
+    env_file:
+      - path: /opt/keepgo/runtime/backend.env
+        format: raw
+        required: true
     environment:
       SPRING_PROFILES_ACTIVE: prod
-
-      AWS_REGION: ap-northeast-2
-      AWS_DEFAULT_REGION: ap-northeast-2
-
-      DB_SECRET_ID: keepgo/prod/database
-      GOOGLE_OAUTH_SECRET_ID: keepgo/prod/google-oauth
-      JWT_SECRET_ID: keepgo/prod/jwt
-
-      AI_API_BASE_URL: http://ai-api:8000
-
-      MAPS_SECRET_ID: keepgo/prod/maps
-
+      DB_VENDOR: mysql
+      # RDS (퍼블릭 액세스 없음, EC2 SG에서만 3306 허용). 엔드포인트는 비밀값이 아니다
+      DB_HOST: keepgo-db-v1.c9c2syg08nfm.ap-northeast-2.rds.amazonaws.com
+      DB_PORT: "3306"
+      DB_NAME: keepgo
+      DB_TIMEZONE: Asia/Seoul
+      DB_USERNAME: keepgo_app
+      DB_DRIVER: com.mysql.cj.jdbc.Driver
+      DB_DIALECT: MySQL
+      AI_SERVER_API_ADDRESS: http://ai-api:8000
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
+      # TLS가 nginx에서 끝나므로 X-Forwarded-* 로 원래 https 주소를 복원
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+      # nginx client_max_body_size와 맞춘다 (Spring 기본 1MB)
+      SPRING_SERVLET_MULTIPART_MAXFILESIZE: 10MB
+      SPRING_SERVLET_MULTIPART_MAXREQUESTSIZE: 10MB
+      # 이미지에 pem이 없으므로 prepare-runtime.py가 만든 파일로 덮어쓴다
+      KEEPGO_SECURITY_JWT_PUBLICKEY: file:/run/secrets/jwt_public_key.pem
+      KEEPGO_SECURITY_JWT_PRIVATEKEY: file:/run/secrets/jwt_private_key.pem
+    secrets:
+      - source: jwt_public_key
+        target: jwt_public_key.pem
+      - source: jwt_private_key
+        target: jwt_private_key.pem
+    volumes:
+      # 프로필 사진 업로드. 호스트 디렉터리는 10001 소유
+      - type: bind
+        source: /opt/keepgo/data/uploads
+        target: /app/uploads
+        bind:
+          create_host_path: false
+    depends_on:
+      ai-api:
+        condition: service_started
+    mem_limit: 1024m
     stop_grace_period: 30s
+    # Until BE provides an HTTP readiness endpoint, this only checks that port 8080 is open.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 90s
+    logging: *logging
 
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/backend
-        awslogs-stream: "backend-${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}"
-
-    # Backend 팀이 담당하는 별도 Worker 이미지
-  worker:
-    platform: linux/amd64
-
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-worker:${WORKER_IMAGE_TAG:?WORKER_IMAGE_TAG is required}
-
-    # Worker 이미지의 ENTRYPOINT를 사용한다.
-    # Backend 팀에서 worker 프로필의 실행 동작을 구현해야 한다.
-
-    init: true
-    restart: unless-stopped
-    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
-
-    security_opt:
-      - no-new-privileges:true
-
-    networks:
-      - service
-
-    environment:
-      SPRING_PROFILES_ACTIVE: worker
-
-      AWS_REGION: ap-northeast-2
-      AWS_DEFAULT_REGION: ap-northeast-2
-
-      DB_SECRET_ID: keepgo/prod/database
-      GOOGLE_OAUTH_SECRET_ID: keepgo/prod/google-oauth
-
-      AI_API_BASE_URL: http://ai-api:8000
-
-      # 초기 설정값. 애플리케이션에서 읽도록 구현해야 한다.
-      WORKER_BATCH_SIZE: "10"
-      WORKER_CONCURRENCY: "1"
-      JOB_QUEUE_BACKEND: mysql
-      JOB_LEASE_SECONDS: "120"
-      JOB_HEARTBEAT_SECONDS: "30"
-      JOB_MAX_ATTEMPTS: "3"
-
-    stop_grace_period: 60s
-
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/worker
-        awslogs-stream: "worker-${WORKER_IMAGE_TAG:?WORKER_IMAGE_TAG is required}"
   ai-api:
-    platform: linux/amd64
-
-    image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_API_IMAGE_TAG:?AI_API_IMAGE_TAG is required}
-
-    command:
-      - uvicorn
-      - api.main:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-
-    init: true
-    restart: unless-stopped
-    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
-
-    security_opt:
-      - no-new-privileges:true
-
-    expose:
-      - "8000"
-
-    networks:
-      - service
-
+    <<: *app
+    image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?set AI_IMAGE_TAG}"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    networks: [service]
+    expose: ["8000"]
+    env_file:
+      - path: /opt/keepgo/runtime/ai.env
+        format: raw
+        required: true
     environment:
-      AWS_REGION: ap-northeast-2
-      AWS_DEFAULT_REGION: ap-northeast-2
-
       LLM_PROVIDER: google
-      GOOGLE_MODEL: gemini-3.5-flash-lite
+      GOOGLE_MODEL: gemini-3.8-flash
       EMBEDDING_PROVIDER: google
-      PORT: "8000"
-
-      GEMINI_SECRET_ID: keepgo/prod/gemini
-      MAPS_SECRET_ID: keepgo/prod/maps
-
+      CHROMA_PATH: /app/chroma
+    mem_limit: 768m
     stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *logging
 
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ap-northeast-2
-        awslogs-create-group: "false"
-        awslogs-group: /keepgo/v1/ai-api
-        awslogs-stream: "ai-api-${AI_API_IMAGE_TAG:?AI_API_IMAGE_TAG is required}"
+secrets:
+  jwt_public_key:
+    file: /opt/keepgo/runtime/jwt/public_key.pem
+  jwt_private_key:
+    file: /opt/keepgo/runtime/jwt/private_key.pem
 
 networks:
-  web:
-    name: keepgo-web
-    driver: bridge
-  service:
-    name: keepgo-service
-    driver: bridge
+  web: {}
+  service: {}

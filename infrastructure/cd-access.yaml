@@ -1,7 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
-# 적용 보류: S3 리소스를 포함하므로 현재 환경에 그대로 적용하지 않는다.
-# EC2 인계 후 전달 방식과 IAM을 수정한다. docs/v1-handoff-2026-09-28.md 참고.
-Description: KeepGo v1 중앙 CD 권한과 배포 묶음 저장소 초안
+# 기존 리소스와 역할을 확인하고 change set으로 검토한다. S3 리소스는 만들지 않는다.
+Description: KeepGo Backend central CD via SSM and fixed Git revision
 Parameters:
   GitHubRepository:
     Type: String
@@ -15,42 +14,13 @@ Parameters:
     Description: AmazonSSMManagedInstanceCore가 있는 기존 EC2 역할 이름. 배포 권한을 추가한다.
   AlertsTopicArn:
     Type: String
+    Default: ''
   AppSecretArns:
     Type: CommaDelimitedList
-    Description: 앱 컨테이너가 사용하는 Secrets Manager의 정확한 ARN 목록. 접미사까지 포함한다.
+    Description: prepare-runtime.py가 읽는 Secret-v1-BE와 Secret-v1-AI의 정확한 ARN 목록.
+Conditions:
+  HasAlerts: !Not [!Equals [!Ref AlertsTopicArn, '']]
 Resources:
-  Bundles:
-    Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      VersioningConfiguration: {Status: Enabled}
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
-      LifecycleConfiguration:
-        Rules:
-          - Id: BundleRetention
-            Status: Enabled
-            ExpirationInDays: 90
-            NoncurrentVersionExpiration: {NoncurrentDays: 30}
-  BucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref Bundles
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Deny
-            Principal: '*'
-            Action: s3:*
-            Resource: [!GetAtt Bundles.Arn, !Sub '${Bundles.Arn}/*']
-            Condition: {Bool: {aws:SecureTransport: 'false'}}
   DeployRole:
     Type: AWS::IAM::Role
     Properties:
@@ -78,12 +48,10 @@ Resources:
               - Effect: Allow
                 Action: ssm:GetCommandInvocation
                 Resource: '*'
-              - Effect: Allow
-                Action: s3:PutObject
-                Resource: !Sub '${Bundles.Arn}/releases/*'
-              - Effect: Allow
-                Action: sns:Publish
-                Resource: !Ref AlertsTopicArn
+              - !If
+                - HasAlerts
+                - {Effect: Allow, Action: 'sns:Publish', Resource: !Ref AlertsTopicArn}
+                - !Ref AWS::NoValue
   VerifyRole:
     Type: AWS::IAM::Role
     Properties:
@@ -144,20 +112,12 @@ Resources:
             Action: [ecr:DescribeImages, ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
             Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/keepgo-*'
           - Effect: Allow
-            Action: s3:GetObject
-            Resource: !Sub '${Bundles.Arn}/releases/*'
-          - Effect: Allow
-            Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
-            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/keepgo/v1/*:*'
-          - Effect: Allow
-            Action: logs:DescribeLogGroups
-            Resource: '*'
-          - Effect: Allow
             Action: secretsmanager:GetSecretValue
             Resource: !Ref AppSecretArns
-          - Effect: Allow
-            Action: sns:Publish
-            Resource: !Ref AlertsTopicArn
+          - !If
+            - HasAlerts
+            - {Effect: Allow, Action: 'sns:Publish', Resource: !Ref AlertsTopicArn}
+            - !Ref AWS::NoValue
           - Effect: Allow
             Action: cloudwatch:PutMetricData
             Resource: '*'
@@ -169,4 +129,3 @@ Outputs:
   DeployRoleArn: {Value: !GetAtt DeployRole.Arn}
   VerifyRoleArn: {Value: !GetAtt VerifyRole.Arn}
   MonitorRoleArn: {Value: !GetAtt MonitorRole.Arn}
-  DeploymentBucket: {Value: !Ref Bundles}

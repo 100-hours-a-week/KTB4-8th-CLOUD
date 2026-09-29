@@ -1,3 +1,5 @@
+> **이전 검토·인계 기록:** 현재 Backend 전용 중앙 자동 CD의 기준은 [운영 절차](v1-operations.md)와 [설계](v1-design.md)다. 아래 Worker·S3·5개 서비스·미확정 검사 관련 내용은 현재 실행 지침으로 사용하지 않는다. 이후 기술 결정은 [단일 기술 결정 기록](technical-decisions.md)에 누적한다.
+
 # V1 중앙 자동 CD 전환 작업 목록
 
 > **초기 계획 보관본.** 구현 기준은 [v1 설계](v1-design.md)와 [구현 현황](v1-implementation-status.md)이다. Node/Nginx는 별도 컨테이너이고 Backend/Worker는 독립 단위다. 아래 미확정 항목·이전 경로·수동 workflow 설명은 작성 당시 기록이다.

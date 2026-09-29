@@ -11,4 +11,4 @@ if __name__ == "__main__":
     manifest = load(args.manifest)
     validate_manifest(manifest, structure_only=args.structure_only)
     render_compose(ROOT, manifest, "000000000000")
-    print("Structure valid (placeholders permitted)" if args.structure_only else "Release configuration valid")
+    print("Structure valid (unverified digest/CI fields may be null)" if args.structure_only else "Release configuration valid")

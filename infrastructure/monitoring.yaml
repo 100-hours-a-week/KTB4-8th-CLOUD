@@ -1,5 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: KeepGo v1 단일 EC2와 RDS의 로그 및 장애 알람
+# Compose는 main의 json-file 로그를 유지한다. 로그 수집 에이전트는 별도 구성이다.
+Description: KeepGo v1 host and external health metrics and alarms
 Parameters:
   InstanceId:
     Type: AWS::EC2::Instance::Id
@@ -54,45 +55,6 @@ Resources:
       Targets:
         - Id: Alerts
           Arn: !Ref Alerts
-  NginxLogs:
-    Type: AWS::Logs::LogGroup
-    Properties: {LogGroupName: /keepgo/v1/nginx, RetentionInDays: 30}
-  WebLogs:
-    Type: AWS::Logs::LogGroup
-    Properties: {LogGroupName: /keepgo/v1/web, RetentionInDays: 30}
-  BackendLogs:
-    Type: AWS::Logs::LogGroup
-    Properties: {LogGroupName: /keepgo/v1/backend, RetentionInDays: 30}
-  WorkerLogs:
-    Type: AWS::Logs::LogGroup
-    Properties: {LogGroupName: /keepgo/v1/worker, RetentionInDays: 30}
-  AiLogs:
-    Type: AWS::Logs::LogGroup
-    Properties: {LogGroupName: /keepgo/v1/ai-api, RetentionInDays: 30}
-  SsmLogs:
-    Type: AWS::Logs::LogGroup
-    Properties: {LogGroupName: /keepgo/v1/ssm, RetentionInDays: 90}
-  HttpErrors:
-    Type: AWS::Logs::MetricFilter
-    Properties:
-      LogGroupName: !Ref NginxLogs
-      FilterPattern: '{ $.status >= 500 }'
-      MetricTransformations:
-        - {MetricNamespace: KeepGo/V1, MetricName: Http5xx, MetricValue: '1', DefaultValue: 0}
-  AiTimeouts:
-    Type: AWS::Logs::MetricFilter
-    Properties:
-      LogGroupName: !Ref AiLogs
-      FilterPattern: '{ $.event = "ai_timeout" }'
-      MetricTransformations:
-        - {MetricNamespace: KeepGo/V1, MetricName: AiTimeouts, MetricValue: '1', DefaultValue: 0}
-  WorkerErrors:
-    Type: AWS::Logs::MetricFilter
-    Properties:
-      LogGroupName: !Ref WorkerLogs
-      FilterPattern: '{ $.event = "job_failed" }'
-      MetricTransformations:
-        - {MetricNamespace: KeepGo/V1, MetricName: WorkerErrors, MetricValue: '1', DefaultValue: 0}
   HostMissing:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -164,32 +126,6 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref Alerts]
-  QueueAge:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      Namespace: KeepGo/V1
-      MetricName: QueueOldestAge
-      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
-      Statistic: Maximum
-      Period: 60
-      EvaluationPeriods: 3
-      Threshold: 300
-      ComparisonOperator: GreaterThanThreshold
-      TreatMissingData: notBreaching
-      AlarmActions: [!Ref Alerts]
-  QueueFailures:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      Namespace: KeepGo/V1
-      MetricName: QueueFailedCount
-      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-      AlarmActions: [!Ref Alerts]
   Disk:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -255,44 +191,8 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: breaching
       AlarmActions: [!Ref Alerts]
-  Http5xxAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      Namespace: KeepGo/V1
-      MetricName: Http5xx
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-      AlarmActions: [!Ref Alerts]
-  AiTimeoutAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      Namespace: KeepGo/V1
-      MetricName: AiTimeouts
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 3
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-      AlarmActions: [!Ref Alerts]
-  WorkerErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      Namespace: KeepGo/V1
-      MetricName: WorkerErrors
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-      AlarmActions: [!Ref Alerts]
 Outputs:
   SnsTopicArn:
     Value: !Ref Alerts
   DeploymentAlarmNames:
-    Value: !Join [',', [!Ref Http5xxAlarm, !Ref AiTimeoutAlarm, !Ref WorkerErrorAlarm]]
+    Value: !Ref Restarts

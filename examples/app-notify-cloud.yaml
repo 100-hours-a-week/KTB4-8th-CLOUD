@@ -1,9 +1,9 @@
-# 각 앱 저장소의 .github/workflows/notify-cloud.yaml로 복사해 사용한다.
+# Backend 저장소의 .github/workflows/notify-cloud.yaml로 복사해 사용한다.
 # workflow_run으로 CI 완료를 확인한다. 게시 단계 안에서 알리면 CI는 아직 실행 중이다.
 name: Notify central CD
 on:
   workflow_run:
-    workflows: [Frontend CI] # 각 저장소에서 허용할 실제 CI 이름을 입력한다.
+    workflows: [Backend CI]
     types: [completed]
 permissions:
   contents: read
@@ -29,7 +29,7 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
-          RELEASE_GROUP: frontend # backend, worker, ai 중 해당 단위로 변경한다. Backend와 Worker는 따로 알린다.
+          RELEASE_GROUP: backend
         run: |
           jq -n --arg group "$RELEASE_GROUP" --arg sha "$SOURCE_SHA" --argjson run_id "$SOURCE_RUN_ID" \
             '{event_type:"image-published",client_payload:{group:$group,sha:$sha,run_id:$run_id}}' > request.json

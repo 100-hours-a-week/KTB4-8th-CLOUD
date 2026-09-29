@@ -5,19 +5,31 @@ import copy
 import json
 import os
 import sys
-from release import ROOT, GROUPS, github, load, resolve_images, validate_manifest, verify_source
+from release import (ROOT, GROUPS, github, load, loads, lookup_digest, require_backend_only,
+                     resolve_images, validate_manifest, verify_source)
 
 MANIFEST = "deployment/production-manifest.json"
 
 
 def get_file(repo, ref, token):
     value = github(f"repos/{repo}/contents/{MANIFEST}?ref={ref}", token)
-    return json.loads(base64.b64decode(value["content"])), value["sha"]
+    return loads(base64.b64decode(value["content"])), value["sha"]
 
 
 def diff_groups(before, after):
     return [g for g in GROUPS if before["sources"][g] != after["sources"][g] or
-            any(before["images"][s] != after["images"][s] for s in GROUPS[g])]
+            any(before[k][s] != after[k][s] for s in GROUPS[g] for k in ("images", "digests"))]
+
+
+def validate_transition(before, after, is_bot):
+    validate_manifest(before, structure_only=True)
+    validate_manifest(after)
+    unpinned = any(value is None for value in before["digests"].values()) or before["sources"]["backend"]["run_id"] is None
+    if unpinned:
+        if is_bot or before["images"] != after["images"]:
+            raise ValueError("Initial pin requires a reviewed human PR preserving all existing image SHAs")
+    else:
+        require_backend_only(before, after)
 
 
 def require_review(repo, pr, token):
@@ -62,7 +74,7 @@ def gate(event, repo, token, source_token, policy):
             raise ValueError("Manifest PR must originate in the Cloud repository")
         before, _ = get_file(repo, pr["base"]["sha"], token)
         after, _ = get_file(repo, head, token)
-        validate_manifest(after)
+        validate_transition(before, after, is_bot)
         groups = diff_groups(before, after)
         if is_bot and len(groups) != 1:
             raise ValueError("Automatic candidate must change exactly one deployment unit")
@@ -95,12 +107,15 @@ def create(event, repo, token, source_token, policy):
     group = payload["group"]
     base = github(f"repos/{repo}/git/ref/heads/main", token)["object"]["sha"]
     manifest, blob = get_file(repo, base, token)
+    validate_manifest(manifest)  # pin + adopt를 끝낸 뒤 후보 수신을 활성화한다.
     candidate = copy.deepcopy(manifest)
     candidate["sources"][group] = {"sha": payload["sha"], "run_id": payload["run_id"]}
     for service in GROUPS[group]:
         candidate["images"][service] = payload["sha"]
-    validate_manifest(candidate)  # 최초 연결 전에 유효한 전체 배포 목록이 필요하다.
     verify_source(group, candidate["sources"][group], policy, source_token)
+    candidate["digests"]["backend"] = lookup_digest("backend", payload["sha"])
+    validate_manifest(candidate)
+    require_backend_only(manifest, candidate)
     resolve_images(candidate, policy, os.environ["AWS_ACCOUNT_ID"])
     if candidate == manifest:
         print("Candidate already desired")
@@ -126,7 +141,7 @@ def create(event, repo, token, source_token, policy):
 
 def refresh(repo, token):
     for pr in github(f"repos/{repo}/pulls?state=open&base=main&per_page=100", token):
-        if pr["user"]["login"] != os.environ["CD_BOT_LOGIN"] or not pr["head"]["ref"].startswith("release/"):
+        if pr["user"]["login"] != os.environ["CD_BOT_LOGIN"] or not pr["head"]["ref"].startswith("release/backend-"):
             continue
         detail = github(f"repos/{repo}/pulls/{pr['number']}", token)
         if detail["mergeable_state"] == "behind":
@@ -138,6 +153,8 @@ def poll(repo, token, source_token, policy):
     # GitHub 동시 실행 제어로 대기 중 알림이 생략될 수 있어 성공한 CI를 주기적으로 확인한다.
     # 후보는 원본 저장소 main의 최신 커밋만 선택한다.
     for group, p in policy.items():
+        if group not in GROUPS:
+            raise ValueError("Only Backend intake is enabled")
         if "CONFIGURE" in json.dumps(p):
             raise ValueError("Complete source policy before enabling automatic intake")
         sha = github(f"repos/{p['repository']}/commits/main", source_token)["sha"]

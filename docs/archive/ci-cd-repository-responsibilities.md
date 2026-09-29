@@ -1,8 +1,7 @@
-> **이전 검토·인계 기록:** 현재 Backend 전용 중앙 자동 CD의 기준은 [운영 절차](v1-operations.md)와 [설계](v1-design.md)다. 아래 Worker·S3·5개 서비스·미확정 검사 관련 내용은 현재 실행 지침으로 사용하지 않는다. 이후 기술 결정은 [단일 기술 결정 기록](technical-decisions.md)에 누적한다.
-
 # Repository별 CI/CD 구성 및 책임
 
-> **보관된 대안 문서.** 현재 v1은 중앙 자동 CD와 변경 서비스 중단 교체를 채택했다. Backend/Worker는 독립 배포한다. 아래 App 직접 SSM 배포 안은 채택하지 않았다. 최신 기준: [v1 설계](v1-design.md), [운영 절차](v1-operations.md).
+> **보관 기록 — 현재 실행 지침 아님.** 아래 내용은 당시의 제안·관찰·미완료 작업을 보존한 것이다. 현재 전 서비스 자동 CD의 [전체 설명](../v1-design.md)과 [운영 절차](../v1-operations.md)를 우선한다. 대체 이유는 [TD-008](../technical-decisions.md#td-008--최소-구성으로-재작성-전-서비스-자동-cd)에 있다.
+
 
 ## 1. 문서 목적
 

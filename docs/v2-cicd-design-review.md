@@ -604,15 +604,15 @@ Migration이 실패하면 Service 갱신으로 넘어가지 않고 배포를 중
 
 ## 11. 기존 문서·현재 구현과의 관계
 
-검토 시점의 저장소에는 서로 다른 단계의 내용이 함께 있다.
+이 문서는 [V2 전체 설계](V2%20설계.md)의 배포 정책을 보완하는 검토 기록이다. ECS 설계의 실제 구현·AWS 배포 검증 완료 보고서는 아니다.
+
+2026-09-29의 V1 구현은 [전체 설명](v1-design.md)이 기준이다.
 
 | 자료 | 현재 의미 | V2와의 관계 |
 | --- | --- | --- |
-| `docs/ci-cd-repository-responsibilities.md` | App이 SSM으로 EC2의 공용 Script를 호출하는 서비스별 CD 설계 | EC2·Compose 기반 대안으로 읽어야 하며, V2 중앙 실행 책임표와 혼용하지 않음 |
-| `.github/workflows/deploy-production.yaml` | 수동 실행으로 EC2에 SSM 배포 요청 | V2 자동 ECS Workflow가 아직 구현된 상태가 아님 |
-| `scripts/deploy.sh` | 전체 Compose 반영, Health/Smoke는 미구현이라고 명시 | 서비스별 ECS 배포·자동 복구를 제공하지 않음 |
-| `deployment/production-manifest.yaml` | Commit SHA Tag 자리표시자 기반 형식 | V2의 Digest·출처·검증 정보 계약으로 확장 필요 |
+| [V1 독립 CD 대안](archive/ci-cd-repository-responsibilities.md) | 보관된 App 직접 SSM 호출 제안 | 현재 V1·V2의 운영 지침과 구분 |
+| [deploy-production.yaml](../.github/workflows/deploy-production.yaml) | 자동·수동 SSM 배포, 지정 Cloud 커밋 checkout | ECS 배포 workflow는 아직 구현하지 않음 |
+| [deploy.sh](../scripts/deploy.sh) | 변경 서비스 교체·health·연결·관찰·이미지 복구 | ECS의 가용성·배포 alarm·상태 정합화 설계로 확장 필요 |
+| [production-manifest.json](../deployment/production-manifest.json) | 실제 형식은 서비스별 목표 SHA만 기록한 JSON | V2의 digest·출처 계약을 채택한다면 스키마 확장 필요 |
 
-기존 책임 문서의 `Cloud main 병합으로 앱을 배포하지 않는다`, `운영 버전은 EC2 Runtime 파일에 둔다`는 규칙은 해당 EC2 독립 CD 안의 규칙이다. V2 중앙 자동 CD에서는 Cloud main Manifest가 목표 상태이고 Cloud Workflow가 운영 배포를 실행한다.
-
-이 문서는 설계 제안과 검토 결과를 기록한다. 실제 Workflow·IAM·ECS 설정을 구현하거나 AWS에서 배포·Rollback 동작을 검증한 완료 보고서가 아니다. V2 채택 시 기존 책임 문서에도 적용 버전과 상태를 명시해 운영 지침이 충돌하지 않도록 정리해야 한다.
+V1 자동화와 V2 제안은 모두 Cloud가 목표 버전을 관리하지만 런타임·검증·복구 범위가 다르다. V2 채택 시 기술 결정과 운영 절차를 함께 갱신하고 실제 검증 결과를 기록한다.

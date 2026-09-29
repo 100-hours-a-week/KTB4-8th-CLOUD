@@ -1,9 +1,8 @@
-> **이전 검토·인계 기록:** 현재 Backend 전용 중앙 자동 CD의 기준은 [운영 절차](v1-operations.md)와 [설계](v1-design.md)다. 아래 Worker·S3·5개 서비스·미확정 검사 관련 내용은 현재 실행 지침으로 사용하지 않는다. 이후 기술 결정은 [단일 기술 결정 기록](technical-decisions.md)에 누적한다.
-
 # V1 중앙 자동 CD 전환 작업 목록
 
-> **초기 계획 보관본.** 구현 기준은 [v1 설계](v1-design.md)와 [구현 현황](v1-implementation-status.md)이다. Node/Nginx는 별도 컨테이너이고 Backend/Worker는 독립 단위다. 아래 미확정 항목·이전 경로·수동 workflow 설명은 작성 당시 기록이다.
->
+> **보관 기록 — 현재 실행 지침 아님.** 아래 내용은 당시의 제안·관찰·미완료 작업을 보존한 것이다. 현재 전 서비스 자동 CD의 [전체 설명](../v1-design.md)과 [운영 절차](../v1-operations.md)를 우선한다. 대체 이유는 [TD-008](../technical-decisions.md#td-008--최소-구성으로-재작성-전-서비스-자동-cd)에 있다.
+
+
 > 범위: 현재 `EC2 + Docker Compose + ECR + SSM`을 유지하면서, App 이미지 게시 후 **Cloud Repo가 운영 배포를 자동 실행**하게 한다. ECS, Task Definition, Capacity Provider, S3/CloudFront 정적 Frontend는 V2 범위다.
 
 ## 1. 목표 흐름과 책임
@@ -25,7 +24,7 @@ Cloud Repo
 | 각 App Repo | 소스 검증, 이미지 Build/ECR Push, Cloud Manifest PR 생성 | 운영 EC2에 직접 SSM 배포 요청하지 않음 |
 | Cloud Repo | `compose.yaml`, 목표 이미지 버전 Manifest, PR 검증·자동 머지, SSM/Compose 배포·복구 | App 소스나 이미지를 복사해 보관하지 않음 |
 
-이 안은 **V1 중앙 자동 CD 제안**이다. [기존 책임 문서](ci-cd-repository-responsibilities.md)는 App Repo가 SSM 배포를 시작하는 **V1 독립 CD 대안**이고, [V2 CI/CD 검토 문서](v2-cicd-design-review.md)는 **ECS 기반 미래 설계**다. 세 문서의 실행 주체를 섞지 않는다.
+이 안은 **V1 중앙 자동 CD 제안**이다. [기존 책임 문서](ci-cd-repository-responsibilities.md)는 App Repo가 SSM 배포를 시작하는 **V1 독립 CD 대안**이고, [V2 CI/CD 검토 문서](../v2-cicd-design-review.md)는 **ECS 기반 미래 설계**다. 세 문서의 실행 주체를 섞지 않는다.
 
 ## 2. 먼저 확정할 결정
 

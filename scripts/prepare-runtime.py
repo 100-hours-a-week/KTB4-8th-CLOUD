@@ -2,7 +2,9 @@
 """Secrets Manager 값을 compose가 읽는 런타임 파일로 만든다.
 
 - EC2 인스턴스 Role로 조회하며, 값은 절대 출력하지 않는다.
-- deploy.sh가 이미지 pull 전에 root로 실행한다.
+- 최초 준비·명시적 Secret 갱신 때 운영자가 root로 직접 실행한다.
+  자동 배포(deploy.sh)는 실행하지 않는다. 실행 후 Deploy production을 수동으로 돌리면
+  env 파일이 바뀐 서비스만 교체·검증된다(docs/v1-operations.md 8절).
 """
 import json
 import os

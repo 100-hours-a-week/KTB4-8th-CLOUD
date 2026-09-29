@@ -1,15 +1,8 @@
 {
-  "schema_version": 1,
-  "environment": "production",
-  "region": "ap-northeast-2",
   "images": {
     "web": "d3ca2acd3def66ec6997fec6e4a6c78b21054250",
     "frontend": "d3ca2acd3def66ec6997fec6e4a6c78b21054250",
     "backend": "15b54fed37df436e33bda8f6402f7b85b82241b9",
     "ai-api": "f7476b55777510e71ca9e2f2eaeaef6191e2ce6f"
-  },
-  "digests": {"web": null, "frontend": null, "backend": null, "ai-api": null},
-  "sources": {
-    "backend": {"sha": "15b54fed37df436e33bda8f6402f7b85b82241b9", "run_id": null}
   }
 }

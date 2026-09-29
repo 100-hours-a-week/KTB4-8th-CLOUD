@@ -1,8 +1,0 @@
-environment: production
-region: ap-northeast-2
-
-images:
-  web: "<FRONTEND_COMMIT_SHA>"
-  backend: "<BACKEND_COMMIT_SHA>"
-  worker: "<WORKER_COMMIT_SHA>"
-  ai: "<AI_COMMIT_SHA>"

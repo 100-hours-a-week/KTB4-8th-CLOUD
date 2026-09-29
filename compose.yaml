@@ -1,12 +1,22 @@
 name: keepgo-v1
 
+# 적용 보류: 앱의 기존 헬스 검사 경로와 명령을 확인한 뒤 활성화한다.
+# x-healthcheck: &healthcheck
+#   test: ["CMD", "/app/bin/healthcheck"]
+#   interval: 10s
+#   timeout: 5s
+#   retries: 6
+#   start_period: 30s
+
 services:
 
-  web:
+  nginx:
     platform: linux/amd64
 
     image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web:${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}
+      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-nginx:${NGINX_IMAGE_TAG:?NGINX_IMAGE_TAG is required}
+
+    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
 
     init: true
     restart: unless-stopped
@@ -31,6 +41,29 @@ services:
       options:
         awslogs-region: ap-northeast-2
         awslogs-create-group: "false"
+        awslogs-group: /keepgo/v1/nginx
+        awslogs-stream: "nginx-${NGINX_IMAGE_TAG:?NGINX_IMAGE_TAG is required}"
+
+  web:
+    platform: linux/amd64
+    image: >-
+      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web:${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}
+    init: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    expose: ["3000"]
+    networks: [web]
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
+    stop_grace_period: 30s
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ap-northeast-2
+        awslogs-create-group: "false"
         awslogs-group: /keepgo/v1/web
         awslogs-stream: "web-${WEB_IMAGE_TAG:?WEB_IMAGE_TAG is required}"
 
@@ -42,6 +75,7 @@ services:
 
     init: true
     restart: unless-stopped
+    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
 
     security_opt:
       - no-new-privileges:true
@@ -89,6 +123,7 @@ services:
 
     init: true
     restart: unless-stopped
+    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
 
     security_opt:
       - no-new-privileges:true
@@ -110,6 +145,10 @@ services:
       # 초기 설정값. 애플리케이션에서 읽도록 구현해야 한다.
       WORKER_BATCH_SIZE: "10"
       WORKER_CONCURRENCY: "1"
+      JOB_QUEUE_BACKEND: mysql
+      JOB_LEASE_SECONDS: "120"
+      JOB_HEARTBEAT_SECONDS: "30"
+      JOB_MAX_ATTEMPTS: "3"
 
     stop_grace_period: 60s
 
@@ -124,7 +163,7 @@ services:
     platform: linux/amd64
 
     image: >-
-      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_IMAGE_TAG:?AI_IMAGE_TAG is required}
+      ${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai:${AI_API_IMAGE_TAG:?AI_API_IMAGE_TAG is required}
 
     command:
       - uvicorn
@@ -136,6 +175,7 @@ services:
 
     init: true
     restart: unless-stopped
+    # healthcheck: *healthcheck  # 앱 검사 계약 확인 대기
 
     security_opt:
       - no-new-privileges:true
@@ -166,7 +206,7 @@ services:
         awslogs-region: ap-northeast-2
         awslogs-create-group: "false"
         awslogs-group: /keepgo/v1/ai-api
-        awslogs-stream: "ai-api-${AI_IMAGE_TAG:?AI_IMAGE_TAG is required}"
+        awslogs-stream: "ai-api-${AI_API_IMAGE_TAG:?AI_API_IMAGE_TAG is required}"
 
 networks:
   web:

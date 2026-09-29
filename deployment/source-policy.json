@@ -1,0 +1,26 @@
+{
+  "frontend": {
+    "repository": "100-hours-a-week/KTB4-8th-FE",
+    "workflow": "CONFIGURE_CI_WORKFLOW_PATH",
+    "required_jobs": ["Check frontend source", "Type check, test, and build", "Build and push frontend images"],
+    "services": {"web": "keepgo-web", "nginx": "keepgo-nginx"}
+  },
+  "backend": {
+    "repository": "100-hours-a-week/KTB4-8th-BE",
+    "workflow": "CONFIGURE_CI_WORKFLOW_PATH",
+    "required_jobs": ["CONFIGURE_BACKEND_TEST_JOB", "CONFIGURE_BACKEND_PUBLISH_JOB"],
+    "services": {"backend": "keepgo-backend"}
+  },
+  "worker": {
+    "repository": "CONFIGURE_OWNER/CONFIGURE_WORKER",
+    "workflow": "CONFIGURE_CI_WORKFLOW_PATH",
+    "required_jobs": ["CONFIGURE_WORKER_TEST_JOB", "CONFIGURE_WORKER_PUBLISH_JOB"],
+    "services": {"worker": "keepgo-worker"}
+  },
+  "ai": {
+    "repository": "100-hours-a-week/KTB4-8th-AI",
+    "workflow": "CONFIGURE_CI_WORKFLOW_PATH",
+    "required_jobs": ["CONFIGURE_AI_TEST_JOB", "CONFIGURE_AI_PUBLISH_JOB"],
+    "services": {"ai-api": "keepgo-ai"}
+  }
+}

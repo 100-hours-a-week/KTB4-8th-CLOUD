@@ -1,0 +1,11 @@
+[Unit]
+Description=KeepGo v1 호스트·컨테이너·MySQL 작업 상태 검사
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/keepgo/ops/scripts/monitor.py
+TimeoutStartSec=90
+NoNewPrivileges=true

@@ -1,0 +1,48 @@
+name: Receive image candidate
+on:
+  repository_dispatch:
+    types: [image-published]
+  schedule:
+    - cron: '*/10 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: candidate-intake
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: vars.CD_SETUP_READY == 'true' && vars.CD_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.CD_APP_ID }}
+          private-key: ${{ secrets.CD_APP_PRIVATE_KEY }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_VERIFY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: Validate and open candidate PR
+        if: github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SOURCE_READ_TOKEN: ${{ secrets.SOURCE_READ_TOKEN }}
+          CD_BOT_LOGIN: ${{ vars.CD_BOT_LOGIN }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: python3 scripts/candidate.py create
+      - name: Update outdated release PR branches
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          CD_BOT_LOGIN: ${{ vars.CD_BOT_LOGIN }}
+          SOURCE_READ_TOKEN: ${{ secrets.SOURCE_READ_TOKEN }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: python3 scripts/candidate.py refresh

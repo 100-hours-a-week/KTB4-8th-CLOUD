@@ -1,0 +1,40 @@
+name: Release policy
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: release-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  gate:
+    if: vars.CD_SETUP_READY == 'true' && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # 인증 정보와 운영 권한을 가진 상태에서 후보 PR 코드를 가져와 실행하지 않는다.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.CD_APP_ID }}
+          private-key: ${{ secrets.CD_APP_PRIVATE_KEY }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_VERIFY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: Validate exact PR head and enable auto-merge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SOURCE_READ_TOKEN: ${{ secrets.SOURCE_READ_TOKEN }}
+          CD_BOT_LOGIN: ${{ vars.CD_BOT_LOGIN }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: python3 scripts/candidate.py gate

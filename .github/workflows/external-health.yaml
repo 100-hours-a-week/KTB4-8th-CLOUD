@@ -1,0 +1,28 @@
+name: External availability probe
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: vars.MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_MONITOR_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - env:
+          PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+          PRODUCTION_EC2_INSTANCE_ID: ${{ vars.PRODUCTION_EC2_INSTANCE_ID }}
+        run: python3 scripts/external-probe.py

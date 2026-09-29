@@ -1,0 +1,17 @@
+{
+  "environment": "production",
+  "region": "ap-northeast-2",
+  "images": {
+    "web": "<FRONTEND_COMMIT_SHA>",
+    "nginx": "<FRONTEND_COMMIT_SHA>",
+    "backend": "<BACKEND_COMMIT_SHA>",
+    "worker": "<WORKER_COMMIT_SHA>",
+    "ai-api": "<AI_COMMIT_SHA>"
+  },
+  "sources": {
+    "frontend": {"sha": "<FRONTEND_COMMIT_SHA>", "run_id": 0},
+    "backend": {"sha": "<BACKEND_COMMIT_SHA>", "run_id": 0},
+    "worker": {"sha": "<WORKER_COMMIT_SHA>", "run_id": 0},
+    "ai": {"sha": "<AI_COMMIT_SHA>", "run_id": 0}
+  }
+}

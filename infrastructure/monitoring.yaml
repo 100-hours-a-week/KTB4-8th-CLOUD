@@ -1,0 +1,298 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: KeepGo v1 단일 EC2와 RDS의 로그 및 장애 알람
+Parameters:
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+  DBInstanceIdentifier:
+    Type: String
+  AlarmEmail:
+    Type: String
+    Description: 스택 생성 후 담당자가 SNS 구독 확인 메일을 승인한다.
+  RdsFreeStorageBytes:
+    Type: Number
+    Default: 5368709120
+Resources:
+  Alerts:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: keepgo-v1-alerts
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmEmail
+  AlertPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref Alerts]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudwatch.amazonaws.com}
+            Action: sns:Publish
+            Resource: !Ref Alerts
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:*'
+          - Effect: Allow
+            Principal: {Service: events.amazonaws.com}
+            Action: sns:Publish
+            Resource: !Ref Alerts
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt SsmFailures.Arn
+  SsmFailures:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source: [aws.ssm]
+        detail-type: [EC2 Command Invocation Status-change Notification]
+        detail:
+          instance-id: [!Ref InstanceId]
+          status: [Failed, TimedOut, Cancelled]
+      Targets:
+        - Id: Alerts
+          Arn: !Ref Alerts
+  NginxLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: /keepgo/v1/nginx, RetentionInDays: 30}
+  WebLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: /keepgo/v1/web, RetentionInDays: 30}
+  BackendLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: /keepgo/v1/backend, RetentionInDays: 30}
+  WorkerLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: /keepgo/v1/worker, RetentionInDays: 30}
+  AiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: /keepgo/v1/ai-api, RetentionInDays: 30}
+  SsmLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: /keepgo/v1/ssm, RetentionInDays: 90}
+  HttpErrors:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref NginxLogs
+      FilterPattern: '{ $.status >= 500 }'
+      MetricTransformations:
+        - {MetricNamespace: KeepGo/V1, MetricName: Http5xx, MetricValue: '1', DefaultValue: 0}
+  AiTimeouts:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AiLogs
+      FilterPattern: '{ $.event = "ai_timeout" }'
+      MetricTransformations:
+        - {MetricNamespace: KeepGo/V1, MetricName: AiTimeouts, MetricValue: '1', DefaultValue: 0}
+  WorkerErrors:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref WorkerLogs
+      FilterPattern: '{ $.event = "job_failed" }'
+      MetricTransformations:
+        - {MetricNamespace: KeepGo/V1, MetricName: WorkerErrors, MetricValue: '1', DefaultValue: 0}
+  HostMissing:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: 호스트 검사가 멈췄거나 EC2가 CloudWatch에 접근하지 못한다.
+      Namespace: KeepGo/V1
+      MetricName: HostHeartbeat
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+  ServiceHealth:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: ServiceHealthy
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+  ExternalHealth:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: 외부 HTTPS 실패 또는 주기적 검사 누락. GitHub 예약 실행 상태도 확인한다.
+      Namespace: KeepGo/V1
+      MetricName: ExternalHealthy
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+  StuckDeploy:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: DeploymentStuck
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+  Restarts:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: ContainerRestarts
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+  QueueAge:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: QueueOldestAge
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+  QueueFailures:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: QueueFailedCount
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+  Disk:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: DiskUsedPercent
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+  Memory:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: MemoryUsedPercent
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+  Ec2Status:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+  RdsStorage:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions: [{Name: DBInstanceIdentifier, Value: !Ref DBInstanceIdentifier}]
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: !Ref RdsFreeStorageBytes
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+  RdsCpu:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions: [{Name: DBInstanceIdentifier, Value: !Ref DBInstanceIdentifier}]
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+  Http5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: Http5xx
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+  AiTimeoutAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: AiTimeouts
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+  WorkerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: KeepGo/V1
+      MetricName: WorkerErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+Outputs:
+  SnsTopicArn:
+    Value: !Ref Alerts
+  DeploymentAlarmNames:
+    Value: !Join [',', [!Ref Http5xxAlarm, !Ref AiTimeoutAlarm, !Ref WorkerErrorAlarm]]

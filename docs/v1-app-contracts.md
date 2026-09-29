@@ -1,24 +1,32 @@
-# Backend 중앙 CD의 App 계약
+# 자동 CD와 앱 저장소의 약속
 
-## 현재 사용하는 계약
+앱 CI의 이미지 게시를 Cloud가 조회해 배포한다. 조회 대상의 실제 저장소·브랜치·workflow·job·서비스 매핑은 [sources.json](../deployment/sources.json), 이미지 주소·포트·healthcheck는 [compose.yaml](../compose.yaml)이 기준이다. 이 문서에는 앱 팀과 Cloud가 유지해야 할 계약을 기록한다.
 
-- Backend repo: `100-hours-a-week/KTB4-8th-BE`.
-- CI: `.github/workflows/ci.yml`, job 표시 이름 `Main - Build and Push Image`.
-- `main` push의 성공한 CI만 후보로 수용한다. 같은 workflow의 dev 빌드는 거부한다.
-- Backend ECR: `keepgo-backend`, 소스 40자리 SHA 태그, Manifest에 ECR digest 고정.
-- Compose 이름: web=Nginx, frontend=Next.js, backend=Spring, ai-api=FastAPI. Worker 없음.
-- Runtime: main의 Secret-v1-BE/Secret-v1-AI와 env/JWT 파일, TLS·업로드 mount를 유지한다.
+## 책임
 
-## 검사와 한계
+| 담당 | 책임 |
+| --- | --- |
+| BE·FE·AI 팀 | 코드 품질과 CI, 이미지 빌드·게시, health 응답, 기능 검증, 앱 문제 수정 |
+| BE 팀 | 직전 버전과 호환되는 DB 변경, 인증·JWT 동작 |
+| FE 팀 | frontend·Nginx 이미지의 같은 커밋 게시, proxy 경로와 앱 호환성 |
+| Cloud | 조회 대상 설정, Manifest·Compose, 배포·복구 스크립트, AWS 연결, 장애 조사와 알림 |
+| 공동 | Secret 변경, 서비스 간 버전 호환성, 기능 장애의 복구 판단 |
 
-main의 healthcheck를 사용한다. Backend는 8080 TCP, AI는 `/health`, Nginx는 `/healthz`, Frontend는 Node fetch다. 배포 엔진은 Nginx→Frontend HTTP와 Backend→AI/RDS TCP, 외부 HTTPS `/`·`/healthz`, 재시작 관찰을 추가한다.
+앱 CI에 Cloud PR 생성·SSM 배포 단계를 추가할 필요는 없다. Cloud 자동화의 동작은 [전체 설명](v1-design.md)에 있다.
 
-`/app/bin/healthcheck`, `/app/bin/smokecheck`, `/app/bin/queue-metrics`, `/api/health/ready`를 기존 앱에 요구하거나 호출하지 않는다. Worker·DB job 계약은 이번 범위에서 제외한다.
+## 유지해야 할 계약
 
-최신화된 로컬 BE CI는 `bootjar`로 빌드하며 테스트를 생략한다. 따라서 성공 job 검증은 빌드·게시 출처를 확인할 뿐 테스트 통과를 의미하지 않는다. TCP 연결도 DB 쿼리 성공이나 업무 API 정상 응답을 보장하지 않는다. Backend readiness·업무 smoke를 실제 이미지와 Nginx 경로에 맞춰 확정하면 그 계약을 검사에 추가한다.
+1. **전체 커밋 SHA(40자리)를 태그로 게시하고 같은 태그를 덮어쓰지 않는다.** Cloud는 digest를 고정하지 않으므로 앱 CI와 ECR 태그 정책으로 이 계약을 유지한다.
+2. **지정한 브랜치의 push CI에서 지정 게시 job이 성공해야 한다.** workflow 파일명·job 표시 이름·기준 브랜치 변경 시 sources.json도 수정한다. “게시 job 성공”은 필요한 이미지 게시가 실제 완료됐음을 뜻하도록 앱 CI를 구성한다.
+3. **FE는 frontend와 Nginx 이미지를 같은 커밋으로 함께 게시한다.** 정상 배포 목표는 같은 SHA다. 실패 중 실제 버전이 달라질 수 있으므로 두 서비스의 전환 중 호환성을 확인한다.
+4. **Compose의 healthcheck가 사용할 경로·도구를 이미지에서 유지한다.** 인증 없이 기동 상태를 확인할 수 있어야 한다. Backend Actuator에 포함되는 의존성 검사의 범위는 BE 팀이 관리한다.
+5. **DB schema는 직전 이미지와 호환되게 변경한다.** Cloud의 이미지 복구로 DB schema나 데이터는 복구되지 않는다.
+6. **기능 버그는 수정 또는 revert 커밋으로 새 SHA를 게시한다.** CI·게시 성공 후 다음 정상 조회에서 후보가 된다. 긴급 복구는 [배포 검증 및 롤백 프로세스](./v1-deployment-verification-and-rollback.md) 6절을 따른다.
 
-## App 변경 시 지킬 것
+## 브랜치 전환과 검사의 한계
 
-이미지 롤백 기간에는 이전 Backend와 호환되는 DB schema를 유지한다. 비호환 schema 변경과 Secret 변경은 자동 이미지 교체에 섞지 않는다. SHA 태그는 덮어쓰지 않으며 현재·직전 정상 이미지는 복구 기간 동안 보존한다. Cloud 알림에는 group=backend, sha, run_id만 보내고 비밀값은 포함하지 않는다.
+FE의 feat/v1 사용은 임시 결정이다. main으로 전환할 때는 main의 소스·CI 게시 결과·두 이미지가 준비됐는지 확인하고 Cloud 조회 설정을 변경한다. 이유와 당시 확인 기록은 [TD-011](technical-decisions.md#td-011--fe-배포-기준-브랜치)에 있다.
 
-선택·대안·사유는 [기술 결정 기록](technical-decisions.md)에 누적한다.
+2026-09-29 기존 확인 기록상 BE CI의 bootJar 경로는 테스트를 생략했다. 앱 CI는 별도 저장소에서 바뀔 수 있으므로 현재 검사 범위는 해당 CI에서 다시 확인한다. Cloud가 확인하는 “CI·게시 job 성공”만으로 단위 테스트·업무 E2E 통과를 주장하지 않는다.
+
+Cloud 검사의 정확한 범위는 [배포 검증 및 롤백 프로세스](./v1-deployment-verification-and-rollback.md) 3절에 둔다. 앱 팀은 그 검사로 잡히지 않는 기능·추론·서비스 간 계약을 별도로 확인한다.

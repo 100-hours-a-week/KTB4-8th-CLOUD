@@ -1,34 +1,21 @@
-# KeepGo Cloud — Backend 중앙 자동 CD
+# KeepGo Cloud — 자동 CD
 
-단일 EC2의 `web`(Nginx), `frontend`(Next.js), `backend`, `ai-api` 구성을 유지하며 **Backend만 중앙에서 자동 배포**한다. Worker는 이번 단계에서 제외한다.
+단일 EC2의 Docker Compose로 Nginx, Frontend, Backend, AI API를 운영한다. 앱 CI가 이미지를 게시하면 Cloud가 새 버전을 조회해 Manifest PR을 병합하고 SSM으로 배포한다.
 
-```text
-Backend main CI 성공 / SHA 이미지 게시
-  → Cloud dispatch 또는 10분 polling
-  → JSON Manifest 후보 PR (Backend SHA + digest + CI run ID)
-  → 출처·변경 범위·ECR 검증 → 자동 병합
-  → Cloud main → SSM → 고정 커밋의 별도 release 디렉터리
-  → 호스트 잠금 → Backend만 교체 → health·연결·HTTPS·재시작 관찰
-  → 성공 기록 / Backend 복구·실패 이미지 차단
-```
+**처음 읽을 문서: [자동 CD 전체 설명 — 어떻게 동작하고 왜 이렇게 구성했는가](docs/v1-design.md)**
 
-버전의 기준은 `deployment/production-manifest.json` 하나다. Compose와 GitHub Workflow는 YAML을 사용한다. main의 실제 이미지 SHA와 Secret·JWT·RDS·업로드·TLS·메모리·로그 설정을 보존했다.
+| 알고 싶은 내용 | 문서 |
+| --- | --- |
+| 전체 흐름, 구성 이유, 파일 역할, 실패 시 동작과 한계 | [전체 설명](docs/v1-design.md) |
+| 장애 알림 구축, 감지 기준, Discord 연결·수신 시험 | [장애 알림 시스템](docs/v1-alerting.md) |
+| 배포 성공 판정, 자동·수동 롤백, 차단·재배포·인수 시험 | [배포 검증 및 롤백](docs/v1-deployment-verification-and-rollback.md) |
+| 최초 연결, dry_run, 호스트 조회, Secret 변경 | [운영 절차](docs/v1-operations.md) |
+| 대안 비교, 결정 변경 이력, 재검토 조건 | [기술 결정](docs/technical-decisions.md) |
+| 앱 팀이 지켜야 할 CI·이미지·health 계약 | [앱 저장소 계약](docs/v1-app-contracts.md) |
+| 검증한 범위와 아직 확인하지 않은 항목 | [구현 및 검증 현황](docs/v1-implementation-status.md) |
 
-**현재는 병합 및 로컬 검증 단계다.** ECR digest와 Backend CI run ID는 외부에서 확인하지 않아 `null`로 남겼다. 구조 검사는 허용하지만 실제 배포는 거부한다. pin → Manifest 반영 → 기존 스택 adopt → 자동 CD 활성화 순서가 필요하다. Backend CI는 현재 `main`과 `dev` 이미지를 게시하지만 Cloud는 `main` 성공만 받는다. 현재 BE CI의 `bootjar`는 테스트 성공을 보장하지 않는다.
+운영 목표 SHA는 [production-manifest.json](deployment/production-manifest.json), 조회 대상은 [sources.json](deployment/sources.json)이 기준이다. Git의 목표와 EC2의 실제 버전은 다를 수 있다. 운영 적용 완료 여부는 위 검증 현황에서 확인한다.
 
-- [기술 결정·대안 비교·판단 이유 — 한 문서에 누적](docs/technical-decisions.md)
-- [현재 설계](docs/v1-design.md)
-- [초기 연결·자동 배포·복구 절차](docs/v1-operations.md)
-- [App 계약과 검사의 한계](docs/v1-app-contracts.md)
-- [파일별 역할](docs/v1-files-and-push-guide.md)
-- [트러블슈팅](docs/v1-troubleshooting.md)
-- [구현 및 검증 현황](docs/v1-implementation-status.md)
+배포 없이 후보를 확인하려면 Actions의 Auto release에서 `dry_run`을 선택한다. 자세한 실행 조건과 로컬 검사는 [운영 절차](docs/v1-operations.md#2-배포-전-후보-조회)에 있다.
 
-```sh
-python scripts/validate-manifest.py --structure-only
-python -m unittest discover -s tests -v
-bash -n scripts/deploy.sh
-bash -n scripts/bootstrap-host.sh
-```
-
-Python 검사에는 외부 패키지가 필요 없다. Compose 구조 검사에는 `config --no-env-resolution`을 지원하는 Docker Compose CLI가 필요하며 daemon은 필요 없다. 실제 EC2 통합 검증은 별도다.
+V2 확장 제안은 [V2 설계](docs/V2%20설계.md)와 [V2 CI/CD 검토](docs/v2-cicd-design-review.md)에 둔다. 이전 V1 설계안·인계 기록은 [보관 문서](docs/archive/README.md)에서 찾는다.

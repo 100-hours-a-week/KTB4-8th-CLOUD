@@ -1,0 +1,23 @@
+{
+  "backend": {
+    "repository": "100-hours-a-week/KTB4-8th-BE",
+    "branch": "main",
+    "workflow": "ci.yml",
+    "job": "Main - Build and Push Image",
+    "services": ["backend"]
+  },
+  "frontend": {
+    "repository": "100-hours-a-week/KTB4-8th-FE",
+    "branch": "feat/v1",
+    "workflow": "frontend-ci.yml",
+    "job": "Build and push frontend images",
+    "services": ["frontend", "web"]
+  },
+  "ai": {
+    "repository": "100-hours-a-week/KTB4-8th-AI",
+    "branch": "main",
+    "workflow": "ci.yml",
+    "job": "Main - Build and Push Image",
+    "services": ["ai-api"]
+  }
+}

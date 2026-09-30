@@ -1,0 +1,70 @@
+name: Health check
+
+# 5분마다 외부에서 서비스를 확인한다. 컨테이너가 죽으면 Docker가 먼저 자동 재시작하므로,
+# 여기서 실패가 보이면 자동으로 복구되지 않은 장애다. 상태가 바뀔 때(장애 시작·복구)만 Discord로 알린다.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: health-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: vars.PUBLIC_ORIGIN != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # 배포 중 Backend 재기동(최대 약 90초)은 장애로 보지 않도록 30초 간격으로 5번까지 시도한다.
+      - name: Check public endpoints
+        id: probe
+        run: |
+          status() { curl -s -o /dev/null --max-time 10 -w '%{http_code}' "${ORIGIN%/}$1" || true; }
+          for attempt in 1 2 3 4 5; do
+            nginx="$(status /healthz)"    # Nginx 자체 응답
+            frontend="$(status /)"         # Nginx → Frontend
+            backend="$(status /api)"       # Nginx → Backend. 401·404도 Backend가 응답한 것이다
+            summary="nginx=${nginx} frontend=${frontend} backend=${backend}"
+            echo "시도 ${attempt}: ${summary}"
+            if [[ "${nginx}" == 200 ]] && (( frontend >= 200 && frontend < 500 )) && (( backend >= 200 && backend < 500 )); then
+              echo "healthy=true" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            (( attempt < 5 )) && sleep 30
+          done
+          echo "healthy=false" >> "${GITHUB_OUTPUT}"
+          echo "summary=${summary}" >> "${GITHUB_OUTPUT}"
+
+      - name: Alert on state change
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          HEALTHY: ${{ steps.probe.outputs.healthy }}
+          SUMMARY: ${{ steps.probe.outputs.summary }}
+        run: |
+          # 직전 실행이 실패였다면 이미 알린 장애가 계속되는 중이다.
+          previous="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow health-check.yaml --status completed \
+            --limit 1 --json conclusion --jq '.[0].conclusion // "success"')"
+          if [[ "${HEALTHY}" == true ]]; then
+            if [[ "${previous}" == failure ]]; then
+              bash scripts/notify-discord.sh "✅ 서비스 복구" "${ORIGIN} 응답이 정상으로 돌아왔다."
+            fi
+            exit 0
+          fi
+          if [[ "${previous}" != failure ]]; then
+            bash scripts/notify-discord.sh "🚨 서비스 장애 — 수동 확인 필요" \
+              "${ORIGIN} 응답 이상 (${SUMMARY}). 2분 넘게 자동 복구되지 않았다. docs/v1-operations.md의 장애 대응 절차를 따른다."
+          fi
+          exit 1

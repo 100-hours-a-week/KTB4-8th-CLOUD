@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: KeepGo
+    orgId: 1
+    folder: KeepGo
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

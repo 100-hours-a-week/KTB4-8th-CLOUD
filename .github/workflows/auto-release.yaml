@@ -1,0 +1,54 @@
+name: Auto release
+
+# 10분마다 BE·FE·AI 저장소의 최신 커밋을 조회한다. CI가 이미지를 게시했고 Manifest와 다르면
+# Manifest를 바꾸는 PR을 만들어 바로 병합하고, 배포 workflow를 실행한다. 로직은 scripts/release.sh에 있다.
+# 앱 저장소는 모두 공개라 별도 토큰 없이 기본 GITHUB_TOKEN으로 읽는다.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '조회만 하고 PR·병합·배포는 하지 않는다 (AUTO_DEPLOY_ENABLED가 꺼져 있어도 실행)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # 자동 배포 전체 스위치. 'true'가 아니면 조회하지 않는다. dry_run은 켜기 전 확인용이라 스위치와 무관하다.
+    if: vars.AUTO_DEPLOY_ENABLED == 'true' || inputs.dry_run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Find new images and merge manifest PRs
+        id: release
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: bash scripts/release.sh
+
+      # GITHUB_TOKEN으로 병합한 커밋은 push 이벤트를 만들지 않으므로 배포를 직접 실행한다.
+      # 뒤 저장소에서 오류가 나도 앞에서 병합한 것은 배포한다.
+      - name: Start deployment
+        if: always() && steps.release.outputs.released == 'true'
+        run: gh workflow run deploy-production.yaml --repo "${GITHUB_REPOSITORY}" --ref main
+
+      - name: Notify Discord
+        if: failure() && !inputs.dry_run
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: bash scripts/notify-discord.sh "🚨 자동 릴리스 실패" "새 이미지 조회 또는 Manifest PR 병합이 실패했다. 해결될 때까지 자동 배포가 멈춘다."

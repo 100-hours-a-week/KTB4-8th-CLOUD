@@ -1,12 +1,10 @@
-name: Validate Deployment
+name: Validate deployment
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
   push:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
@@ -15,26 +13,47 @@ jobs:
   validate:
     name: Validate manifest and compose
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-
+    timeout-minutes: 10
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-
-      - name: Install YAML parser
-        run: python -m pip install "PyYAML==6.0.3"
-
-      - name: Validate configuration structure
-        run: python scripts/validate-manifest.py --structure-only
-
-      - name: Check deployment scripts
+      - name: Check manifest and sources
         run: |
-          bash -n scripts/deploy.sh
-          python -m py_compile scripts/validate-manifest.py
+          jq -e '
+            keys == ["images"]
+            and (.images | keys) == ["ai-api", "backend", "frontend", "web"]
+            and all(.images[]; type == "string" and test("^[0-9a-f]{40}$"))
+            and .images.web == .images.frontend
+          ' deployment/production-manifest.json >/dev/null \
+            || { echo "Manifest: 네 서비스의 40자리 SHA가 필요하고 web·frontend SHA가 같아야 한다" >&2; exit 1; }
+          jq -e '
+            ([.[].services[]] | sort) == ["ai-api", "backend", "frontend", "web"]
+            and all(.[]; keys == ["branch", "job", "repository", "services", "workflow"])
+          ' deployment/sources.json >/dev/null \
+            || { echo "sources.json: 모든 서비스를 정확히 한 번씩 담당해야 한다" >&2; exit 1; }
+
+      - name: Check compose
+        run: |
+          eval "$(jq -r '.images | "export NGINX_IMAGE_TAG=\(.web) WEB_IMAGE_TAG=\(.frontend) BACKEND_IMAGE_TAG=\(.backend) AI_IMAGE_TAG=\(.["ai-api"])"' deployment/production-manifest.json)"
+          # EC2에만 있는 env·Secret 파일은 읽지 않고 구조만 검사한다.
+          AWS_ACCOUNT_ID=000000000000 docker compose -f compose.yaml config --no-env-resolution --quiet
+          AWS_ACCOUNT_ID=000000000000 docker compose -f compose.yaml -f compose.cloudwatch.yaml config --no-env-resolution --quiet
+          docker compose -f compose.monitoring.yaml config --no-env-resolution --quiet
+
+      - name: Check monitoring configuration
+        run: |
+          monitoring="$(docker compose -f compose.monitoring.yaml config --no-env-resolution --format json)"
+          docker run --rm -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
+            --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "${PWD}/monitoring/blackbox:/etc/blackbox:ro" \
+            "$(jq -r '.services["blackbox-exporter"].image' <<<"${monitoring}")" --config.file=/etc/blackbox/blackbox.yml --config.check
+          python3 -m unittest discover -s tests -p 'test_monitoring.py'
+
+      - name: Check scripts and workflows
+        run: |
+          python3 -m unittest discover -s tests -p 'test_runtime*.py'
+          for script in scripts/*.sh; do bash -n "${script}"; done
+          shellcheck scripts/*.sh
+          docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint:1.7.7 -color

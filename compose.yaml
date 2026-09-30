@@ -116,9 +116,16 @@ services:
         condition: service_started
     mem_limit: 1024m
     stop_grace_period: 30s
-    # Until BE provides an HTTP readiness endpoint, this only checks that port 8080 is open.
+    # Spring Actuator /actuator/health가 UP이어야 한다(DB 연결 포함). 이미지에 curl이 없어 bash로 요청한다.
     healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080
+          && printf 'GET /actuator/health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3
+          && grep -q '"status":"UP"' <&3
       interval: 15s
       timeout: 3s
       retries: 5

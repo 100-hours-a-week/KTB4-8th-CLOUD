@@ -23,6 +23,16 @@
 5. **DB schema는 직전 이미지와 호환되게 변경한다.** Cloud의 이미지 복구로 DB schema나 데이터는 복구되지 않는다.
 6. **기능 버그는 수정 또는 revert 커밋으로 새 SHA를 게시한다.** CI·게시 성공 후 다음 정상 조회에서 후보가 된다. 긴급 복구는 [배포 검증 및 롤백 프로세스](./v1-deployment-verification-and-rollback.md) 6절을 따른다.
 
+## 모니터링 추가 계약
+
+CloudWatch + Prometheus + Grafana 구성은 [모니터링 운영 구성](v1-monitoring.md)을 따른다. 다음 항목은 앱 저장소 변경·검증이 필요하며, Cloud 설정만으로 구현 완료되지 않는다.
+
+- **BE:** Micrometer Prometheus registry, `/actuator/prometheus` 노출과 내부 scrape 접근을 준비한다. 기존 `8080/actuator/health`와 DB 장애 시 503 응답을 유지한다. JVM·HTTP 요청 수/오류/latency histogram·DB pool 지표를 확인한다. Actuator 전체를 무분별하게 공개하지 않는다.
+- **AI:** 내부 `/metrics`에서 요청 수·오류·latency histogram을 제공한다. 기존 `/health`는 유지하며 health가 확인하는 의존성 범위를 명시한다.
+- **FE/Nginx:** `/metrics`, `/actuator/prometheus` 및 `/api` rewrite를 통한 우회 경로로 메트릭이 외부에 노출되지 않도록 차단한다. stdout/stderr로 access/error 로그를 내보내고 요청 본문·인증 헤더·비밀값을 기록하지 않는다.
+- **공통:** metric label에는 정규화된 route·method·status처럼 제한된 값을 쓴다. 사용자 ID·원문 URL·토큰을 label로 쓰지 않는다. 앱 로그도 stdout/stderr로 남기며 비밀값·개인정보를 제외한다.
+- **Cloud:** 내부 endpoint 응답·공개 경로 차단 확인 후 `monitoring/prometheus/targets/application.json`에 서비스를 등록한다. 앱 지표의 실제 이름·단위를 확인한 뒤 RED/JVM 대시보드·알림 임계치를 추가한다.
+
 ## 브랜치 전환과 검사의 한계
 
 FE의 feat/v1 사용은 임시 결정이다. main으로 전환할 때는 main의 소스·CI 게시 결과·두 이미지가 준비됐는지 확인하고 Cloud 조회 설정을 변경한다. 이유와 당시 확인 기록은 [TD-011](technical-decisions.md#td-011--fe-배포-기준-브랜치)에 있다.

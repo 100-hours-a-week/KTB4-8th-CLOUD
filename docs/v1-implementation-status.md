@@ -39,9 +39,20 @@
 
 알림 구축·수신 시험은 [장애 알림 시스템](./v1-alerting.md), 검증 기준·복구·실패 시나리오는 [배포 검증 및 롤백 프로세스](./v1-deployment-verification-and-rollback.md)에 전용 문서로 분리했다. 문서 분리는 실제 환경의 추가 시험 완료를 뜻하지 않는다.
 
+## 2026-09-30 모니터링 확장
+
+- CloudWatch 로그 그룹·제한된 쓰기 IAM·Agent 지표 누락 알람, 선택 활성화하는 앱 awslogs override를 추가했다. 기존 EC2·RDS 알람 초안을 유지했다.
+- 별도 PG Compose, node/blackbox exporter, Grafana 대시보드·Discord contact point·서비스/수집 실패 rule을 준비했다. 앱 계측 타깃은 구현 확인 전까지 비활성이다.
+- 로컬 Docker Compose 구조 검사(기본/로그 활성화/모니터링), 로그 override가 다른 앱 설정을 바꾸지 않는지 등 Python 계약 검사 3개, deploy.sh Bash 구문 검사 통과.
+- CI에 promtool·blackbox 설정 검사를 추가했다. **로컬 Docker daemon이 실행 중이지 않아 컨테이너 기동·Grafana provisioning·promtool/blackbox 실행 검증은 아직 못 했다.** AWS 스택 생성·로그 전송·SNS/Discord 실제 수신도 수행하지 않았다.
+- 적용·복구·앱 팀 계약·인수 시험은 [모니터링 운영 구성](v1-monitoring.md)에 있다.
+
 ## 남은 검증과 적용
 
 - [ ] GitHub 변수·Secret·PR 생성 권한·production 승인 정책·main 보호 정책을 운영 설정과 대조한다.
+- [ ] 모니터링 CI 검사 후 CloudWatch 스택·Agent를 설치하고 SNS 구독·로그 smoke를 확인한다.
+- [ ] PG 용량·런타임 비밀값 준비 후 설치하고 Grafana 대시보드·Discord·NoData/Error·복구 알림을 시험한다.
+- [ ] BE·AI 계측과 Nginx 공개 차단을 확인하고 앱 Prometheus 타깃을 활성화한다.
 - [ ] main 반영 후 실제 Actions dry_run에서 후보 조회·무변경·실패 알림 생략을 확인한다.
 - [ ] EC2 요구사항과 실제 이미지·설정 차이를 확인하고 최초 수동 배포를 수행한다.
 - [ ] Health check의 정상 검사와 실제 장애·복구 Webhook 전달을 각각 확인한다.

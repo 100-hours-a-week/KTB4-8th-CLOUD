@@ -18,6 +18,8 @@
 | TD-012 | 2026-09-29 | 설정 해시로 바뀐 서비스만 교체, 실패 시 이미지 롤백·실패 이미지 차단 | 채택 |
 | TD-013 | 2026-09-29 | 자동 복구되지 않은 장애만 Discord로 알림 | 채택 |
 | TD-014 | 2026-09-29 | Backend healthcheck를 `/actuator/health`로 강화 | 채택 |
+| TD-015 | 2026-09-30 | CloudWatch 로그·인프라 알람 + Prometheus·Grafana 상세 관측 | 채택 (운영 적용 전) |
+| TD-016 | 2026-09-30 | 배포 시 Secret 자동 조회 유지, 실패 시 교체 중단, env·JWT 적용 상태 추적 | 채택 (운영 적용 전) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -124,10 +126,10 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 | 기준 | 기존 중앙 CD 엔진 (TD-002~006) | 최소 구성 (채택) |
 | --- | --- | --- |
 | 대상 | Backend만 | Backend·Frontend·Nginx·AI |
-| 코드 | 여러 Python 배포 모듈·상태 관리와 테스트 | release.sh·deploy.sh·notify-discord.sh와 workflow 4개. 수동 런타임 준비는 prepare-runtime.py |
+| 코드 | 여러 Python 배포 모듈·상태 관리와 테스트 | release.sh·deploy.sh·notify-discord.sh와 workflow 4개. prepare-runtime.py로 배포 시 런타임 자동 갱신(TD-016) |
 | 준비물 | GitHub App, 읽기 토큰, 검증용·배포용·감시용 OIDC 역할 3개, runtime.json, adopt, digest pin | 기존 배포 역할·EC2 checkout 재사용, Discord Webhook |
 | 버전 기록 | SHA + ECR digest + CI run ID | SHA만 (기존 main과 같음) |
-| 상태 관리 | current·previous·inflight·blocked·frozen JSON | 실행 중인 컨테이너가 곧 현재 상태. `failed-images`와 `history.log`만 |
+| 상태 관리 | current·previous·inflight·blocked·frozen JSON | 실행 중인 컨테이너가 현재 상태. `failed-images`, `history.log`, Secret 적용 확인용 `runtime-applied-서비스.json`(TD-016) |
 | 실패 처리 | 롤백·차단·동결·recover·resume 모드 | 롤백·차단. 롤백 실패 시 Discord |
 | 이해·유지보수 | 어려움 | 파일 하나씩 읽으면 흐름이 보임 |
 
@@ -235,6 +237,40 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 **선택:** compose의 Backend healthcheck가 `/actuator/health` 응답에 `"status":"UP"`이 있는지 확인한다. DB 확인 범위는 Backend Actuator 설정에 의존하며 Cloud는 응답의 UP을 검사한다. 이미지에 curl이 있는지 확실하지 않아서 기존처럼 bash `/dev/tcp`로 HTTP 요청을 보낸다.
 
 **감수하는 단점:** 이 변경으로 Backend 설정 해시가 바뀐다. 기존 healthcheck가 남아 있는 호스트에는 적용 시 이미지가 같아도 Backend 재생성이 필요하다. Nginx는 `/actuator`를 Backend로 넘기지 않으므로 외부 감시는 계속 `/api`를 쓴다.
+
+## TD-015 — CloudWatch + Prometheus + Grafana
+
+**맥락:** 사용자가 CloudWatch와 PG(Prometheus·Grafana)를 도입하고 Loki는 제외하도록 지정했다. 기존 CloudWatch 알람·Agent 초안을 확장한다.
+
+**선택:** CloudWatch에 앱 로그·EC2/RDS 알람을 두고, PG는 내부 health·상세 호스트 지표·앱 계측 지표를 담당한다. Grafana의 서비스/수집 장애는 Discord로, CloudWatch 알람은 SNS 이메일로 보낸다. 기존 Actions 외부 감시는 유지한다. 로그는 Docker awslogs를 사용하며, IAM·그룹 준비 후 호스트 marker로 활성화한다. PG는 같은 EC2의 별도 checkout·Compose 프로젝트에서 수동 갱신한다.
+
+**대안·이유:** CloudWatch만으로 통일하면 PromQL 기반 앱 지표·부하 관측 요구를 충족하기 어렵다. Loki 추가는 요구 범위를 벗어나며 별도 로그 저장소를 늘린다. Agent로 Docker 로그 glob을 읽는 대신 awslogs를 써 컨테이너별 스트림을 만들고, Agent에는 호스트 메트릭만 맡긴다. 초기부터 별도 감시 호스트를 추가하는 대신 기존 EC2 용량을 확인해 시작한다. 상세 설정·적용 순서는 [모니터링 운영 구성](v1-monitoring.md)에 둔다.
+
+**감수하는 단점:** PG가 앱과 자원을 공유하고 호스트 장애 때 함께 멈춘다. CloudWatch·Actions가 외부 감시를 보완하지만 Grafana 단독 장애 통보는 미구현이다. AWS 로그·지표 비용이 추가된다. non-blocking 버퍼가 차면 로그가 유실될 수 있고 최초 스트림 생성은 AWS에 의존한다. 로그 설정 변경은 기존 이미지 롤백으로 되돌아가지 않는다. 앱 계측은 별도 저장소 작업이며 완료 전에는 타깃을 활성화하지 않는다.
+
+**재검토:** 부하 테스트와 PG가 자원 경쟁을 하거나 다중 호스트로 확장할 때 감시 호스트 분리·중앙 저장을 검토한다. 로그의 무손실 전달·장기 보관 또는 단일 알림 채널이 필요하면 수집 경로·보관 정책·라우팅을 다시 정한다.
+
+## TD-016 — 배포 시 Secret 자동 조회와 실패 처리
+
+**상태:** 채택 (2026-09-30, 사용자 요청). main의 정상 운영 방식을 유지한다. 실제 EC2 적용은 별도 배포·인수 시험으로 확인한다.
+
+**맥락:** main의 deploy.sh는 이미지 pull 전에 prepare-runtime.py를 실행했다. AWS 조회 실패, JSON/필수 값/JWT 기본 형식 오류는 Python이 비정상 종료하고 `set -euo pipefail`로 배포가 멈췄다. TLS·runtime 파일·일부 필수 env 추가 검사도 있었다. 따라서 main에 실패 처리가 없었던 것은 아니다. 다만 교체 후 자동 이미지 롤백과 JWT 파일 내용 변경 감지는 없었다. 자동 CD 재작성 중 조회가 수동 작업으로 분리됐지만, 운영자가 갱신을 빠뜨리면 Secret 변경 후 배포해도 이전 값으로 실행되는 문제가 생긴다.
+
+| 대안 | 판단 |
+| --- | --- |
+| 운영자가 EC2에서 매번 수동 갱신 | 코드 배포와 Secret 변경을 분리하지만 추가 작업·누락 가능성이 생김 |
+| 매 배포에서 조회·검증 후 반영 — 채택 | 기존 main의 사용 방식 유지, 별도 EC2 수동 작업 없이 다음 배포에 반영 |
+| 버전 고정 Secret·설정까지 자동 복구 | 복구 범위는 넓지만 외부 DB/API 자격 증명과의 일관성 및 상태 관리가 추가로 필요 |
+
+**선택:** deploy.sh가 호스트 잠금을 획득한 뒤 BE·AI Secret을 조회하고 전부 검증한 후 파일을 갱신한다. 조회/검증 실패 시 파일 갱신 전에 종료하며, 파일 저장 실패도 컨테이너 교체 전에 종료한다. 새 스크립트는 `set -e`를 사용하지 않으므로 호출 결과를 명시적으로 확인하고 `runtime_prepare_failed`(2)로 기록·알림한다. AWS 명령은 60초 제한을 두며 비밀값과 오류 원문은 출력하지 않는다. 같은 파일 내용이면 inode를 교체하지 않는다.
+
+로컬 Compose CLI 실험에서 env_file 내용만 바꿔도 `config --hash`가 같게 나왔다. JWT 파일 내용도 Compose 해시에 포함되지 않으므로 env·JWT 변경을 Compose 해시에만 의존하지 않는다. `/opt/keepgo/state/runtime-applied-backend.json`, `runtime-applied-ai-api.json`에 마지막 정상 적용 컨테이너 ID와 서비스별 파일의 합성 SHA-256 지문을 root 전용(0600)으로 저장한다. Backend는 backend.env와 JWT 두 파일, AI는 ai.env를 비교한다. 값과 지문을 로그·컨테이너 라벨에 출력하지 않는다. 기록과 다른 서비스만 강제 재생성한다. 최초 도입·기록 유실 시 BE·AI 중 기록이 없는 서비스를 한 번 재생성한다. pull 실패나 중단 때 적용 기록을 앞당겨 갱신하지 않아 재시도에서도 미적용 파일을 감지한다. 차단 때문에 건너뛴 서비스는 기록하지 않는다. 교체 후 전체 검사·관찰 성공 또는 이미지 롤백 후 전체 검사 성공 때 실제 컨테이너 ID로 기록한다.
+
+**감수하는 단점:** 실제 배포마다 Secrets Manager 접근이 필요하고, FE만 바뀌더라도 BE/AI Secret 조회 실패 시 배포가 멈춘다. 파일별 저장은 atomic replace지만 여러 파일 전체의 저장은 단일 트랜잭션이 아니다. 저장 도중 I/O 실패 시 일부 호스트 파일이 갱신될 수 있어 원인 해결 후 전체 조회·배포를 재실행한다. 이미지 롤백도 최신 Secret을 사용하며 Secret·DB를 되돌리지 않는다. 잘못된 비밀번호/API 키 또는 RSA 키 쌍의 실제 유효성은 기본 형식 검사만으로 보장되지 않는다. Secret 문제는 Secrets Manager에서 유효한 값으로 수정/복원하고 수동 배포한다. JWT 교체가 기존 토큰에 미치는 영향은 앱 팀과 조율한다.
+
+**검증:** 단위 시험과 가짜 Docker/AWS로 실제 deploy.sh를 실행하는 회귀 시험을 추가한다. 조회/검증 실패 시 파일 보존·교체 중단, 무변경 배포, JWT만 변경, AI env만 변경(Compose 해시 동일), pull 실패 후 재시도, 적용 기록 유실/차단, 이미지 복구 후 기록을 검증한다. 실제 EC2 권한·Docker bind mount·서비스 인증은 운영 인수 시험 대상이다.
+
+**재검토:** 무중단 키 회전, Secret 버전 고정, 실패 시 설정 전체 복구 또는 여러 호스트 간 원자적 반영이 필요해질 때 배포 상태·Secret 버전 관리 방식을 확장한다.
 
 ## 이후 기록 양식
 

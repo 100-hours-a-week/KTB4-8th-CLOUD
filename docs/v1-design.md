@@ -2,6 +2,8 @@
 
 이 문서 하나로 현재 V1의 배포 흐름, 각 파일의 역할, 선택 이유와 한계를 이해할 수 있도록 정리했다. 기준은 2026-09-29 작업 트리의 코드다. 알림 구축의 상세는 [장애 알림 시스템](./v1-alerting.md), 성공 판정과 복구 상세는 [배포 검증 및 롤백](./v1-deployment-verification-and-rollback.md)에 둔다. 최초 연결·호스트 조회는 [운영 절차](v1-operations.md), 실제 시험 결과는 [구현 현황](v1-implementation-status.md), 대안 비교는 [기술 결정](technical-decisions.md)을 따른다.
 
+2026-09-30 모니터링 확장: [CloudWatch + Prometheus + Grafana](v1-monitoring.md)를 추가했다. 앱 자동 CD는 네 서비스만 관리하고 PG는 별도 checkout·Compose 프로젝트로 운영한다. 호스트의 `cloudwatch-logs.enabled`가 있으면 deploy.sh가 `compose.cloudwatch.yaml`을 병합해 앱 로그를 CloudWatch로 전송한다. marker 활성화·해제도 설정 변경이므로 앱 재생성이 필요하다.
+
 ## 1. 무엇을 자동화하는가
 
 앱 팀은 소스를 수정하고 CI로 이미지를 만든다. Cloud는 배포할 버전을 Git에 기록하고, 단일 EC2에서 바뀐 서비스를 교체·검증한다. 검증에 실패하면 이번에 교체를 시도한 서비스를 이전 이미지로 복구한다.
@@ -70,7 +72,7 @@ Actions의 checkout은 `ref: main`으로 고정돼 있다. Run workflow에서 �
 
 `GITHUB_TOKEN`으로 병합한 push는 후속 push workflow를 실행하지 않으므로 Auto release가 `workflow_dispatch`로 Deploy production을 직접 호출한다. 현재 GitHub 문서상 이 토큰으로 만든 PR의 `opened/synchronize/reopened` 검사 실행은 승인 대기 상태로 생성된다. 현재 스크립트는 Cloud PR 검사를 기다리지 않고 병합을 요청한다. 필수 검사·리뷰 도입 시 토큰, 검사 실행, 병합 대기와 배포 호출 시점을 함께 바꿔야 한다. [GitHub 토큰과 workflow 실행](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)
 
-사람이 `main`의 Manifest·`compose.yaml`·`scripts/deploy.sh`를 바꾸면 자동 배포 스위치가 켜져 있을 때 push로 배포한다. 수동 Deploy production은 스위치가 꺼져 있어도 실행된다. 이 세 경로 외 파일만 바꾸는 push는 배포 트리거가 아니다.
+사람이 `main`의 Manifest·`compose.yaml`·`compose.cloudwatch.yaml`·`scripts/deploy.sh`·`scripts/prepare-runtime.py`를 바꾸면 자동 배포 스위치가 켜져 있을 때 push로 배포한다. 수동 Deploy production은 스위치가 꺼져 있어도 실행된다. 그 외 파일만 바꾸는 push는 배포 트리거가 아니다.
 
 **구성 이유:** 앱별 버전 변경을 추적 가능한 Git 이력으로 남기고 실행 주체를 Cloud로 모은다. PR 병합은 목표 변경이며 운영 반영 성공을 뜻하지 않는다.
 
@@ -80,7 +82,7 @@ Actions의 checkout은 `ref: main`으로 고정돼 있다. Run workflow에서 �
 
 Auto release는 `main`을 지정해 배포를 호출한다. 그 배포가 선택한 커밋에는 여러 서비스의 병합 결과가 들어갈 수 있다. 배포 대상은 PR diff가 아닌 EC2 실제 상태와 해당 커밋의 설정 차이로 계산한다.
 
-EC2에서는 잠금과 설정 검사 후 변경 대상을 정하고, 이미지를 모두 받은 뒤 서비스별로 교체·검증한다. 실패하면 이전 이미지 복구를 시도한다. 정확한 검사 순서·기준·종료 결과는 [배포 검증 및 롤백 프로세스](./v1-deployment-verification-and-rollback.md) 3~4절에 둔다.
+EC2에서는 잠금을 잡고 Secret을 자동 조회·검증한 후 runtime 파일을 갱신한다. 조회·검증·저장에 실패하면 컨테이너 교체 전에 중단한다. Compose 설정 해시와 env·JWT 적용 기록으로 변경 대상을 정하고, 이미지를 모두 받은 뒤 서비스별로 교체·검증한다. 실패하면 이전 이미지 복구를 시도한다. 정확한 검사 순서·기준·종료 결과는 [배포 검증 및 롤백 프로세스](./v1-deployment-verification-and-rollback.md)에 둔다.
 
 **구성 이유:** 사전 pull로 이미지 누락 때문에 정상 컨테이너를 먼저 중지하는 일을 줄이고, 서비스별 교체로 실패 지점을 확인한다. Compose 해시를 활용해 별도 현재 버전 JSON을 유지하지 않는다. `--no-deps`는 의존 서비스의 추가 기동을 막는다. [TD-008](technical-decisions.md#td-008--최소-구성으로-재작성-전-서비스-자동-cd), [TD-012](technical-decisions.md#td-012--배포-검증과-롤백-방식)
 
@@ -116,11 +118,11 @@ GitHub 배포 workflow의 concurrency와 호스트 잠금은 서로 다른 범�
 | [health-check.yaml](../.github/workflows/health-check.yaml) | runner의 주기적 외부 검사 |
 | [notify-discord.sh](../scripts/notify-discord.sh) | runner의 Discord 알림 |
 | [validate.yaml](../.github/workflows/validate.yaml) | JSON·Compose·Shell·workflow 정적 검사 |
-| [prepare-runtime.py](../scripts/prepare-runtime.py) | 운영자가 EC2에서 Secrets Manager → env·JWT 파일 준비 |
+| [prepare-runtime.py](../scripts/prepare-runtime.py) | 배포 시 Secrets Manager → env·JWT 자동 갱신 및 서비스별 적용 상태 확인 |
 
-EC2 `/opt/keepgo/state/`에는 `deploy.lock`(잠금), `failed-images`(차단 서비스·SHA), `history.log`(시간·Cloud 커밋·결과·교체 서비스)가 생긴다. 이전 이미지 태그는 실행 중 메모리에 보관하므로 프로세스 중단 후 자동 복구를 재개할 상태 파일은 없다.
+EC2 `/opt/keepgo/state/`에는 `deploy.lock`(잠금), `failed-images`(차단 서비스·SHA), `history.log`(시간·Cloud 커밋·결과·교체 서비스), `runtime-applied-backend.json`·`runtime-applied-ai-api.json`(정상 적용한 컨테이너 ID·파일 지문, 0600)이 생긴다. 적용 기록은 재시도 시 env·JWT 변경을 놓치지 않기 위한 것이다. 이전 이미지 태그는 실행 중 메모리에 보관하므로 프로세스 중단 후 자동 복구를 재개할 상태 파일은 없다.
 
-Secret·JWT는 `/opt/keepgo/runtime/`, TLS는 `/opt/keepgo/tls/`, ACME는 `/opt/keepgo/acme/`, 업로드는 `/opt/keepgo/data/uploads/`를 사용한다. 인증 값과 호스트 상태는 Git에 넣지 않는다. 자동 배포는 prepare-runtime.py를 실행하지 않는다.
+Secret·JWT는 `/opt/keepgo/runtime/`, TLS는 `/opt/keepgo/tls/`, ACME는 `/opt/keepgo/acme/`, 업로드는 `/opt/keepgo/data/uploads/`를 사용한다. 인증 값과 호스트 상태는 Git에 넣지 않는다. 자동·수동 배포 모두 prepare-runtime.py를 실행한다. 결정 이유는 [TD-016](technical-decisions.md#td-016--배포-시-secret-자동-조회와-실패-처리)에 있다.
 
 ## 10. 현재 선택에 따라 남는 한계
 

@@ -29,8 +29,9 @@ AWS 역할·인스턴스 변수는 `production` Environment에 두어도 된다.
 - `/opt/keepgo/cloud`에 Cloud 저장소가 있고 SSM 실행 사용자로 `git fetch`가 된다. 작업 파일 변경 때문에 checkout이 막히지 않아야 한다.
 - Docker Compose **2.30.0 이상**이며 `up --wait`, `config --hash`, `config --no-env-resolution`이 동작한다. 현재 Compose의 `env_file.format: raw`는 2.30.0부터 지원된다. [Docker 문서](https://docs.docker.com/reference/compose-file/services/#format)
 - Bash, `python3`, `flock`, `curl`, AWS CLI와 Docker가 있다. EC2 instance role에 ECR pull 권한이 있다.
-- 런타임 env·JWT, TLS, ACME webroot, 업로드 경로가 준비돼 있다. 경로는 [전체 설명의 파일 위치](v1-design.md#9-파일과-상태의-위치)를 따른다. 이 배포는 비어 있는 호스트를 설치하는 bootstrap 절차가 아니다.
-- 런타임 파일을 처음 만들 때는 instance role의 필요한 Secrets Manager 읽기 권한을 확인하고 8절의 준비 명령을 사용한다.
+- TLS, ACME webroot, 업로드 경로가 준비돼 있다. runtime env·JWT는 매 배포 시 자동 갱신한다. 경로는 [전체 설명의 파일 위치](v1-design.md#9-파일과-상태의-위치)를 따른다. 이 배포는 비어 있는 호스트를 설치하는 bootstrap 절차가 아니다.
+- instance role에 BE·AI Secret 읽기 권한이 있어야 한다. 실패 시 기존 파일을 대신 사용하지 않고 배포를 중단한다. Secret 변경은 8절을 따른다.
+- 모니터링은 [CloudWatch + PG 적용 순서](v1-monitoring.md)를 따른다. 로그 그룹·IAM·전송 확인 후 `cloudwatch-logs.enabled`를 만들며, PG는 별도 checkout과 Compose 프로젝트로 운영한다. 로그 활성화 후 수동 앱 `up`에는 `compose.cloudwatch.yaml`도 함께 지정한다.
 - 배포 workflow가 확인하는 AWS 계정은 `602601433533`, 리전은 `ap-northeast-2`다.
 
 ### 1-3. 켜는 순서
@@ -120,30 +121,20 @@ sudo docker logs --tail 100 "$CONTAINER_ID"
 
 ## 8. Secret 변경
 
-자동 배포는 Secrets Manager 값을 다시 가져오지 않는다. 자동 배포를 끄고 실행 중 작업이 끝난 뒤 Secret을 수정하고 EC2에서 다음을 실행한다.
+자동·수동 Deploy production 모두 배포 시작 시 `prepare-runtime.py`로 Secrets Manager의 값을 조회·검증하고 runtime env·JWT를 갱신한다. 기본 Secret ID는 `Secret-v1-BE`, `Secret-v1-AI`다. 별도의 EC2 갱신 명령은 필요 없다. Secret만 바꿔서는 Auto release가 배포를 호출하지 않으므로 즉시 반영하려면 수동 배포한다.
 
-```sh
-cd /opt/keepgo/cloud
-sudo python3 scripts/prepare-runtime.py
-```
+1. 변경 시점을 통제하려면 자동 배포를 끄고 진행 중인 배포 종료를 확인한다.
+2. Secrets Manager에서 값을 수정한다. JWT 키 쌍은 함께 변경하고 기존 토큰에 미칠 영향은 앱 팀과 조율한다.
+3. Manifest 목표와 실제 버전을 확인하고 Deploy production을 main에서 수동 실행한다.
+4. 변경된 서비스의 health와 실제 인증·AI/지도 기능을 확인한 뒤 자동 배포를 재개한다.
 
-기본 Secret ID는 `Secret-v1-BE`, `Secret-v1-AI`다. env 값 변경은 해석된 Compose 설정 해시에 영향을 줄 수 있다. Manifest 목표와 실제 버전을 확인한 뒤 Deploy production을 수동 실행해 반영·검증한다.
+env·JWT 파일 변경은 마지막 정상 적용 컨테이너 ID·파일 지문으로 감지한다. JWT만 바뀌면 Backend, AI env만 바뀌면 AI만 강제 재생성된다. 최초 도입 또는 `/opt/keepgo/state/runtime-applied-backend.json`·`runtime-applied-ai-api.json` 기록이 없으면 해당 서비스를 한 번 재생성하므로 적용 시간을 조율한다. 파일 내용이 같으면 그대로 유지한다. 이미지 pull 실패 후 재배포해도 미적용 파일 변경을 다시 감지한다. 차단된 이미지를 건너뛴 경우에는 새 Secret도 적용 완료로 기록되지 않으므로 차단 상태를 먼저 해결한다.
 
-JWT pem 같은 파일 마운트 내용 변경은 설정 해시만으로 감지되지 않는다. 현재 Cloud checkout의 설정을 확인하고, 아래 환경변수에 **현재 정상 운영 이미지 태그**를 준비한 root shell에서 Backend를 명시적으로 재생성한다.
+조회·검증 실패는 runtime 파일 변경 전에, 파일 저장 실패는 컨테이너 교체 전에 `runtime_prepare_failed`로 중단하고 Discord로 알린다. 저장 도중 실패하면 일부 호스트 파일만 갱신될 수 있으므로 권한·디스크 문제 해결 후 전체 배포를 다시 실행한다. `runtime_state_failed`는 runtime 파일/적용 기록 접근·저장 문제다. 이 경우 컨테이너 교체가 이미 완료됐을 수도 있으므로 실제 상태를 확인하고 재배포한다. 적용 기록에 있는 지문도 외부에 공유하지 않는다.
 
-```sh
-# AWS_ACCOUNT_ID, NGINX_IMAGE_TAG, WEB_IMAGE_TAG,
-# BACKEND_IMAGE_TAG, AI_IMAGE_TAG를 현재 운영 값으로 먼저 export한다.
-: "${AWS_ACCOUNT_ID:?현재 계정 필요}"
-: "${NGINX_IMAGE_TAG:?현재 web 태그 필요}"
-: "${WEB_IMAGE_TAG:?현재 frontend 태그 필요}"
-: "${BACKEND_IMAGE_TAG:?현재 backend 태그 필요}"
-: "${AI_IMAGE_TAG:?현재 AI 태그 필요}"
-cd /opt/keepgo/cloud
-docker compose -f compose.yaml up -d --force-recreate --no-deps --wait backend
-```
+자동 롤백은 이미지만 복구하며 **Secret은 최신 조회값을 유지한다.** 잘못된 비밀번호/API 키로 실패했다면 Secrets Manager의 값을 유효한 값으로 수정/복원한 뒤 다시 배포한다. 폐기된 외부 자격 증명은 파일을 되돌린다고 다시 유효해지지 않는다. 새 이미지까지 함께 변경해 차단됐다면 차단 해제/목표 이미지도 확인한다. 기본 형식 검사는 자격 증명의 실제 유효성이나 RSA 키 쌍 일치를 보장하지 않는다.
 
-직접 실행한 Compose 명령에는 deploy.sh의 전체 검사·자동 롤백이 붙지 않는다. 실행 후 컨테이너 health, 앱 인증·연결, 외부 응답을 확인한다. JWT 교체가 기존 토큰에 주는 영향은 앱 팀과 함께 확인하고 자동 배포를 재개한다.
+EC2에서 `sudo python3 /opt/keepgo/cloud/scripts/prepare-runtime.py`를 직접 실행하는 것은 파일 준비만 수행한다. 컨테이너에는 반영하지 않으며 배포와 동시에 실행하지 않는다. 일반적인 Secret 변경에는 위 수동 Deploy production 절차를 사용한다.
 
 ## 9. 실환경 인수 시험
 

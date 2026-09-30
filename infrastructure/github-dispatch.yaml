@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  KeepGo V1 GitHub Actions 예약 실행 대체. 이 레포에서 on.schedule이 실행되지 않아
+  EventBridge 예약 규칙이 Auto release(10분)·Health check(5분)를 workflow_dispatch API로 실행한다.
+  토큰은 파라미터(NoEcho)로만 받고 EventBridge 연결에 저장한다. Git에 넣지 않는다.
+
+Parameters:
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    MinLength: 20
+    Description: >-
+      Fine-grained PAT. 대상 레포 KTB4-8th-CLOUD 하나, 권한 Actions Read and write만.
+      교체할 때는 새 토큰으로 스택을 다시 배포한다.
+  Repository:
+    Type: String
+    Default: 100-hours-a-week/KTB4-8th-CLOUD
+    AllowedPattern: '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+  AlertsTopicArn:
+    Type: String
+    Default: ''
+    Description: >-
+      실패 알람을 보낼 SNS 토픽(monitoring.yaml의 AlertsTopicArn 출력). 비우면 알람을 만들지 않는다.
+      토큰 만료 시 호출이 조용히 실패하므로 모니터링 스택을 만든 뒤에는 반드시 넣는다.
+
+Conditions:
+  HasAlerts: !Not [!Equals [!Ref AlertsTopicArn, '']]
+
+Resources:
+  # 인증 헤더는 EventBridge가 Secrets Manager에 암호화해 저장한다.
+  GitHubConnection:
+    Type: AWS::Events::Connection
+    Properties:
+      Name: keepgo-v1-github-dispatch
+      Description: GitHub workflow_dispatch 호출용 토큰
+      AuthorizationType: API_KEY
+      AuthParameters:
+        ApiKeyAuthParameters:
+          ApiKeyName: Authorization
+          ApiKeyValue: !Sub 'Bearer ${GitHubToken}'
+        InvocationHttpParameters:
+          HeaderParameters:
+            - Key: Accept
+              Value: application/vnd.github+json
+              IsValueSecret: false
+            - Key: X-GitHub-Api-Version
+              Value: '2022-11-28'
+              IsValueSecret: false
+
+  AutoReleaseDestination:
+    Type: AWS::Events::ApiDestination
+    Properties:
+      Name: keepgo-v1-auto-release-dispatch
+      ConnectionArn: !GetAtt GitHubConnection.Arn
+      HttpMethod: POST
+      InvocationEndpoint: !Sub 'https://api.github.com/repos/${Repository}/actions/workflows/auto-release.yaml/dispatches'
+      InvocationRateLimitPerSecond: 1
+
+  HealthCheckDestination:
+    Type: AWS::Events::ApiDestination
+    Properties:
+      Name: keepgo-v1-health-check-dispatch
+      ConnectionArn: !GetAtt GitHubConnection.Arn
+      HttpMethod: POST
+      InvocationEndpoint: !Sub 'https://api.github.com/repos/${Repository}/actions/workflows/health-check.yaml/dispatches'
+      InvocationRateLimitPerSecond: 1
+
+  # EventBridge가 위 두 API destination만 호출할 수 있다.
+  InvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: events.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: invoke-github-dispatch
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: events:InvokeApiDestination
+                Resource:
+                  - !GetAtt AutoReleaseDestination.Arn
+                  - !GetAtt HealthCheckDestination.Arn
+
+  # 본문의 ref만 보낸다. 배포 여부는 workflow의 AUTO_DEPLOY_ENABLED 스위치가 그대로 결정한다.
+  AutoReleaseSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: keepgo-v1-auto-release-every-10m
+      Description: Auto release를 10분마다 실행
+      ScheduleExpression: rate(10 minutes)
+      State: ENABLED
+      Targets:
+        - Id: auto-release
+          Arn: !GetAtt AutoReleaseDestination.Arn
+          RoleArn: !GetAtt InvokeRole.Arn
+          Input: '{"ref":"main"}'
+          RetryPolicy:
+            MaximumRetryAttempts: 2
+            MaximumEventAgeInSeconds: 300
+
+  HealthCheckSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: keepgo-v1-health-check-every-5m
+      Description: 외부 Health check를 5분마다 실행
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Id: health-check
+          Arn: !GetAtt HealthCheckDestination.Arn
+          RoleArn: !GetAtt InvokeRole.Arn
+          Input: '{"ref":"main"}'
+          RetryPolicy:
+            MaximumRetryAttempts: 2
+            MaximumEventAgeInSeconds: 240
+
+  # 토큰 만료·권한 회수(401/403)는 재시도되지 않고 실패로 집계된다. 둘 다 멈추면 자동 배포와 외부 감시가 함께 멈춘다.
+  DispatchFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlerts
+    Properties:
+      AlarmName: keepgo-v1-github-dispatch-failed
+      AlarmDescription: >-
+        EventBridge가 GitHub workflow 실행 호출에 실패했다. 토큰 만료·권한 변경을 확인하고,
+        새 토큰으로 github-dispatch 스택을 다시 배포한다.
+      Namespace: AWS/Events
+      MetricName: FailedInvocations
+      Dimensions: [{Name: RuleName, Value: !Ref HealthCheckSchedule}]
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopicArn]
+      OKActions: [!Ref AlertsTopicArn]
+
+Outputs:
+  AutoReleaseRule:
+    Value: !Ref AutoReleaseSchedule
+  HealthCheckRule:
+    Value: !Ref HealthCheckSchedule

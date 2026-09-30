@@ -169,6 +169,7 @@ dry_run은 후보 조회 시험이다. 실제 PR 생성·병합 권한, ECR pull
 | 앱 CI 검사 | Cloud는 게시 job 성공을 확인 | BE 등 실제 단위/기능 테스트 수행 범위를 앱 팀과 확인 |
 | 서비스별 조회 실패 | 후속 서비스 조회에 영향 가능 | 오류 격리 개선 여부 결정 |
 | FE 묶음 실패 처리 | 두 서비스 원자적 교체·전체 차단 보장 안 됨 | 강화 여부 결정 |
+| **Secret 값 형식 검사 — SENTRY_DSN** (TODO) | 2026-09-30 17:13 KST 배포(#15)에서 Secret-v1-AI의 SENTRY_DSN이 공개 키 없는 값이라 AI `4bd2efc`가 `sentry_sdk.utils.BadDsn: Missing public key`로 기동 실패 → 자동 롤백·차단. 이전에는 전달하지 않던 키라 드러나지 않았고, TD-019에서 전달을 시작하며 처음 사용됨. prepare-runtime.py는 키 존재만 확인 | prepare-runtime.py에서 `https://<공개키>@<호스트>/<프로젝트번호>` 형식을 검사해 틀리면 전달하지 않고 경고만 남김(AI는 Sentry 없이 기동). 새 선택 키를 전달 목록에 추가할 때 운영 Secret 값의 형식을 먼저 확인 |
 | **차단된 서비스가 있어도 결과가 `unchanged`** (TODO) | 2026-09-30 17:21 KST 배포(#17)에서 ai-api가 차단돼 LangSmith 설정이 반영되지 않았는데 `result=unchanged`, 알림 없음. 약 1시간 20분 미반영 | 차단 때문에 건너뛴 서비스가 있으면 `result=blocked`(종료 코드 2)로 기록하고 Discord 알림. `history.log`에 건너뛴 서비스도 남김 |
 | Manifest 병합 후 배포 실패 | 다음 조회만으로 재배포 안 됨 | 수동 재배포 절차 유지 또는 자동 재처리 추가 |
 | Grafana 단독 장애 | 별도 외부 감시 없음 | 필요 시 추가 |

@@ -7,7 +7,12 @@ set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE=(docker compose -f "${ROOT_DIR}/compose.yaml")
+# AWS 로그 그룹·IAM 준비 후 운영자가 활성화한다. 이후 자동 배포에도 같은 설정을 유지한다.
+if [[ -f /opt/keepgo/runtime/cloudwatch-logs.enabled ]]; then
+  COMPOSE+=(-f "${ROOT_DIR}/compose.cloudwatch.yaml")
+fi
 STATE_DIR="${STATE_DIR:-/opt/keepgo/state}"
+export STATE_DIR
 FAILED_LIST="${STATE_DIR}/failed-images"  # 검증에 실패한 "서비스 SHA". 같은 이미지는 다시 배포하지 않는다
 HISTORY="${STATE_DIR}/history.log"
 ORDER=(ai-api backend frontend web)         # 의존 관계 순서. 복구는 역순
@@ -25,9 +30,9 @@ finish() {
   exit "$1"
 }
 
-mkdir -p "${STATE_DIR}"
-touch "${FAILED_LIST}"
-exec 9>"${STATE_DIR}/deploy.lock"
+mkdir -p "${STATE_DIR}" || exit 2
+touch "${FAILED_LIST}" || exit 2
+exec 9>"${STATE_DIR}/deploy.lock" || exit 2
 flock -n 9 || { log "다른 배포가 진행 중이다"; exit 2; }
 replaced=()
 
@@ -42,10 +47,38 @@ for service, name in names.items():
 PY
 )" || { log "Manifest를 읽을 수 없다"; finish 2 invalid_manifest; }
 eval "${exports}"
+# main과 같이 매 배포에서 Secret을 조회한다. 실패를 명시적으로 처리한다(set -e에 의존하지 않음).
+python3 "${ROOT_DIR}/scripts/prepare-runtime.py" \
+  || { log "Secret 조회·런타임 준비 실패. 컨테이너는 교체하지 않는다"; finish 2 runtime_prepare_failed; }
 "${COMPOSE[@]}" config --quiet || { log "compose.yaml 검증 실패"; finish 2 invalid_compose; }
 
 container_of() { "${COMPOSE[@]}" ps -aq "$1" 2>/dev/null | head -n1; }
 tag_of() { local var="${TAG_VAR[$1]}"; echo "${!var}"; }
+
+# env_file·PEM 파일 내용 변경을 Compose 설정 해시에만 의존하지 않는다. pull 실패/중단 뒤에도
+# 마지막으로 적용된 컨테이너와 비교해야 하므로 '조회 직전 파일'을 기준으로 삼지 않는다.
+declare -A runtime_changed
+for service in backend ai-api; do
+  id="$(container_of "${service}")"
+  python3 "${ROOT_DIR}/scripts/prepare-runtime.py" --check-applied "${service}" "${id:-missing}"
+  status=$?
+  case "${status}" in
+    0|1) runtime_changed["${service}"]="${status}" ;;
+    *) log "${service}: runtime 적용 상태를 읽을 수 없다"; finish 2 runtime_state_failed ;;
+  esac
+done
+
+record_runtime() {
+  # 차단으로 건너뛴 서비스에 새 파일을 적용했다고 기록하지 않는다.
+  local service id
+  for service in "${replaced[@]}"; do
+    [[ "${service}" == backend || "${service}" == ai-api ]] || continue
+    id="$(container_of "${service}")"
+    [[ -n "${id}" ]] || return 1
+    python3 "${ROOT_DIR}/scripts/prepare-runtime.py" --record-applied "${service}" "${id}" || return 1
+  done
+  return 0
+}
 
 # 모든 컨테이너 healthy + 컨테이너 간 연결 + Nginx 응답을 확인한다.
 check_stack() {
@@ -66,12 +99,16 @@ check_stack() {
 
 # 2. 설정 해시(이미지 포함)가 실행 중인 컨테이너와 다른 서비스를 찾는다.
 declare -A desired_hash old_tag
-while read -r service hash; do desired_hash["${service}"]="${hash}"; done < <("${COMPOSE[@]}" config --hash '*')
+hashes="$("${COMPOSE[@]}" config --hash '*')" || { log "설정 해시 계산 실패"; finish 2 invalid_compose; }
+while read -r service hash; do desired_hash["${service}"]="${hash}"; done <<<"${hashes}"
 targets=()
 for service in "${ORDER[@]}"; do
   id="$(container_of "${service}")"
   if [[ -n "${id}" ]]; then
-    [[ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' "${id}")" == "${desired_hash[${service}]}" ]] && continue
+    [[ -n "${desired_hash[${service}]:-}" ]] || { log "${service}: 설정 해시 없음"; finish 2 invalid_compose; }
+    if [[ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' "${id}")" == "${desired_hash[${service}]}" ]]; then
+      [[ "${runtime_changed[${service}]:-0}" == 1 ]] || continue
+    fi
     image="$(docker inspect --format '{{.Config.Image}}' "${id}")"
     old_tag["${service}"]="${image##*:}"
   fi
@@ -106,7 +143,7 @@ rollback() {
     var="${TAG_VAR[${service}]}"
     export "${var}=${old_tag[${service}]}"
     log "${service}: ${old_tag[${service}]:0:12}로 복구"
-    "${COMPOSE[@]}" up -d --no-deps --wait --wait-timeout "${HEALTH_TIMEOUT}" "${service}" || return 1
+    "${COMPOSE[@]}" up -d --force-recreate --no-deps --wait --wait-timeout "${HEALTH_TIMEOUT}" "${service}" || return 1
   done
   check_stack
 }
@@ -125,6 +162,7 @@ fail() {
     fi
   done
   if rollback; then
+    record_runtime || { log "복구 후 runtime 적용 기록 실패"; finish 2 runtime_state_failed; }
     finish 1 rolled_back
   fi
   log "복구도 실패했다. 사람이 확인해야 한다"
@@ -135,7 +173,7 @@ fail() {
 for service in "${targets[@]}"; do
   log "${service}: $(tag_of "${service}" | cut -c1-12)로 교체"
   replaced+=("${service}")
-  "${COMPOSE[@]}" up -d --no-deps --wait --wait-timeout "${HEALTH_TIMEOUT}" "${service}" \
+  "${COMPOSE[@]}" up -d --force-recreate --no-deps --wait --wait-timeout "${HEALTH_TIMEOUT}" "${service}" \
     || fail "${service}가 ${HEALTH_TIMEOUT}초 안에 healthy가 되지 않았다" "${service}"
 done
 # nginx.conf는 10초마다 upstream 주소를 다시 찾지만, 교체 직후 바로 반영되도록 reload한다.
@@ -154,6 +192,7 @@ for service in "${replaced[@]}"; do
     || fail "${service}가 관찰 중 재시작했다" "${service}"
 done
 check_stack || fail "관찰 후 연결 확인 실패" ""
+record_runtime || { log "runtime 적용 기록 실패. 다음 배포에서 다시 확인한다"; finish 2 runtime_state_failed; }
 
 # 6. 현재·직전 이미지만 남기고 오래된 이미지를 지운다(직전 이미지는 다음 복구용).
 for service in "${replaced[@]}"; do

@@ -8,7 +8,9 @@ on:
     paths:
       - deployment/production-manifest.json
       - compose.yaml
+      - compose.cloudwatch.yaml
       - scripts/deploy.sh
+      - scripts/prepare-runtime.py
   workflow_dispatch:  # auto-release.yaml의 호출 또는 수동 재배포
 
 permissions:

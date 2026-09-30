@@ -1,0 +1,24 @@
+# deploy.sh가 /opt/keepgo/runtime/cloudwatch-logs.enabled 파일이 있을 때만 병합한다.
+# !override로 기존 json-file 전용 옵션까지 교체한다 (Compose 2.30+).
+x-cloudwatch-logging: &cloudwatch-logging !override
+  driver: awslogs
+  options:
+    awslogs-region: ap-northeast-2
+    awslogs-group: /keepgo/v1/application
+    awslogs-create-group: "false"
+    tag: "{{.Name}}/{{.ID}}"
+    mode: non-blocking
+    max-buffer-size: "4m"
+    cache-disabled: "false"
+    cache-max-size: "10m"
+    cache-max-file: "3"
+
+services:
+  web:
+    logging: *cloudwatch-logging
+  frontend:
+    logging: *cloudwatch-logging
+  backend:
+    logging: *cloudwatch-logging
+  ai-api:
+    logging: *cloudwatch-logging

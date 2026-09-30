@@ -152,6 +152,7 @@ monitoring/prometheus/targets/application.json은 현재 []다. 앱의 요청률
 - [ ] Auto release를 main에서 dry_run=true로 실행해 후보·무변경 처리 확인. 현재 Manifest가 최신이면 세 저장소 모두 "최신"이어야 한다.
 - [ ] 점검 시간에 수동 Deploy production(main). **첫 실행은 Secret 적용 기록이 없어 backend·ai-api를, healthcheck 변경으로 backend를 재생성한다.** 교체 대상·health·공개 HTTPS·실제 기능 확인.
 - [ ] EC2에서 Secret 조회 실패 시 교체 없음, JWT만 변경 시 Backend만 재생성 확인.
+- [ ] **같은 커밋으로 두 번 연속 배포 → 두 번째는 `result=unchanged services=none`** (TD-021, [사례](troubleshooting/2026-09-30-env-file-services-recreated-every-deploy.md)). 수정 반영 후 첫 배포는 backend·ai-api를 한 번 더 재생성한다.
 - [ ] 외부 Health check 정상 검사와 장애·복구 알림 확인.
 - [ ] 합의한 점검 시간/시험 환경에서 이미지 pull 실패, health 실패 롤백, 실패 SHA 차단, 복구 실패 알림 확인.
 - [ ] AUTO_DEPLOY_ENABLED=true. 실제 앱 커밋 → Manifest PR → 병합 → 배포까지 확인.

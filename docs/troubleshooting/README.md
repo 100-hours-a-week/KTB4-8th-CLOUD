@@ -1,0 +1,34 @@
+# 트러블슈팅
+
+실제로 겪은 문제를 사례별 문서 하나씩으로 모은다. 새 문제는 `YYYY-MM-DD-짧은-설명.md`로 추가하고 아래 표에 한 줄을 넣는다. 각 문서는 증상 → 확인 과정 → 원인 → 해결 → 검증 → 재발 방지 순서로 쓴다.
+
+## 사례 목록
+
+| 날짜 | 문제 | 영향 | 상태 |
+| --- | --- | --- | --- |
+| 2026-09-30 | [변경 없는 배포가 backend·ai-api를 매번 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) | 배포마다 두 서비스 재시작·순단, 배포 시간 약 2분 증가 | 수정 완료, 운영 반영 대기 |
+| 2026-09-30 | [첫 수동 배포가 13분 걸림 (승인 대기)](2026-09-30-deploy-approval-wait.md) | 배포가 승인자 확인 전까지 멈춤 | 해결 (승인자 제거) |
+| 2026-09-30 | [JSON Manifest가 main보다 이전 backend를 가리킴](2026-09-30-manifest-backend-regression.md) | 병합 시 backend가 이전 버전으로 되돌아갈 뻔함 | 해결 (병합 전 발견) |
+| 2026-09-30 | [Validate에서 `backend.env not found`](2026-09-30-validate-env-file-not-found.md) | PR 검사 실패로 병합 불가 | 해결 |
+| 2026-09-29 | [구현·로컬 검증 중 겪은 문제 모음](../archive/v1-implementation-notes-2026-09-29.md) | — | 보관 |
+
+## 증상으로 찾기
+
+| 증상 | 먼저 볼 곳 |
+| --- | --- |
+| 바뀐 게 없는데 배포가 서비스를 교체함 | [배포마다 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) |
+| Deploy production이 시작하지 않고 "Review needed" | [승인 대기](2026-09-30-deploy-approval-wait.md) |
+| CI의 `docker compose config`가 로컬에서는 되는데 러너에서 실패 | [Validate 실패](2026-09-30-validate-env-file-not-found.md) |
+| 배포 결과 코드(`rolled_back`, `pull_failed` 등)의 뜻과 조치 | [배포 검증 및 롤백](../v1-deployment-verification-and-rollback.md) |
+| Discord 알림이 오거나 안 옴 | [장애 알림 시스템](../v1-alerting.md) |
+| EC2에서 직접 상태를 확인하는 방법 | [운영 절차](../v1-operations.md) 5절 「직접 확인」, 10절 「증상별 빠른 확인」 |
+
+## EC2에서 자주 쓰는 확인 명령
+
+SSM 접속 후 `sudo -i`로 root가 되어 실행한다. `ssm-user`로 docker를 실행하면 `permission denied`가 난다.
+
+```bash
+tail -5 /opt/keepgo/state/history.log                       # 배포마다 한 줄: 시각, Cloud 커밋, 결과, 교체한 서비스
+cat /opt/keepgo/state/failed-images                         # 차단된 이미지
+docker ps --format '{{.Names}} | {{.Image}} | {{.Status}}'  # 실제 실행 중인 버전
+```

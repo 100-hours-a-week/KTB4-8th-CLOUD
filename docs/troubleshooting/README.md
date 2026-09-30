@@ -15,6 +15,7 @@
 
 | 날짜 | 문제 | 영향 | 상태 |
 | --- | --- | --- | --- |
+| 2026-09-30 | [SENTRY_DSN 형식 오류로 AI 배포 자동 롤백](2026-09-30-ai-sentry-dsn-rollback.md) | 새 AI 버전·설정이 약 1시간 반 미반영, 알림 없음 | 복구됨, 재발 방지 TODO |
 | 2026-09-30 | [GitHub Actions schedule이 한 번도 실행되지 않음](2026-09-30-actions-schedule-not-running.md) | 자동 배포·외부 감시가 돌지 않음 | 우회 해결 (EventBridge), 조직 원인 문의 중 |
 | 2026-09-30 | [변경 없는 배포가 backend·ai-api를 매번 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) | 배포마다 두 서비스 재시작·순단, 배포 시간 약 2분 증가 | 해결 (#23, 운영 `unchanged` 확인) |
 | 2026-09-30 | [첫 수동 배포가 13분 걸림 (승인 대기)](2026-09-30-deploy-approval-wait.md) | 배포가 승인자 확인 전까지 멈춤 | 해결 (승인자 제거) |
@@ -27,6 +28,7 @@
 | 증상 | 먼저 볼 곳 |
 | --- | --- |
 | Auto release·Health check가 주기적으로 안 돎, Actions에 `schedule` 실행이 없음 | [schedule 미실행](2026-09-30-actions-schedule-not-running.md), [운영 절차](../v1-operations.md) 11절 |
+| 배포 결과가 `rolled_back`, 컨테이너가 `Restarting` 반복 | [SENTRY_DSN 롤백](2026-09-30-ai-sentry-dsn-rollback.md) — Actions의 Wait for deployment result 로그에서 컨테이너 로그 확인 |
 | 바뀐 게 없는데 배포가 서비스를 교체함 | [배포마다 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) |
 | Deploy production이 시작하지 않고 "Review needed" | [승인 대기](2026-09-30-deploy-approval-wait.md) |
 | CI의 `docker compose config`가 로컬에서는 되는데 러너에서 실패 | [Validate 실패](2026-09-30-validate-env-file-not-found.md) |

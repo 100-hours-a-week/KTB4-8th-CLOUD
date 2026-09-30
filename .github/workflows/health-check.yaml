@@ -4,7 +4,7 @@ name: Health check
 # 여기서 실패가 보이면 자동으로 복구되지 않은 장애다. 상태가 바뀔 때(장애 시작·복구)만 Discord로 알린다.
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '2-59/5 * * * *'  # 정각·0분 혼잡을 피한다. 매시 2·7·12…57분
   workflow_dispatch:
 
 permissions:

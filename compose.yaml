@@ -147,6 +147,8 @@ services:
       GOOGLE_MODEL: gemini-3.8-flash
       EMBEDDING_PROVIDER: google
       CHROMA_PATH: /app/chroma
+      LANGSMITH_TRACING: "true"
+      LANGSMITH_PROJECT: keepgo
     mem_limit: 768m
     stop_grace_period: 30s
     healthcheck:

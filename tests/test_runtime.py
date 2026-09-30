@@ -95,11 +95,11 @@ class RuntimeTest(unittest.TestCase):
                 self.assertEqual(before, self.files())
 
     def test_sentry_dsn_is_passed_only_when_present_and_unlisted_keys_are_not(self):
-        self.data["Secret-v1-AI"].update(SENTRY_DSN="https://key@sentry.example/1", LANGSMITH_API_KEY="unused")
+        self.data["Secret-v1-AI"].update(SENTRY_DSN="https://key@sentry.example/1", UNLISTED_KEY="unused")
         self.prepare()
         ai_env = (runtime.RUNTIME_DIR / "ai.env").read_text()
         self.assertIn("SENTRY_DSN=https://key@sentry.example/1\n", ai_env)
-        self.assertNotIn("LANGSMITH_API_KEY", ai_env)
+        self.assertNotIn("UNLISTED_KEY", ai_env)
         self.data = secrets()
         self.prepare()  # 선택 키라 없어도 배포는 계속된다
         self.assertNotIn("SENTRY_DSN", (runtime.RUNTIME_DIR / "ai.env").read_text())

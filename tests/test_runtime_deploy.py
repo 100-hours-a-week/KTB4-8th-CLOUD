@@ -82,7 +82,9 @@ if tool == "docker":
             assert "--force-recreate" in args
             service = args[-1]
             config["containers"][service] += "-new"
-            config["current"][service] = config["desired"][service]
+            # 실제 Compose는 env_file 값까지 넣어 라벨을 만들어 `config --hash`와 달라진다(EC2에서 확인).
+            suffix = "+env" if service in ("backend", "ai-api") else ""
+            config["current"][service] = config["desired"][service] + suffix
             fail = config.pop("fail_up_once", False)
             (base / "fixture.json").write_text(json.dumps(config))
             if fail:
@@ -220,7 +222,40 @@ class RuntimeDeployTest(unittest.TestCase):
         self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["backend", "backend"])
         record = json.loads((self.base / "state/runtime-applied-backend.json").read_text())
         self.assertEqual(record["container_id"], self.config["containers"]["backend"])
+        self.assertEqual((self.base / "state/applied-config-backend").read_text().split()[0],
+                         self.config["containers"]["backend"])
         self.assertEqual((self.base / "state/failed-images").read_text(), "")
+
+    def test_env_file_label_mismatch_does_not_recreate_again(self):
+        # 2026-09-30 운영: 변경 없는 두 번째 배포가 backend·ai-api를 다시 교체했다.
+        self.establish()
+        self.assertNotEqual(self.config["current"]["backend"], self.config["desired"]["backend"])
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("unchanged", result.stdout)
+        self.assertFalse(any("up" in c for c in self.calls()))
+
+    def test_config_change_recreates_only_that_service_once(self):
+        self.establish()
+        self.config["desired"]["backend"] = "backend-v2"
+        self.save()
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["backend"])
+        self.clear_calls()
+        result = self.run_deploy()
+        self.assertIn("unchanged", result.stdout)
+
+    def test_container_recreated_outside_deploy_falls_back_to_label_once(self):
+        self.establish()
+        self.config["containers"]["backend"] = "backend-manual"  # 기록과 다른 컨테이너
+        self.save()
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["backend"])
+        self.clear_calls()
+        result = self.run_deploy()
+        self.assertIn("unchanged", result.stdout)
 
     def test_blocked_backend_does_not_record_unapplied_jwt(self):
         (self.base / "state/failed-images").write_text("backend " + "a" * 40 + "\n")

@@ -23,6 +23,7 @@
 | TD-017 | 2026-09-30 | main 보호 규칙 없이 GITHUB_TOKEN으로 자동 병합, 형식 검사는 release.sh에서 수행 | 채택 |
 | TD-018 | 2026-09-30 | main의 배포 사전 검사 복원(TLS·ACME·uploads, NAVER 키 필수), 배포는 main에서만 | 채택 (운영 적용 전) |
 | TD-019 | 2026-09-30 | AI의 SENTRY_DSN을 선택 키로 주입, 목록에 없는 Secret 키는 계속 전달하지 않음 | 채택 (운영 적용 전) |
+| TD-020 | 2026-09-30 | production Environment의 필수 승인자 제거, 배포 승인 없이 자동 배포 | 채택 |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -329,6 +330,23 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 **감수하는 단점:** 앱이 새 환경변수를 요구할 때마다 Cloud 저장소의 목록 변경이 필요하다. 목록에 없는 키는 조용히 무시된다.
 
 **재검토:** LangSmith 추적을 켜기로 하거나 앱이 Secret 기반 설정을 더 늘리면, 전달 목록을 앱 계약 문서와 함께 다시 정한다.
+
+## TD-020 — production Environment 승인 제거
+
+**상태:** 채택 (2026-09-30, 사용자 결정·설정 변경 완료).
+
+**맥락:** main 병합 후 첫 수동 배포(Deploy production #13)가 production Environment의 Required reviewers(팀원 1명) 승인 대기에서 멈췄다. 기존 main의 수동 배포부터 걸려 있던 GitHub 설정이며, 이번 workflow 변경으로 생긴 것은 아니다. 이 설정이 있으면 Auto release가 Manifest를 병합해도 배포가 매번 승인 대기에서 멈춰 TD-008·009의 전 서비스 자동 배포가 반자동이 된다.
+
+| 대안 | 판단 |
+| --- | --- |
+| 승인자 유지 | 배포 전 사람이 한 번 더 확인한다. 승인자가 자리에 없으면 앱 팀의 main 병합이 운영에 반영되지 않고 밀린다 |
+| 승인자 제거 — 채택 | 설계 의도대로 앱 main 병합 → 10분 안에 배포된다 |
+
+**선택:** production Environment의 Required reviewers를 제거한다. 배포 안전장치는 deploy.sh의 사전 검사, health·연결 확인, 자동 롤백, 실패 이미지 차단과 Discord 알림이다(TD-012·013·018). 배포 시작 여부는 `AUTO_DEPLOY_ENABLED` 변수로 제어한다.
+
+**감수하는 단점:** 앱 팀의 main 병합이 사람 확인 없이 운영에 나간다. health로 드러나지 않는 기능 오류는 배포 후에야 발견된다. main 보호 규칙도 없으므로(TD-017) 수동 Run workflow도 누구나 즉시 운영 배포할 수 있다.
+
+**재검토:** 기능 오류가 자동 배포로 반복해서 나가거나 팀이 배포 시간대를 통제해야 하면, 승인자를 다시 두거나 배포 가능 시간대·스테이징 단계를 추가한다.
 
 ## 이후 기록 양식
 

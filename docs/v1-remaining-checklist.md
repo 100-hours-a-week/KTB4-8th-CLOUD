@@ -48,7 +48,7 @@ origin/main은 2f17f80(PR #18, Backend c2dab78)이다. 이번 재점검에서는
 | --- | --- | --- |
 | Settings → Actions → General → Workflow permissions | "Allow GitHub Actions to create and approve pull requests" 체크 | 없으면 release.sh의 `gh pr create`가 실패한다. 조직 설정에서 막혀 있으면 조직 관리자에게 요청 |
 | Settings → Branches(또는 Rules) → main | **보호 규칙을 설정하지 않는다(TD-017).** 필수 status check·필수 리뷰가 없는지 확인 | GITHUB_TOKEN이 만든 release PR에는 Validate가 실행되지 않아 필수 check가 있으면 병합이 실패한다. 형식 검사는 release.sh가 check-manifest.jq로 대신한다. 사람의 main 변경은 Validate 결과를 보고 병합하는 팀 규칙으로 관리한다 |
-| Settings → Environments → production | Required reviewers, Deployment branches | 승인자가 있으면 자동 배포가 승인 대기에서 멈춘다. Deployment branches를 제한했다면 `main`이 허용돼야 한다 |
+| Settings → Environments → production | **Required reviewers 제거(2026-09-30 완료, TD-020).** Deployment branches를 제한했다면 `main`이 허용돼야 한다 | 승인자가 있으면 자동 배포가 매번 승인 대기에서 멈춘다. 설정 변경 전에 대기 중이던 실행은 Cancel 후 다시 실행한다 |
 | AWS IAM의 배포 역할 신뢰 정책 | 변경 없음 | 새 workflow도 production Environment를 쓰므로 OIDC sub(`repo:…:environment:production`)가 main과 같다 |
 
 동작 참고:

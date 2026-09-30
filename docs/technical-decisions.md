@@ -25,6 +25,7 @@
 | TD-019 | 2026-09-30 | AI의 SENTRY_DSN을 선택 키로 주입, 목록에 없는 Secret 키는 계속 전달하지 않음 | 채택 (운영 적용 전) |
 | TD-020 | 2026-09-30 | production Environment의 필수 승인자 제거, 배포 승인 없이 자동 배포 | 채택 |
 | TD-021 | 2026-09-30 | 변경 감지를 Compose 라벨 대신 마지막 배포의 적용 기록으로 판단 (TD-012 보완) | 채택 (운영 적용 전) |
+| TD-022 | 2026-09-30 | GitHub schedule 대신 EventBridge 예약 규칙 + API destination으로 Auto release·Health check 실행 (TD-009 실행 수단 변경) | 채택 (운영 적용) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -332,6 +333,8 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 
 **재검토:** LangSmith 추적을 켜기로 하거나 앱이 Secret 기반 설정을 더 늘리면, 전달 목록을 앱 계약 문서와 함께 다시 정한다.
 
+**후속 (2026-09-30):** AI 파트가 PR #22(`dice/ai-observability`)로 LangSmith 추적을 켰다. `LANGSMITH_API_KEY`를 `AI_OPTIONAL`에 추가하고 compose에 `LANGSMITH_TRACING=true`, `LANGSMITH_PROJECT=keepgo`를 넣었다. 운영 AI 요청의 프롬프트·입력이 LangSmith로 전송된다.
+
 ## TD-020 — production Environment 승인 제거
 
 **상태:** 채택 (2026-09-30, 사용자 결정·설정 변경 완료).
@@ -366,6 +369,42 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 **감수하는 단점:** 도입 직후 첫 배포에서 backend·ai-api가 한 번 더 재생성된다. state 파일이 사라지면 같은 방식으로 한 번 재생성된다. 누가 EC2에서 compose를 직접 바꿔 컨테이너를 재생성하면 라벨 비교로 돌아간다.
 
 **재검토:** Compose가 env_file을 포함한 해시를 CLI로 제공하거나, 배포 대상을 여러 호스트로 늘려 상태 저장 위치를 바꿀 때.
+
+## TD-022 — GitHub schedule 대신 EventBridge로 주기 실행
+
+**상태:** 채택 (2026-09-30, 운영 적용). TD-009의 "Cloud가 10분마다 조회한다"는 결정은 유지하고, 그 **실행 수단**만 GitHub `on.schedule`에서 AWS EventBridge로 바꾼다. 경위는 [트러블슈팅](troubleshooting/2026-09-30-actions-schedule-not-running.md)에 있다.
+
+**맥락:** main 병합(07:12 UTC) 후 Auto release(10분)·Health check(5분)의 schedule 실행이 한 번도 생기지 않았다. 기본 브랜치·workflow 상태·파일 문법·커밋 계정·GitHub 장애 여부는 모두 정상이었고, Disable/Enable과 cron 값 변경(#24)으로 재등록해도 0건이었다. 설정을 모두 뺀 최소 workflow(`schedule-probe.yaml`, #25)도 수동 실행은 되고 schedule은 23분간 0건이어서, 레포 또는 조직(100-hours-a-week) 차원에서 schedule 이벤트가 발생하지 않는 것으로 판단했다. 정확한 원인은 조직 관리 권한이 필요해 확인하지 못했다.
+
+GitHub 밖에서 workflow를 실행하려면 어떤 방식이든 Cloud 레포의 workflow 실행 권한을 가진 **토큰이 필요**하다. 이 점이 대안 비교의 전제다.
+
+| 대안 | 장점 | 단점 | 판단 |
+| --- | --- | --- | --- |
+| 조직 관리자 답변을 기다림 | 추가 구성 없음 | 언제 해결될지 모름. 그동안 자동 배포·외부 감시가 멈춤 | 병행(문의)만 한다 |
+| 앱 CI가 이미지 게시 직후 Cloud를 dispatch로 호출(push) | 즉시 반영. 새 버전이 있을 때만 실행돼 기록이 쌓이지 않음 | 같은 팀의 BE·FE·AI 파트 CI 3곳을 고치고 토큰을 3곳에 등록·교체해야 함. 호출이 한 번 실패하면 그 버전은 다음 커밋까지 누락되므로 결국 조회 방식 보조가 필요 | 보류. 반영 지연이 불편해지면 도입 |
+| 앱 CI가 Cloud에 Manifest PR을 직접 생성 | 즉시 반영. PR 토큰이 GITHUB_TOKEN이 아니라 Validate도 돈다 | 앱 레포 3곳에 Cloud **쓰기** 권한 토큰이 필요. 두 앱이 동시에 올리면 Manifest PR끼리 충돌. 운영 버전 결정권이 여러 레포로 흩어져 중앙 CD의 이점이 약해짐 | 기각 |
+| EC2 cron이 GitHub API 호출 | 가장 단순 | 운영 서버에 토큰을 둠. EC2가 멈추면 외부 감시도 같이 멈춰 감시 목적과 모순 | 기각 |
+| EventBridge Scheduler + Lambda | Scheduler 자체 기능이 풍부 | Scheduler는 외부 HTTP를 직접 호출하지 못해 Lambda 코드·배포·권한이 추가됨 | 기각 |
+| **EventBridge 예약 규칙 + API destination** — 채택 | Lambda 없이 AWS 리소스만으로 HTTP 호출. 토큰은 EventBridge 연결(Secrets Manager)에 암호화 저장. 앱 레포 수정 없음. 호출이 실패해도 다음 주기에 다시 조회해 스스로 복구. CloudFormation 한 파일(`infrastructure/github-dispatch.yaml`)로 재현 가능 | 아래 "감수하는 단점" | 채택 |
+
+**선택:** `keepgo-v1-github-dispatch` 스택으로 EventBridge 규칙 2개(`rate(10 minutes)`, `rate(5 minutes)`)가 각 workflow의 `workflow_dispatch` API(`{"ref":"main"}`)를 호출한다. 토큰은 Cloud 레포 하나에 Actions Read and write만 가진 fine-grained PAT이며 NoEcho 파라미터로만 받는다. workflow 로직은 바꾸지 않는다. 배포 여부는 여전히 `AUTO_DEPLOY_ENABLED`가 결정한다. `on.schedule` 설정은 남겨 두며, 조직 문제가 풀려 schedule이 살아나도 concurrency 때문에 겹쳐 실행되지는 않는다.
+
+**비용:** 규칙 실행 무료, API destination 월 약 13,000회(100만 회당 $0.20)로 월 $0.01 미만, 연결 비밀 최대 월 $0.40. Actions는 public 레포라 무료.
+
+**감수하는 단점:**
+
+- **토큰이 개인 계정에 묶이고 만료된다.** TD-017에서 개인 PAT을 피한 이유와 같다. 권한을 workflow 실행으로만 좁혀 위험 범위를 줄였다. 만료·권한 회수 시 호출이 조용히 실패하므로 `AlertsTopicArn`으로 실패 알람을 연결해야 한다(모니터링 스택 생성 후, 현재 미연결).
+- **실행 기록이 쌓인다.** Health check 하루 288건, Auto release 하루 144건. schedule이 동작했어도 같았을 조회 방식 자체의 특성이다. 배포·릴리스·장애는 Deploy production 목록, release PR, Discord, EC2 `history.log`에서 따로 확인한다.
+- **"Manually run by (토큰 소유자)"로 표시된다.** 사람이 누른 실행과 목록에서 구분되지 않는다. 주기(5·10분 간격)나 EventBridge 규칙의 모니터링 지표로 구분한다.
+- **최대 10분 반영 지연.** push 방식보다 느리다.
+- 외부 감시(Health check)를 CI 도구로 돌리는 구조가 그대로 남는다. 감시 전용 서비스(Route 53 헬스 체크 등)가 더 적합하다.
+
+**재검토:**
+
+- 조직에서 schedule이 복구되면 EventBridge 규칙을 끄고(스택 삭제) `on.schedule`로 돌아간다. 그 전에 probe로 실제 실행을 확인한다.
+- 반영 지연·기록 누적이 불편해지면 앱 CI의 dispatch 호출(push)을 추가하고 EventBridge 주기를 1시간 보조로 늘린다.
+- Health check 기록이 부담되면 Route 53 헬스 체크 + CloudWatch 알람으로 옮긴다.
+- 토큰 만료 전(발급 시 정한 만료일)에 새 토큰으로 스택을 다시 배포한다. 절차는 [운영 절차](v1-operations.md) 11절.
 
 ## 이후 기록 양식
 

@@ -165,3 +165,23 @@ EC2에서 `sudo python3 /opt/keepgo/cloud/scripts/prepare-runtime.py`를 직접 
 | 주기 실행이 멈춤 | Actions 스케줄 활성 상태와 기본 브랜치 확인. 공개 저장소의 60일 무활동 시 자동 비활성화 정책도 확인 |
 
 스케줄 정책은 [GitHub 공식 문서](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)를 따른다.
+
+## 11. 주기 실행(EventBridge)과 GitHub 토큰 교체
+
+이 레포에서 GitHub `on.schedule`이 실행되지 않아 EventBridge가 Auto release(10분)·Health check(5분)를 실행한다([TD-022](technical-decisions.md#td-022--github-schedule-대신-eventbridge로-주기-실행)). Actions 목록에는 "Manually run by (토큰 소유자)"로 보인다.
+
+- 상태 확인: AWS 콘솔 → EventBridge → 규칙 → `keepgo-v1-auto-release-every-10m`, `keepgo-v1-health-check-every-5m` → 모니터링 탭(Invocations·FailedInvocations).
+- 일시 중지: 규칙을 "비활성화"한다. 자동 배포만 멈추려면 `AUTO_DEPLOY_ENABLED=false`가 더 간단하다.
+- **토큰 교체**(만료 전, 또는 FailedInvocations 발생 시): 새 fine-grained PAT(대상 레포 KTB4-8th-CLOUD, 권한 Actions Read and write)을 만든 뒤 관리자 권한 CloudShell에서 실행한다. EC2 SSM 세션은 권한이 없다.
+
+```bash
+read -rs TOKEN   # 새 토큰 입력 (화면·기록에 남지 않음)
+curl -s -o /dev/null -w "%{http_code}
+" -X POST -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json"   https://api.github.com/repos/100-hours-a-week/KTB4-8th-CLOUD/actions/workflows/auto-release.yaml/dispatches   -d '{"ref":"main","inputs":{"dry_run":"true"}}'          # 204면 정상
+curl -sO https://raw.githubusercontent.com/100-hours-a-week/KTB4-8th-CLOUD/main/infrastructure/github-dispatch.yaml
+aws cloudformation deploy --region ap-northeast-2 --stack-name keepgo-v1-github-dispatch   --template-file github-dispatch.yaml --capabilities CAPABILITY_IAM   --parameter-overrides GitHubToken="$TOKEN"   # 알람 연결 시 AlertsTopicArn=<SNS ARN> 추가
+unset TOKEN
+```
+
+교체 후 5분 안에 Health check 실행이 새로 생기는지 확인하고, 이전 토큰은 GitHub에서 폐기한다.
+

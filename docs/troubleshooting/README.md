@@ -1,12 +1,22 @@
 # 트러블슈팅
 
-실제로 겪은 문제를 사례별 문서 하나씩으로 모은다. 새 문제는 `YYYY-MM-DD-짧은-설명.md`로 추가하고 아래 표에 한 줄을 넣는다. 각 문서는 증상 → 확인 과정 → 원인 → 해결 → 검증 → 재발 방지 순서로 쓴다.
+실제로 겪은 문제를 사례별 문서 하나씩으로 모은다. 새 문제는 `YYYY-MM-DD-짧은-설명.md`로 추가하고 아래 표에 한 줄을 넣는다. 각 문서는 다음 양식을 따른다.
+
+```markdown
+# YYYY-MM-DD 오류명
+
+## 🐞 에러 내용
+## 🔍 원인 분석
+## ✅ 해결 방법
+## 회고
+```
 
 ## 사례 목록
 
 | 날짜 | 문제 | 영향 | 상태 |
 | --- | --- | --- | --- |
-| 2026-09-30 | [변경 없는 배포가 backend·ai-api를 매번 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) | 배포마다 두 서비스 재시작·순단, 배포 시간 약 2분 증가 | 수정 완료, 운영 반영 대기 |
+| 2026-09-30 | [GitHub Actions schedule이 한 번도 실행되지 않음](2026-09-30-actions-schedule-not-running.md) | 자동 배포·외부 감시가 돌지 않음 | 우회 해결 (EventBridge), 조직 원인 문의 중 |
+| 2026-09-30 | [변경 없는 배포가 backend·ai-api를 매번 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) | 배포마다 두 서비스 재시작·순단, 배포 시간 약 2분 증가 | 수정 반영(#23), 운영 unchanged 확인 대기 |
 | 2026-09-30 | [첫 수동 배포가 13분 걸림 (승인 대기)](2026-09-30-deploy-approval-wait.md) | 배포가 승인자 확인 전까지 멈춤 | 해결 (승인자 제거) |
 | 2026-09-30 | [JSON Manifest가 main보다 이전 backend를 가리킴](2026-09-30-manifest-backend-regression.md) | 병합 시 backend가 이전 버전으로 되돌아갈 뻔함 | 해결 (병합 전 발견) |
 | 2026-09-30 | [Validate에서 `backend.env not found`](2026-09-30-validate-env-file-not-found.md) | PR 검사 실패로 병합 불가 | 해결 |
@@ -16,6 +26,7 @@
 
 | 증상 | 먼저 볼 곳 |
 | --- | --- |
+| Auto release·Health check가 주기적으로 안 돎, Actions에 `schedule` 실행이 없음 | [schedule 미실행](2026-09-30-actions-schedule-not-running.md), [운영 절차](../v1-operations.md) 11절 |
 | 바뀐 게 없는데 배포가 서비스를 교체함 | [배포마다 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) |
 | Deploy production이 시작하지 않고 "Review needed" | [승인 대기](2026-09-30-deploy-approval-wait.md) |
 | CI의 `docker compose config`가 로컬에서는 되는데 러너에서 실패 | [Validate 실패](2026-09-30-validate-env-file-not-found.md) |

@@ -80,6 +80,7 @@ services:
         required: true
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
       DB_VENDOR: mysql
       # RDS (퍼블릭 액세스 없음, EC2 SG에서만 3306 허용). 엔드포인트는 비밀값이 아니다
       DB_HOST: keepgo-db-v1.c9c2syg08nfm.ap-northeast-2.rds.amazonaws.com

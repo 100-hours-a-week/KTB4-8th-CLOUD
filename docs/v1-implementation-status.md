@@ -1,6 +1,6 @@
 # 자동 CD 구현 및 검증 현황
 
-2026-09-29 작업 기록 기준. **구현과 기존 로컬 검사 기록이 있으며 GitHub Actions·AWS·EC2 인수 완료 증거는 아직 없다.** 아래 기존 시험 기록과 이번 문서 정리에서 확인한 범위를 구분한다. 전체 동작은 [전체 설명](v1-design.md), 실제 수행 방법은 [운영 절차](v1-operations.md)에 둔다.
+2026-09-30 사용자 확인상 **기존 main 서비스는 정상 운영 중이다.** 아래의 미확인 범위는 작업 브랜치에서 추가한 자동 릴리스·롤백·감시·Secret 적용 추적의 운영 인수다. 기존 시험 기록과 새 변경 검증을 구분한다. 전체 동작은 [전체 설명](v1-design.md), 실제 수행 방법은 [운영 절차](v1-operations.md)에 둔다.
 
 ## 구현 범위
 
@@ -47,7 +47,16 @@
 - CI에 promtool·blackbox 설정 검사를 추가했다. **로컬 Docker daemon이 실행 중이지 않아 컨테이너 기동·Grafana provisioning·promtool/blackbox 실행 검증은 아직 못 했다.** AWS 스택 생성·로그 전송·SNS/Discord 실제 수신도 수행하지 않았다.
 - 적용·복구·앱 팀 계약·인수 시험은 [모니터링 운영 구성](v1-monitoring.md)에 있다.
 
+## 2026-09-30 Secret 자동 조회 복원
+
+- main의 배포 시 Secret 조회를 유지하고, 새 deploy.sh에서 실패를 명시적으로 처리한다. 결정과 기존 main의 실패 처리 범위는 [TD-016](technical-decisions.md#td-016--배포-시-secret-자동-조회와-실패-처리)에 기록했다.
+- env_file의 변경을 Compose 해시만으로 감지할 수 없는 로컬 CLI 동작을 확인해, BE·AI별 마지막 적용 컨테이너 ID와 env/JWT 파일 지문을 별도 기록한다. pull 실패 후 재시도에서도 변경을 놓치지 않는다.
+- `tests/test_runtime.py`, `tests/test_runtime_deploy.py`에 조회·검증 오류, 파일 보존, env/JWT 변경, 무변경, 차단·재시도·이미지 복구를 확인하는 15개 회귀 시험을 추가했다. AWS와 Docker 동작은 대체하며 Compose config 검사는 실제 CLI를 사용한다. Windows 시험에서는 소유권·파일 mode와 flock을 대체하므로 실제 Linux 권한·잠금 검증은 아니다.
+- 실제 AWS 조회·EC2 컨테이너 교체·서비스 인증은 이번 작업에서 실행하지 않았다. GitHub CI의 ShellCheck/actionlint와 운영 인수는 별도로 확인한다.
+
 ## 남은 검증과 적용
+
+- [ ] TD-016의 Secret 자동 조회·실패 시 교체 중단과 env/JWT 변경 감지를 EC2에서 확인한다. 첫 적용에서는 기록이 없는 BE·AI를 한 번 재생성한다.
 
 - [ ] GitHub 변수·Secret·PR 생성 권한·production 승인 정책·main 보호 정책을 운영 설정과 대조한다.
 - [ ] 모니터링 CI 검사 후 CloudWatch 스택·Agent를 설치하고 SNS 구독·로그 smoke를 확인한다.

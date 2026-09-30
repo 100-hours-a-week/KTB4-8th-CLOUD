@@ -2,10 +2,11 @@
 """Secrets Manager 값을 compose가 읽는 런타임 파일로 만든다.
 
 - EC2 인스턴스 Role로 조회하며, 값은 절대 출력하지 않는다.
-- 최초 준비·명시적 Secret 갱신 때 운영자가 root로 직접 실행한다.
-  자동 배포(deploy.sh)는 실행하지 않는다. 실행 후 Deploy production을 수동으로 돌리면
-  env 파일이 바뀐 서비스만 교체·검증된다(docs/v1-operations.md 8절).
+- deploy.sh가 잠금을 잡은 뒤 교체 대상을 계산하기 전에 실행한다.
+- runtime 적용 기록은 실제 컨테이너 ID와 파일 지문만 저장한다. 값/지문은 출력하지 않는다.
 """
+import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -19,6 +20,7 @@ AI_SECRET_ID = os.environ.get("AI_SECRET_ID", "Secret-v1-AI")
 
 RUNTIME_DIR = Path("/opt/keepgo/runtime")
 JWT_DIR = RUNTIME_DIR / "jwt"
+STATE_DIR = Path(os.environ.get("STATE_DIR", "/opt/keepgo/state"))
 BACKEND_UID = 10001  # BE Dockerfile의 app 사용자(uid/gid 10001)
 
 # 없으면 컨테이너가 뜨지 않거나 DB에 붙지 못한다
@@ -32,6 +34,10 @@ JWT_FILES = {
     "JWT_PUBLIC_KEY": ("public_key.pem", "-----BEGIN PUBLIC KEY-----"),
     "JWT_PRIVATE_KEY": ("private_key.pem", "-----BEGIN PRIVATE KEY-----"),
 }
+RUNTIME_FILES = {
+    "backend": ("backend.env", "jwt/public_key.pem", "jwt/private_key.pem"),
+    "ai-api": ("ai.env",),
+}
 
 
 class RuntimeError_(Exception):
@@ -42,7 +48,7 @@ def read_secret(secret_id):
     result = subprocess.run(
         ["aws", "secretsmanager", "get-secret-value", "--region", REGION,
          "--secret-id", secret_id, "--query", "SecretString", "--output", "text"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=60,
     )
     if result.returncode != 0:
         # AWS 에러 문구에는 값이 없지만, 혹시 모를 노출을 막기 위해 요약만 남긴다
@@ -67,7 +73,8 @@ def env_lines(secret_id, data, required, optional, warnings):
                 raise RuntimeError_(f"{secret_id}에 필수 키 {key}가 없습니다")
             warnings.append(f"{secret_id}에 {key}가 없습니다 (관련 기능 실패)")
             continue
-        value = str(value)
+        if not isinstance(value, str):
+            raise RuntimeError_(f"{secret_id}의 {key}는 문자열이어야 합니다")
         if any(c in value for c in "\r\n\0"):
             raise RuntimeError_(f"{secret_id}의 {key} 값에 줄바꿈이 있습니다")
         lines.append(f"{key}={value}")  # compose env_file format: raw 기준
@@ -78,9 +85,14 @@ def env_lines(secret_id, data, required, optional, warnings):
 
 
 def write_file(path, content, mode, uid=0, gid=0):
+    # 매 배포마다 같은 PEM의 inode를 교체하지 않는다. 기존 bind mount도 유지한다.
+    if path.exists() and path.read_bytes() == content.encode("utf-8"):
+        os.chmod(path, mode)
+        os.chown(path, uid, gid)
+        return
     fd, tmp = tempfile.mkstemp(prefix=".prepare-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
@@ -92,10 +104,7 @@ def write_file(path, content, mode, uid=0, gid=0):
             os.unlink(tmp)
 
 
-def main():
-    if os.geteuid() != 0:
-        raise RuntimeError_("root로 실행해야 합니다 (sudo)")
-
+def prepare():
     warnings = []
     be = read_secret(BE_SECRET_ID)
     ai = read_secret(AI_SECRET_ID)
@@ -108,7 +117,9 @@ def main():
         value = be.get(key)
         if not value:
             raise RuntimeError_(f"{BE_SECRET_ID}에 {key}가 없습니다 (BE가 기동하지 못함)")
-        if not value.startswith(header) or "\n" not in value.strip():
+        if (not isinstance(value, str) or not value.startswith(header)
+                or "\n" not in value.strip() or "\0" in value
+                or not value.rstrip().endswith(header.replace("BEGIN", "END"))):
             raise RuntimeError_(
                 f"{BE_SECRET_ID}의 {key} 형식이 다릅니다: '{header}'로 시작하고 줄바꿈이 살아 있어야 합니다")
         pems[filename] = value if value.endswith("\n") else value + "\n"
@@ -133,9 +144,57 @@ def main():
         print(f"  경고: {w}")
 
 
+def runtime_state(service, container_id):
+    if service not in RUNTIME_FILES:
+        raise RuntimeError_("지원하지 않는 runtime 서비스입니다")
+    digest = hashlib.sha256()
+    for filename in RUNTIME_FILES[service]:
+        content = (RUNTIME_DIR / filename).read_bytes()
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return {"container_id": container_id, "sha256": digest.hexdigest()}
+
+
+def check_applied(service, container_id):
+    """0=적용됨, 1=미적용/기록 없음. I/O 오류는 호출자가 실패로 처리한다."""
+    current = runtime_state(service, container_id)
+    try:
+        applied = json.loads((STATE_DIR / f"runtime-applied-{service}.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return 1
+    return 0 if current == applied else 1
+
+
+def record_applied(service, container_id):
+    current = runtime_state(service, container_id)
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    write_file(STATE_DIR / f"runtime-applied-{service}.json", json.dumps(current) + "\n", 0o600)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check-applied", nargs=2, metavar=("SERVICE", "CONTAINER_ID"))
+    mode.add_argument("--record-applied", nargs=2, metavar=("SERVICE", "CONTAINER_ID"))
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        raise RuntimeError_("root로 실행해야 합니다 (sudo)")
+    if args.check_applied:
+        return check_applied(*args.check_applied)
+    if args.record_applied:
+        record_applied(*args.record_applied)
+    else:
+        prepare()
+    return 0
+
+
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except RuntimeError_ as e:
         print(f"런타임 파일 준비 실패: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
+    except (OSError, UnicodeError, subprocess.SubprocessError):
+        # AWS 명령 출력·파일 내용·Secret이 예외 문자열에 포함될 수 있어 출력하지 않는다.
+        print("런타임 파일 조회·저장 실패. AWS 통신과 파일 권한·디스크를 확인하세요.", file=sys.stderr)
+        sys.exit(2)

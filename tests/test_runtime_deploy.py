@@ -13,15 +13,15 @@ from test_runtime import ROOT, secrets
 BASH = (r"C:\Program Files\Git\bin\bash.exe" if os.name == "nt" else shutil.which("bash"))
 
 FAKE = r'''
-import importlib.util, json, os, sys
+import importlib.util, json, os, sys, time, uuid
 from pathlib import Path
 sys.stdout.reconfigure(newline="\n")
 base = Path(os.environ["FIXTURE"])
 config = json.loads((base / "fixture.json").read_text())
 args = sys.argv[2:]
 tool = sys.argv[1]
-with (base / "calls.jsonl").open("a") as f:
-    f.write(json.dumps([tool] + args) + "\n")
+# AWS → docker login 파이프의 두 프로세스가 Windows에서 같은 로그를 덮어쓰지 않게 한다.
+(base / "calls" / f"{time.time_ns()}-{uuid.uuid4().hex}.json").write_text(json.dumps([tool] + args))
 if tool == "python3":
     if args[0].endswith("prepare-runtime.py"):
         spec = importlib.util.spec_from_file_location("runtime", base / "scripts/prepare-runtime.py")
@@ -97,7 +97,7 @@ class RuntimeDeployTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
-        for directory in ("scripts", "deployment", "bin", "state"):
+        for directory in ("scripts", "deployment", "bin", "state", "calls"):
             (self.base / directory).mkdir()
         for script in ("deploy.sh", "prepare-runtime.py"):
             shutil.copyfile(ROOT / "scripts" / script, self.base / "scripts" / script)
@@ -126,17 +126,18 @@ class RuntimeDeployTest(unittest.TestCase):
         prefix = '$(cygpath -u "$FIXTURE")' if os.name == "nt" else '$FIXTURE'
         command = 'export PATH="' + prefix + '/bin:$PATH"; exec bash "$1"'
         result = subprocess.run([BASH, "-c", command, "runtime-test", (self.base / "scripts/deploy.sh").as_posix()], env=self.env,
-                                capture_output=True, text=True, encoding="utf-8", timeout=60)
+                                capture_output=True, text=True, encoding="utf-8", timeout=180)
         self.config = json.loads((self.base / "fixture.json").read_text())
         self.assertNotIn("test-only-password", result.stdout + result.stderr)
         self.assertNotIn("test-private", result.stdout + result.stderr)
         return result
 
     def calls(self):
-        return [json.loads(line) for line in (self.base / "calls.jsonl").read_text().splitlines()]
+        return [json.loads(path.read_text()) for path in sorted((self.base / "calls").glob("*.json"))]
 
     def clear_calls(self):
-        (self.base / "calls.jsonl").write_text("")
+        for path in (self.base / "calls").glob("*.json"):
+            path.unlink()
 
     def establish(self):
         result = self.run_deploy()

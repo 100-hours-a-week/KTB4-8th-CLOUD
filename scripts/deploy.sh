@@ -77,13 +77,26 @@ for service in backend ai-api; do
   esac
 done
 
-record_runtime() {
-  # 차단으로 건너뛴 서비스에 새 파일을 적용했다고 기록하지 않는다.
-  local service id
+# Compose는 up할 때 env_file 값까지 넣어 config-hash 라벨을 만들지만 `config --hash`는 env_file을 빼고 계산한다.
+# 그래서 env_file을 쓰는 서비스는 라벨이 절대 일치하지 않는다(TD-021). 마지막 배포가 이 컨테이너에 적용한
+# `config --hash`를 기록해 두고 그것과 비교한다. 기록이 없거나 컨테이너가 바뀌었으면 빈 값을 낸다.
+applied_hash() {
+  local id hash
+  read -r id hash 2>/dev/null < "${STATE_DIR}/applied-config-$1" || return 0
+  [[ "${id}" == "$2" ]] && echo "${hash}"
+  return 0
+}
+
+record_applied() {
+  # 차단으로 건너뛴 서비스는 기록하지 않는다. 해시는 지금 내보낸 태그(성공 시 새 태그, 복구 후 이전 태그) 기준이다.
+  local service id hash
   for service in "${replaced[@]}"; do
-    [[ "${service}" == backend || "${service}" == ai-api ]] || continue
     id="$(container_of "${service}")"
     [[ -n "${id}" ]] || return 1
+    hash="$("${COMPOSE[@]}" config --hash "${service}" | awk -v s="${service}" '$1 == s {print $2}')"
+    [[ -n "${hash}" ]] || return 1
+    echo "${id} ${hash}" > "${STATE_DIR}/applied-config-${service}" || return 1
+    [[ "${service}" == backend || "${service}" == ai-api ]] || continue
     python3 "${ROOT_DIR}/scripts/prepare-runtime.py" --record-applied "${service}" "${id}" || return 1
   done
   return 0
@@ -115,7 +128,10 @@ for service in "${ORDER[@]}"; do
   id="$(container_of "${service}")"
   if [[ -n "${id}" ]]; then
     [[ -n "${desired_hash[${service}]:-}" ]] || { log "${service}: 설정 해시 없음"; finish 2 invalid_compose; }
-    if [[ "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' "${id}")" == "${desired_hash[${service}]}" ]]; then
+    applied="$(applied_hash "${service}" "${id}")"
+    # 기록이 없을 때(도입 직후·수동 재생성)만 라벨과 비교한다. env_file 서비스는 이때 한 번 재생성된다.
+    [[ -n "${applied}" ]] || applied="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' "${id}")"
+    if [[ "${applied}" == "${desired_hash[${service}]}" ]]; then
       [[ "${runtime_changed[${service}]:-0}" == 1 ]] || continue
     fi
     image="$(docker inspect --format '{{.Config.Image}}' "${id}")"
@@ -171,7 +187,7 @@ fail() {
     fi
   done
   if rollback; then
-    record_runtime || { log "복구 후 runtime 적용 기록 실패"; finish 2 runtime_state_failed; }
+    record_applied || { log "복구 후 적용 기록 실패"; finish 2 runtime_state_failed; }
     finish 1 rolled_back
   fi
   log "복구도 실패했다. 사람이 확인해야 한다"
@@ -201,7 +217,7 @@ for service in "${replaced[@]}"; do
     || fail "${service}가 관찰 중 재시작했다" "${service}"
 done
 check_stack || fail "관찰 후 연결 확인 실패" ""
-record_runtime || { log "runtime 적용 기록 실패. 다음 배포에서 다시 확인한다"; finish 2 runtime_state_failed; }
+record_applied || { log "적용 기록 실패. 다음 배포에서 다시 확인한다"; finish 2 runtime_state_failed; }
 
 # 6. 현재·직전 이미지만 남기고 오래된 이미지를 지운다(직전 이미지는 다음 복구용).
 for service in "${replaced[@]}"; do

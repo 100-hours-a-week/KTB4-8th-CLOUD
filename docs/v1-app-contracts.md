@@ -27,11 +27,13 @@
 
 CloudWatch + Prometheus + Grafana 구성은 [모니터링 운영 구성](v1-monitoring.md)을 따른다. 다음 항목은 앱 저장소 변경·검증이 필요하며, Cloud 설정만으로 구현 완료되지 않는다.
 
+**전달 기준은 [상세 메트릭 계약 v1](monitoring-metrics-contract.md)**이다. Cloud가 이름·타입·label·bucket, 상세 대시보드 3개와 초기 알림 8개를 먼저 구성했다. 각 파트는 실제 registry 출력, route→class, 업무 실패 의미, AI 시도·취소·TTFT·worker 경계 중 다른 부분을 검토해 회신한다.
+
 - **BE:** Micrometer Prometheus registry, `/actuator/prometheus` 노출과 내부 scrape 접근을 준비한다. 기존 `8080/actuator/health`와 DB 장애 시 503 응답을 유지한다. JVM·HTTP 요청 수/오류/latency histogram·DB pool 지표를 확인한다. Actuator 전체를 무분별하게 공개하지 않는다.
 - **AI:** 내부 `/metrics`에서 요청 수·오류·latency histogram을 제공한다. 기존 `/health`는 유지하며 health가 확인하는 의존성 범위를 명시한다.
 - **FE/Nginx:** `/metrics`, `/actuator/prometheus` 및 `/api` rewrite를 통한 우회 경로로 메트릭이 외부에 노출되지 않도록 차단한다. stdout/stderr로 access/error 로그를 내보내고 요청 본문·인증 헤더·비밀값을 기록하지 않는다.
 - **공통:** metric label에는 정규화된 route·method·status처럼 제한된 값을 쓴다. 사용자 ID·원문 URL·토큰을 label로 쓰지 않는다. 앱 로그도 stdout/stderr로 남기며 비밀값·개인정보를 제외한다.
-- **Cloud:** 내부 endpoint 응답·공개 경로 차단 확인 후 `monitoring/prometheus/targets/application.json`에 서비스를 등록한다. 앱 지표의 실제 이름·단위를 확인한 뒤 RED/JVM 대시보드·알림 임계치를 추가한다.
+- **Cloud:** 내부 endpoint 응답·공개 경로 차단과 계약 확인 후 `metrics_contract=v1` label로 타깃을 등록한다. 준비된 RED/JVM/AI 대시보드·알림을 실제 지표와 대조하고 초안 임계치를 조정한다. 적용 절차는 [앱 알림 운영 절차](monitoring-alert-runbook.md)에 있다.
 
 ## 브랜치 전환과 검사의 한계
 

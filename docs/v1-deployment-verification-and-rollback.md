@@ -26,7 +26,9 @@ KeepGo V1은 EC2 한 대에서 Docker Compose로 네 개의 컨테이너를 운�
 
 ```mermaid
 flowchart TD
-    A[배포 시작 · 호스트 잠금] --> P[Manifest 검사 · Secret 자동 조회/검증]
+    A[배포 시작 · 호스트 잠금] --> H[Manifest 검사 · TLS/ACME/uploads 경로 확인]
+    H -- 실패 --> RH([host_files_missing · 종료 2<br/>아무것도 바꾸지 않음])
+    H -- 성공 --> P[Secret 자동 조회/검증]
     P -- 실패 --> RP([runtime_prepare_failed · 종료 2<br/>컨테이너 교체 없음])
     P -- 성공 --> B[runtime 갱신 · compose 설정 검사]
     B --> C[실행 중 컨테이너와 설정 비교<br/>바뀐 서비스 찾기<br/>차단된 이미지는 제외]
@@ -61,6 +63,8 @@ Docker Compose는 컨테이너를 만들 때 서비스 설정 전체(이미지 �
 - 같은 EC2에서 배포가 동시에 돌지 않도록 파일 잠금(`flock`)을 건다. 이미 배포 중이면 즉시 종료 코드 2로 끝난다.
 
 ## 2. 교체 전 준비: 새 이미지를 먼저 받는다
+
+먼저 bind mount 대상인 `/opt/keepgo/tls/fullchain.pem`·`privkey.pem`(비어 있지 않음), `/opt/keepgo/acme`, `/opt/keepgo/data/uploads`를 확인한다. 없으면 교체와 롤백이 모두 실패하므로 Secret 조회 전에 `host_files_missing`(2)로 끝낸다([TD-018](technical-decisions.md#td-018--배포-사전-검사-복원과-main-전용-배포)).
 
 배포 잠금 안에서 BE·AI Secret을 자동 조회하고 전체 기본 검증 후 env·JWT 파일을 갱신한다. 조회/검증 실패는 파일 변경 전에, 저장 실패는 컨테이너 교체 전에 `runtime_prepare_failed`(2)로 중단한다. Secret 조회는 교체 대상 계산 전에 실행되므로 FE만 변경해도 필요하다. 같은 내용의 파일은 다시 교체하지 않는다. 조회 오류 원문·비밀값·지문은 출력하지 않는다.
 
@@ -119,6 +123,7 @@ pull 실패 시 호스트 runtime 파일은 이미 갱신돼 있을 수 있지�
 | `pull_failed`, `ecr_login_failed` | 2 | 바뀐 것 없음 | 실패 | **보냄** |
 | `unchanged_but_unhealthy` | 2 | 바뀐 것은 없지만 현재 비정상 | 실패 | **보냄** |
 | `invalid_manifest`, `invalid_compose` | 2 | 바뀐 것 없음 | 실패 | **보냄** |
+| `host_files_missing` | 2 | 바뀐 것 없음 | 실패 | **보냄** |
 | `runtime_prepare_failed` | 2 | 컨테이너 교체 없음. 저장 오류면 호스트 파일 일부는 바뀌었을 수 있음 | 실패 | **보냄** |
 | `runtime_state_failed` | 2 | 발생 시점에 따라 교체 전 또는 교체/복구 완료 후 | 실패 | **보냄** |
 | SSM 실패·시간 초과, 배포 시작 전 오류 | — | 알 수 없음 | 실패 | **보냄** |
@@ -173,7 +178,8 @@ Discord 알림이 오면 메시지의 GitHub Actions 링크에서 배포 로그�
 | --- | --- |
 | `pull_failed` | ECR에 해당 SHA 이미지가 있는지, EC2의 ECR 권한을 확인한다. 이미지가 없으면 앱 CI를 다시 실행하거나 새 커밋을 올린다. 해결 전까지는 **다른 서비스 배포도 pull 단계에서 함께 멈춘다** |
 | `ecr_login_failed` | EC2 IAM 역할과 AWS 연결을 고친 뒤 수동 배포 |
-| `runtime_prepare_failed` | BE·AI Secret 읽기 권한·필수 값·기본 형식, EC2 파일 권한·디스크를 확인한 뒤 수동 배포 |
+| `host_files_missing` | 로그에 찍힌 경로를 복구한다. TLS는 certbot 인증서 위치, uploads는 10001 소유 디렉터리. 복구 후 수동 배포 |
+| `runtime_prepare_failed` | BE·AI Secret 읽기 권한·필수 값(NAVER 키 포함)·기본 형식, EC2 파일 권한·디스크를 확인한 뒤 수동 배포 |
 | `runtime_state_failed` | 실제 컨테이너 상태 및 runtime 파일·적용 기록 권한/디스크 확인 후 수동 배포 |
 | `invalid_manifest`, `invalid_compose` | 마지막으로 병합된 설정 PR을 revert한 뒤 수동 배포 |
 | `rollback_failed` | 서비스가 새 버전·이전 버전·비정상 상태로 섞여 있을 수 있다. 아래 명령으로 실제 상태부터 확인하고 원인(설정, Secret, RDS)을 고친다 |

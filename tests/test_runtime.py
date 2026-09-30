@@ -24,7 +24,8 @@ def secrets():
             "JWT_PUBLIC_KEY": "-----BEGIN PUBLIC KEY-----\ntest-public\n-----END PUBLIC KEY-----\n",
             "JWT_PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----\ntest-private\n-----END PRIVATE KEY-----\n",
         },
-        "Secret-v1-AI": {"GOOGLE_API_KEY": "test-only-api-key"},
+        "Secret-v1-AI": {"GOOGLE_API_KEY": "test-only-api-key",
+                         "NAVER_MAP_CLIENT_ID": "test-only-map-id", "NAVER_MAP_CLIENT_SECRET": "test-only-map-secret"},
     }
 
 
@@ -78,6 +79,17 @@ class RuntimeTest(unittest.TestCase):
             with self.subTest(key=key, bad=bad):
                 self.data = secrets()
                 self.data["Secret-v1-BE"][key] = bad
+                with self.assertRaises(runtime.RuntimeError_):
+                    self.prepare()
+                self.assertEqual(before, self.files())
+
+    def test_missing_naver_key_stops_before_writing(self):
+        self.prepare()
+        before = self.files()
+        for key in ("NAVER_MAP_CLIENT_ID", "NAVER_MAP_CLIENT_SECRET"):
+            with self.subTest(key=key):
+                self.data = secrets()
+                del self.data["Secret-v1-AI"][key]
                 with self.assertRaises(runtime.RuntimeError_):
                     self.prepare()
                 self.assertEqual(before, self.files())

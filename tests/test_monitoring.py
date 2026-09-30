@@ -56,17 +56,28 @@ class MonitoringContractTest(unittest.TestCase):
 
     def test_dashboards_and_alerts_use_the_provisioned_datasource(self):
         base = ROOT / "monitoring/grafana"
-        dashboard = json.loads((base / "dashboards/overview.json").read_text())
-        self.assertEqual(len({panel["id"] for panel in dashboard["panels"]}), len(dashboard["panels"]))
-        for panel in dashboard["panels"]:
-            self.assertEqual(panel["datasource"]["uid"], "keepgo-prometheus")
-        rules = json.loads((base / "provisioning/alerting/rules.json").read_text())
-        for rule in rules["groups"][0]["rules"]:
-            refs = {query["refId"] for query in rule["data"]}
-            self.assertIn(rule["condition"], refs)
-            self.assertEqual(rule["noDataState"], "Alerting")
-            self.assertEqual(rule["execErrState"], "Alerting")
-            self.assertEqual(rule["data"][0]["datasourceUid"], "keepgo-prometheus")
+        dashboard_ids = []
+        for path in (base / "dashboards").glob("*.json"):
+            dashboard = json.loads(path.read_text(encoding="utf-8"))
+            dashboard_ids.append(dashboard["uid"])
+            self.assertEqual(len({panel["id"] for panel in dashboard["panels"]}), len(dashboard["panels"]))
+            for panel in dashboard["panels"]:
+                self.assertEqual(panel["datasource"]["uid"], "keepgo-prometheus")
+        self.assertEqual(len(dashboard_ids), len(set(dashboard_ids)))
+        rule_ids = []
+        for path in (base / "provisioning/alerting").glob("*.json"):
+            rules = json.loads(path.read_text(encoding="utf-8"))
+            for group in rules["groups"]:
+                for rule in group["rules"]:
+                    rule_ids.append(rule["uid"])
+                    refs = {query["refId"] for query in rule["data"]}
+                    self.assertIn(rule["condition"], refs)
+                    # No firing application alert is normal; an unreachable monitoring backend is not.
+                    expected = "OK" if rule["uid"] == "keepgo-application" else "Alerting"
+                    self.assertEqual(rule["noDataState"], expected)
+                    self.assertEqual(rule["execErrState"], "Alerting")
+                    self.assertEqual(rule["data"][0]["datasourceUid"], "keepgo-prometheus")
+        self.assertEqual(len(rule_ids), len(set(rule_ids)))
 
 
 if __name__ == "__main__":

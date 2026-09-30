@@ -1,0 +1,18 @@
+[
+  {
+    "targets": ["backend:8080"],
+    "labels": {
+      "service": "backend",
+      "metrics_contract": "v1",
+      "__metrics_path__": "/actuator/prometheus"
+    }
+  },
+  {
+    "targets": ["ai-api:8000"],
+    "labels": {
+      "service": "ai-api",
+      "metrics_contract": "v1",
+      "__metrics_path__": "/metrics"
+    }
+  }
+]

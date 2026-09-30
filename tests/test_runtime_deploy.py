@@ -97,8 +97,10 @@ class RuntimeDeployTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
-        for directory in ("scripts", "deployment", "bin", "state", "calls"):
-            (self.base / directory).mkdir()
+        for directory in ("scripts", "deployment", "bin", "state", "calls", "host/tls", "host/acme", "host/data/uploads"):
+            (self.base / directory).mkdir(parents=True)
+        for name in ("fullchain.pem", "privkey.pem"):
+            (self.base / "host/tls" / name).write_text("test-only-certificate\n")
         for script in ("deploy.sh", "prepare-runtime.py"):
             shutil.copyfile(ROOT / "scripts" / script, self.base / "scripts" / script)
         services = ("ai-api", "backend", "frontend", "web")
@@ -114,6 +116,7 @@ class RuntimeDeployTest(unittest.TestCase):
         self.config = {"secrets": secrets(), "current": {s: s for s in services},
                        "desired": {s: s for s in services}, "containers": {s: s + "-old" for s in services}}
         self.env = dict(os.environ, FIXTURE=str(self.base), STATE_DIR=(self.base / "state").as_posix(),
+                        HOST_DIR=(self.base / "host").as_posix(),
                         AWS_ACCOUNT_ID="000000000000", BAKE_SECONDS="0", PYTHONUTF8="1")
         self.env["PATH"] = str(self.base / "bin") + os.pathsep + self.env["PATH"]
         self.save()
@@ -185,6 +188,18 @@ class RuntimeDeployTest(unittest.TestCase):
         self.clear_calls()
         result = self.run_deploy()
         self.assertIn("unchanged", result.stdout)
+
+    def test_missing_host_paths_stop_before_secret_lookup_and_docker(self):
+        for path in ("host/tls/privkey.pem", "host/acme", "host/data/uploads"):
+            with self.subTest(path=path):
+                self.setUp()
+                target = self.base / path
+                target.unlink() if target.is_file() else target.rmdir()
+                result = self.run_deploy()
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("host_files_missing", result.stdout)
+                self.assertFalse(any(c[0] == "docker" for c in self.calls()))
+                self.assertFalse((self.base / "runtime").exists())
 
     def test_hash_failure_stops_before_pull(self):
         self.config["fail_hash"] = True

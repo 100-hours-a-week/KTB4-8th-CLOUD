@@ -20,6 +20,8 @@
 | TD-014 | 2026-09-29 | Backend healthcheck를 `/actuator/health`로 강화 | 채택 |
 | TD-015 | 2026-09-30 | CloudWatch 로그·인프라 알람 + Prometheus·Grafana 상세 관측 | 채택 (운영 적용 전) |
 | TD-016 | 2026-09-30 | 배포 시 Secret 자동 조회 유지, 실패 시 교체 중단, env·JWT 적용 상태 추적 | 채택 (운영 적용 전) |
+| TD-017 | 2026-09-30 | main 보호 규칙 없이 GITHUB_TOKEN으로 자동 병합, 형식 검사는 release.sh에서 수행 | 채택 |
+| TD-018 | 2026-09-30 | main의 배포 사전 검사 복원(TLS·ACME·uploads, NAVER 키 필수), 배포는 main에서만 | 채택 (운영 적용 전) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -271,6 +273,44 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 **검증:** 단위 시험과 가짜 Docker/AWS로 실제 deploy.sh를 실행하는 회귀 시험을 추가한다. 조회/검증 실패 시 파일 보존·교체 중단, 무변경 배포, JWT만 변경, AI env만 변경(Compose 해시 동일), pull 실패 후 재시도, 적용 기록 유실/차단, 이미지 복구 후 기록을 검증한다. 실제 EC2 권한·Docker bind mount·서비스 인증은 운영 인수 시험 대상이다.
 
 **재검토:** 무중단 키 회전, Secret 버전 고정, 실패 시 설정 전체 복구 또는 여러 호스트 간 원자적 반영이 필요해질 때 배포 상태·Secret 버전 관리 방식을 확장한다.
+
+## TD-017 — 자동 릴리스 PR 병합과 main 보호 규칙
+
+**상태:** 채택 (2026-09-30, 사용자 결정). main에 브랜치 보호 규칙(필수 status check·필수 리뷰)을 설정하지 않는다.
+
+**맥락:** release.sh는 Actions 기본 `GITHUB_TOKEN`으로 Manifest PR을 만들고 즉시 squash 병합한다. GitHub는 `GITHUB_TOKEN`이 만든 PR·push에서 다른 workflow를 실행하지 않는다. 따라서 release PR에서는 Validate가 돌지 않고, main에 필수 check가 있으면 `gh pr merge`가 실패한다. `GITHUB_TOKEN`은 자기 PR을 승인할 수 없어 필수 리뷰와도 양립하지 않는다.
+
+| 대안 | 판단 |
+| --- | --- |
+| GitHub App 토큰으로 PR 생성 → Validate 실행 후 `--auto` 병합 | 정석이지만 조직(100-hours-a-week) owner가 App을 만들고 설치해야 한다. 현재 진행이 어렵다 |
+| 개인 PAT | 특정 사람 계정·만료에 배포가 묶이고, 퇴장 시 자동 CD가 멈춘다 |
+| main 보호 규칙 없이 병합, 검사는 release.sh에서 — 채택 | 추가 권한 없이 동작한다. release PR의 변경은 API에서 받은 SHA 한 줄이라 Validate가 잡을 범위가 작다 |
+
+**선택:** release.sh가 Manifest를 바꾼 직후 Validate와 같은 `scripts/check-manifest.jq`로 형식을 검사하고, 실패하면 커밋·병합하지 않고 오류로 끝낸다(자동 릴리스 실패 Discord 알림). Validate와 release.sh가 같은 jq 파일을 써서 기준이 갈라지지 않게 한다. 실제 배포 안전장치는 deploy.sh의 Manifest·Compose 검사, health 확인, 롤백·실패 이미지 차단이다(TD-012).
+
+**감수하는 단점:** 사람도 리뷰·Validate 통과 없이 main에 직접 push·병합할 수 있다. compose.yaml·deploy.sh 같은 사람의 변경은 Validate 결과를 보고 병합하는 팀 규칙에 의존한다. AUTO_DEPLOY_ENABLED=true이면 그런 변경의 main push가 곧바로 운영 배포된다.
+
+**재검토:** 조직 App 발급이 가능해지거나, 사람의 main 직접 변경으로 사고가 나면 App 토큰 + 필수 check로 전환한다. 전환 시 병합 push가 Deploy production을 직접 트리거하므로 auto-release.yaml의 배포 호출 단계는 제거한다.
+
+## TD-018 — 배포 사전 검사 복원과 main 전용 배포
+
+**상태:** 채택 (2026-09-30). 실제 EC2 적용은 운영 인수 시험으로 확인한다.
+
+**맥락:** TD-008에서 deploy.sh를 다시 쓰면서 main의 사전 검사 일부가 기록 없이 빠졌다. (1) `/opt/keepgo/tls/fullchain.pem`·`privkey.pem`, `/opt/keepgo/data/uploads` 존재 확인, (2) ai.env의 NAVER_MAP_CLIENT_ID·SECRET 필수 확인. main 안에서도 prepare-runtime.py는 NAVER 키를 선택으로, deploy.sh는 필수로 다뤄 판단이 둘로 나뉘어 있었다. 또 새 workflow에서 EC2는 `origin main`만 fetch하지만, Run workflow에서 다른 브랜치를 고르는 것을 막지 않았다.
+
+**선택:**
+
+- deploy.sh가 Secret 조회·pull 전에 TLS 두 파일(비어 있지 않음)과 `acme`·`data/uploads` 디렉터리를 확인하고, 없으면 아무것도 바꾸지 않고 `host_files_missing`(2)로 끝낸다. main에 없던 `acme`도 같은 이유(bind `create_host_path: false`)로 포함한다.
+- NAVER 두 키를 prepare-runtime.py의 `AI_REQUIRED`로 옮긴다. 필수 여부는 한 곳에서만 정한다.
+- Deploy production job은 `github.ref == refs/heads/main`일 때만 실행하고, 다른 브랜치 선택은 skip한다.
+
+**판단 이유:** 이 경로들은 bind mount가 `create_host_path: false`라 없으면 컨테이너가 생성되지 않는다. `compose config`로는 드러나지 않고, 교체 중에 실패하면 이전 이미지로의 롤백도 같은 이유로 실패해 서비스가 멈춘 채 `rollback_failed`로 끝날 수 있다. 교체 전에 확인하면 운영 컨테이너를 건드리지 않고 멈춘다. NAVER 키가 없으면 AI는 기동하고 healthcheck도 통과하지만 지도·주소 요청이 모두 실패한다. health로 드러나지 않는 기능 장애이므로 배포 전에 막는다. 운영 Secret은 main 배포에서 이 검사를 통과해 왔으므로 기존 운영에는 영향이 없다.
+
+**감수하는 단점:** 지도 기능이 없어도 되는 시험 환경에서도 NAVER 키가 필요하다. TLS 인증서의 유효 기간·내용은 검사하지 않는다(만료는 외부 Health check의 HTTPS 실패로 드러난다). 다른 브랜치에서 Run workflow를 누르면 실패가 아니라 skip으로 표시된다.
+
+**검증:** prepare-runtime 단위 시험(NAVER 키 누락 시 파일 보존·중단), deploy.sh 회귀 시험(각 경로 누락 시 Secret 조회·Docker 호출 없이 종료). 경로 기준은 `HOST_DIR`(기본 `/opt/keepgo`)로 시험에서만 바꾼다.
+
+**재검토:** 지도 기능을 선택 기능으로 바꾸거나 TLS를 ALB/ACM으로 옮기면 해당 검사를 조정한다.
 
 ## 이후 기록 양식
 

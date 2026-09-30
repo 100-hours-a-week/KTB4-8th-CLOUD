@@ -12,7 +12,7 @@
 | 호스트 CPU·메모리·디스크 상세 추이 | node-exporter → Prometheus, 30초 | Grafana 기본 대시보드 |
 | Nginx·FE·BE·AI 내부 HTTP health | blackbox-exporter → Prometheus, 30초 | Grafana: 3분 지속 실패 → Discord, 복구 알림 |
 | Prometheus·exporter·앱 지표 수집 실패 | Prometheus `up` | Grafana: 3분 지속 실패 또는 NoData/Error → Discord |
-| 앱 요청 수·오류율·지연·JVM·DB pool | 앱 계측 완료 후 Prometheus에 등록 | Grafana Explore; 앱 전용 패널·임계치는 계측 후 확정 |
+| 앱 요청 수·오류율·지연·JVM·DB pool·AI 제공자 | 계약을 구현한 앱을 Prometheus에 등록 | 상세 대시보드 3개·초기 알림 8개 준비. 검증 후 타깃 활성화 |
 | 외부 HTTPS 경로·배포 실패 | 기존 GitHub Actions | 기존 Discord 알림 유지 |
 
 CloudWatch는 호스트 밖에서 감시하므로 EC2와 PG가 함께 죽어도 EC2 상태 알림이 남는다. 내부 프로브와 Actions 외부 감시는 관측 경로가 다르다. 동일 장애에서 두 알림이 올 수 있고, Grafana는 지속 장애를 4시간마다 다시 알린다. 서버 자원 임계치 알림은 CloudWatch가 담당해 중복 설정하지 않는다.
@@ -124,18 +124,18 @@ aws ssm start-session --region ap-northeast-2 --target i-REPLACE \
 
 ## 6. BE·AI 지표를 연결할 때
 
-현재 앱 코드가 이 저장소에 없으므로 `/actuator/prometheus`, `/metrics` 구현 완료로 간주하지 않는다. 기본 `monitoring/prometheus/targets/application.json`은 빈 배열이다. 앱 팀의 [계약](v1-app-contracts.md#모니터링-추가-계약)을 확인한 뒤 예를 들어:
+Cloud가 [상세 메트릭 계약 v1](monitoring-metrics-contract.md), HTTP/BE/AI 대시보드와 초기 알림 규칙을 먼저 준비했다. 앱 코드는 이 저장소에 없으므로 endpoint 구현 완료로 간주하지 않는다. 기본 `monitoring/prometheus/targets/application.json`은 빈 배열이며 구현·공개 차단 검증을 통과한 항목만 등록한다. 아래 예시의 `metrics_contract=v1`은 상세 집계·알림 적용 조건이다.
 
 ```json
 [
-  {"targets":["backend:8080"],"labels":{"service":"backend","__metrics_path__":"/actuator/prometheus"}},
-  {"targets":["ai-api:8000"],"labels":{"service":"ai-api","__metrics_path__":"/metrics"}}
+  {"targets":["backend:8080"],"labels":{"service":"backend","metrics_contract":"v1","__metrics_path__":"/actuator/prometheus"}},
+  {"targets":["ai-api:8000"],"labels":{"service":"ai-api","metrics_contract":"v1","__metrics_path__":"/metrics"}}
 ]
 ```
 
 BE는 Micrometer Prometheus registry와 Actuator 노출·접근 설정이 필요하다. 현재 healthcheck 포트·경로는 유지한다. AI는 Prometheus 형식의 요청 수·오류·지연 histogram을 노출한다. 사용자 ID·요청 원문·토큰·전체 URL을 label로 쓰지 않고 정규화된 route·method·status로 제한한다. Nginx의 모든 공개 우회 경로에서 metrics가 차단되는지 앱 팀과 확인한 뒤 등록한다. 공개 `/api` rewrite로 actuator가 노출되지 않는지도 점검한다. 관리 포트를 별도로 바꾸면 healthcheck·probe와 네트워크 계약도 함께 수정해야 한다.
 
-30초 안에 file discovery가 반영되고, `up{job="application"}=1`과 실제 metric 이름을 확인한다. 그 뒤 요청률·5xx 비율·p95·JVM/connection pool 대시보드와 서비스별 임계치를 정한다. 내부 health 지연 그래프는 실제 사용자 요청의 p95가 아니다. 아직 없는 메트릭을 0으로 표현하지 않는다.
+file discovery는 약 30초 주기로 반영된다. `up{job="application"}=1`, 계약의 capability·class·count·bucket을 확인한 뒤 이미 준비된 대시보드와 초기 임계치를 실측으로 조정한다. 적용·검증·알림별 대응은 [앱 알림 운영 절차](monitoring-alert-runbook.md)를 따른다. 내부 health 지연 그래프는 실제 사용자 요청의 p95가 아니며, 없는 메트릭은 0으로 표현하지 않는다.
 
 ## 7. 변경·복구·인수 시험
 

@@ -44,7 +44,7 @@
 - CloudWatch 로그 그룹·제한된 쓰기 IAM·Agent 지표 누락 알람, 선택 활성화하는 앱 awslogs override를 추가했다. 기존 EC2·RDS 알람 초안을 유지했다.
 - 별도 PG Compose, node/blackbox exporter, Grafana 대시보드·Discord contact point·서비스/수집 실패 rule을 준비했다. 앱 계측 타깃은 구현 확인 전까지 비활성이다.
 - 로컬 Docker Compose 구조 검사(기본/로그 활성화/모니터링), 로그 override가 다른 앱 설정을 바꾸지 않는지 등 Python 계약 검사 3개, deploy.sh Bash 구문 검사 통과.
-- CI에 promtool·blackbox 설정 검사를 추가했다. **로컬 Docker daemon이 실행 중이지 않아 컨테이너 기동·Grafana provisioning·promtool/blackbox 실행 검증은 아직 못 했다.** AWS 스택 생성·로그 전송·SNS/Discord 실제 수신도 수행하지 않았다.
+- CI에 promtool·blackbox 설정 검사를 추가했다. 초기 작업에서는 Docker daemon이 없어 실행 검사하지 못했으며, 아래 상세 메트릭 작업에서 native promtool로 앱 규칙 검증을 추가했다. 컨테이너 기동·Grafana provisioning·blackbox 실행, AWS 스택 생성·로그 전송·SNS/Discord 실제 수신은 아직 수행하지 않았다.
 - 적용·복구·앱 팀 계약·인수 시험은 [모니터링 운영 구성](v1-monitoring.md)에 있다.
 
 ## 2026-09-30 Secret 자동 조회 복원
@@ -53,6 +53,13 @@
 - env_file의 변경을 Compose 해시만으로 감지할 수 없는 로컬 CLI 동작을 확인해, BE·AI별 마지막 적용 컨테이너 ID와 env/JWT 파일 지문을 별도 기록한다. pull 실패 후 재시도에서도 변경을 놓치지 않는다.
 - `tests/test_runtime.py`, `tests/test_runtime_deploy.py`에 조회·검증 오류, 파일 보존, env/JWT 변경, 무변경, 차단·재시도·이미지 복구를 확인하는 15개 회귀 시험을 추가했다. AWS와 Docker 동작은 대체하며 Compose config 검사는 실제 CLI를 사용한다. Windows 시험에서는 소유권·파일 mode와 flock을 대체하므로 실제 Linux 권한·잠금 검증은 아니다.
 - 실제 AWS 조회·EC2 컨테이너 교체·서비스 인증은 이번 작업에서 실행하지 않았다. GitHub CI의 ShellCheck/actionlint와 운영 인수는 별도로 확인한다.
+
+## 2026-09-30 상세 메트릭 계약·설정
+
+- [파트 전달용 계약](monitoring-metrics-contract.md)에 공통 HTTP, BE JVM/Hikari, AI 제공자·TTFT·재시도·토큰 지표의 이름·단위·label·bucket·측정 경계와 파트별 확인 항목을 정의했다.
+- Prometheus recording rule 8개·초기 alert rule 8개, Grafana 상세 대시보드 3개·앱 알림 전달 rule을 추가했다. 타깃이 비어 있는 현재 상태에서 앱 알림은 발생하지 않는다. 임계치/for는 Prometheus가 판정하고 Grafana는 Discord 전달을 담당한다.
+- 공식 Prometheus 3.13.3 Windows 배포물의 SHA256을 확인하고 native promtool로 16개 규칙 문법, 무트래픽·저트래픽·counter reset·장애/복구·계측 누락·취소 제외 등을 포함한 **19개 시나리오**를 통과했다. 이 안에서 **대시보드/전달 PromQL 27개**의 미등록 상태 평가도 확인했다.
+- CI에 생성 JSON 일치 검사와 promtool 동작 시험을 추가했다. 적용/회신/알림별 대응은 [운영 절차](monitoring-alert-runbook.md)에 기록했다. 실제 BE·AI 코드 구현과 Grafana 컨테이너 provisioning·운영 알림 수신 검증은 별도로 남아 있다.
 
 ## 남은 검증과 적용
 

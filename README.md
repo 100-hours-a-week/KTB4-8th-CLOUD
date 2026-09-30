@@ -8,6 +8,8 @@
 | --- | --- |
 | 전체 흐름, 구성 이유, 파일 역할, 실패 시 동작과 한계 | [전체 설명](docs/v1-design.md) |
 | CloudWatch 로그·알람, Prometheus·Grafana 구성과 적용 순서 | [모니터링 운영 구성](docs/v1-monitoring.md) |
+| BE·AI·FE 전달용 상세 메트릭·bucket·초기 임계치 | [메트릭 계약 v1](docs/monitoring-metrics-contract.md) |
+| 앱 대시보드 적용·검증·장애별 대응 | [앱 알림 운영 절차](docs/monitoring-alert-runbook.md) |
 | 장애 알림 구축, 감지 기준, Discord 연결·수신 시험 | [장애 알림 시스템](docs/v1-alerting.md) |
 | 배포 성공 판정, 자동·수동 롤백, 차단·재배포·인수 시험 | [배포 검증 및 롤백](docs/v1-deployment-verification-and-rollback.md) |
 | 최초 연결, dry_run, 호스트 조회, Secret 변경 | [운영 절차](docs/v1-operations.md) |

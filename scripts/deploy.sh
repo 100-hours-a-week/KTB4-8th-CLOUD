@@ -6,6 +6,7 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HOST_DIR="${HOST_DIR:-/opt/keepgo}"          # compose.yaml이 bind하는 호스트 경로의 기준. 시험에서만 바꾼다
 COMPOSE=(docker compose -f "${ROOT_DIR}/compose.yaml")
 # AWS 로그 그룹·IAM 준비 후 운영자가 활성화한다. 이후 자동 배포에도 같은 설정을 유지한다.
 if [[ -f /opt/keepgo/runtime/cloudwatch-logs.enabled ]]; then
@@ -47,6 +48,14 @@ for service, name in names.items():
 PY
 )" || { log "Manifest를 읽을 수 없다"; finish 2 invalid_manifest; }
 eval "${exports}"
+# compose.yaml의 bind mount는 create_host_path: false라 경로가 없으면 컨테이너가 생성되지 않고, 롤백도 같은 이유로
+# 실패한다. compose config로는 잡히지 않으므로 아무것도 바꾸기 전에 확인한다(TD-018).
+for path in "${HOST_DIR}/tls/fullchain.pem" "${HOST_DIR}/tls/privkey.pem"; do
+  [[ -s "${path}" ]] || { log "파일이 없거나 비어 있다: ${path}"; finish 2 host_files_missing; }
+done
+for path in "${HOST_DIR}/acme" "${HOST_DIR}/data/uploads"; do
+  [[ -d "${path}" ]] || { log "디렉터리가 없다: ${path}"; finish 2 host_files_missing; }
+done
 # main과 같이 매 배포에서 Secret을 조회한다. 실패를 명시적으로 처리한다(set -e에 의존하지 않음).
 python3 "${ROOT_DIR}/scripts/prepare-runtime.py" \
   || { log "Secret 조회·런타임 준비 실패. 컨테이너는 교체하지 않는다"; finish 2 runtime_prepare_failed; }

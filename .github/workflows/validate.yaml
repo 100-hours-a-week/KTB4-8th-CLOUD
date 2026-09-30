@@ -21,12 +21,7 @@ jobs:
 
       - name: Check manifest and sources
         run: |
-          jq -e '
-            keys == ["images"]
-            and (.images | keys) == ["ai-api", "backend", "frontend", "web"]
-            and all(.images[]; type == "string" and test("^[0-9a-f]{40}$"))
-            and .images.web == .images.frontend
-          ' deployment/production-manifest.json >/dev/null \
+          jq -e -f scripts/check-manifest.jq deployment/production-manifest.json >/dev/null \
             || { echo "Manifest: 네 서비스의 40자리 SHA가 필요하고 web·frontend SHA가 같아야 한다" >&2; exit 1; }
           jq -e '
             ([.[].services[]] | sort) == ["ai-api", "backend", "frontend", "web"]
@@ -34,19 +29,31 @@ jobs:
           ' deployment/sources.json >/dev/null \
             || { echo "sources.json: 모든 서비스를 정확히 한 번씩 담당해야 한다" >&2; exit 1; }
 
+      # 러너의 Compose v2는 --no-env-resolution이어도 required env_file이 없으면 실패한다.
+      # EC2에만 있는 런타임 파일을 빈 파일로 대신한다. 값은 읽지 않는다.
+      - name: Create placeholder runtime files
+        run: |
+          sudo install -d /opt/keepgo/runtime/jwt
+          sudo touch /opt/keepgo/runtime/{backend,ai,monitoring}.env \
+            /opt/keepgo/runtime/jwt/{public,private}_key.pem /opt/keepgo/runtime/grafana_admin_password
+
       - name: Check compose
         run: |
           eval "$(jq -r '.images | "export NGINX_IMAGE_TAG=\(.web) WEB_IMAGE_TAG=\(.frontend) BACKEND_IMAGE_TAG=\(.backend) AI_IMAGE_TAG=\(.["ai-api"])"' deployment/production-manifest.json)"
-          # EC2에만 있는 env·Secret 파일은 읽지 않고 구조만 검사한다.
+          # env 값은 해석하지 않고 구조만 검사한다.
           AWS_ACCOUNT_ID=000000000000 docker compose -f compose.yaml config --no-env-resolution --quiet
           AWS_ACCOUNT_ID=000000000000 docker compose -f compose.yaml -f compose.cloudwatch.yaml config --no-env-resolution --quiet
           docker compose -f compose.monitoring.yaml config --no-env-resolution --quiet
 
       - name: Check monitoring configuration
         run: |
+          python3 scripts/render-app-monitoring.py --check
           monitoring="$(docker compose -f compose.monitoring.yaml config --no-env-resolution --format json)"
           docker run --rm -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
             --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" check config /etc/prometheus/prometheus.yml
+          # 등록 전 무트래픽·계측 누락·오류/지연·counter reset을 실제 PromQL 엔진으로 검사한다.
+          docker run --rm -v "${PWD}:/repo:ro" -w /repo \
+            --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" test rules tests/prometheus/application.test.yml
           docker run --rm -v "${PWD}/monitoring/blackbox:/etc/blackbox:ro" \
             "$(jq -r '.services["blackbox-exporter"].image' <<<"${monitoring}")" --config.file=/etc/blackbox/blackbox.yml --config.check
           python3 -m unittest discover -s tests -p 'test_monitoring.py'

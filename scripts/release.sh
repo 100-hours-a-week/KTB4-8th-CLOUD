@@ -39,6 +39,9 @@ merge_release() {
   git checkout --quiet -B "${branch}" origin/main
   jq --arg sha "${sha}" --argjson s "${services}" 'reduce $s[] as $k (.; .images[$k] = $sha)' "${MANIFEST}" > manifest.tmp
   mv manifest.tmp "${MANIFEST}"
+  # main 보호 규칙 없이 병합하므로 Validate와 같은 검사를 여기서 한다(TD-017).
+  jq -e -f scripts/check-manifest.jq "${MANIFEST}" >/dev/null \
+    || { echo "${name}: 바뀐 Manifest가 형식 검사를 통과하지 못했다" >&2; return 1; }
   git commit --quiet -am "release: ${name} ${sha:0:12}"
   git push --quiet --force origin "${branch}"
   # 이전 실행이 병합 전에 멈췄다면 열려 있는 PR을 그대로 쓴다.

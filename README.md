@@ -15,6 +15,7 @@
 | 최초 연결, dry_run, 호스트 조회, Secret 변경 | [운영 절차](docs/v1-operations.md) |
 | 대안 비교, 결정 변경 이력, 재검토 조건 | [기술 결정](docs/technical-decisions.md) |
 | 앱 팀이 지켜야 할 CI·이미지·health 계약 | [앱 저장소 계약](docs/v1-app-contracts.md) |
+| 앱 코드와 Secret 값이 어긋날 때의 위험, 대응 방법과 트레이드오프, 새 환경변수 추가 절차 | [설정·Secret 어긋남](docs/v1-config-secret-gap.md) |
 | 검증한 범위와 아직 확인하지 않은 항목 | [구현 및 검증 현황](docs/v1-implementation-status.md) |
 
 운영 목표 SHA는 [production-manifest.json](deployment/production-manifest.json), 조회 대상은 [sources.json](deployment/sources.json)이 기준이다. Git의 목표와 EC2의 실제 버전은 다를 수 있다. 운영 적용 완료 여부는 위 검증 현황에서 확인한다.

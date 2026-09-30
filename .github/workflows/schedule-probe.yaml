@@ -1,0 +1,18 @@
+name: Schedule probe
+
+# 임시 실험(2026-09-30): 이 레포에서 schedule 이벤트가 실행되는지 확인한다.
+# Auto release·Health check의 schedule이 한 번도 실행되지 않아 원인을 가르기 위한 최소 workflow다.
+# 결과 확인 후 삭제한다.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: echo "event=${GITHUB_EVENT_NAME} actor=${GITHUB_ACTOR} at $(date -u +%FT%TZ)"

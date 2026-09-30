@@ -1,0 +1,50 @@
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+  external_labels:
+    environment: production
+    cluster: keepgo-v1
+
+# 앱 미등록 상태에서도 규칙을 로드한다. 발송 조건은 등록된 계약 v1 타깃에만 적용한다.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: [prometheus:9090]
+  - job_name: node
+    static_configs:
+      - targets: [node-exporter:9100]
+  - job_name: blackbox
+    static_configs:
+      - targets: [blackbox-exporter:9115]
+  - job_name: service-health
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: ["http://web/healthz"]
+        labels: {service: web}
+      - targets: ["http://frontend:3000/"]
+        labels: {service: frontend}
+      - targets: ["http://backend:8080/actuator/health"]
+        labels: {service: backend}
+      - targets: ["http://ai-api:8000/health"]
+        labels: {service: ai-api}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+  # 계약·기본 대시보드·알림은 미리 준비한다. 앱 구현 확인 후 아래 타깃만 활성화한다.
+  # docs/monitoring-metrics-contract.md, monitoring/examples/application-targets.json 참고.
+  - job_name: application
+    sample_limit: 10000
+    label_limit: 40
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/application.json]
+        refresh_interval: 30s

@@ -1,0 +1,218 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  KeepGo V1 앱 로그와 서버 자원·DB 알람. CloudWatch는 EC2·RDS 상태를 SNS 이메일로 알리고,
+  Prometheus·Grafana는 내부 서비스와 수집 상태를 별도로 감시한다.
+
+Parameters:
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: 운영 EC2 인스턴스
+  DBInstanceIdentifier:
+    Type: String
+    Default: keepgo-db-v1
+    Description: 운영 RDS 식별자 (RDS 콘솔의 "DB 식별자")
+  AlarmEmail:
+    Type: String
+    AllowedPattern: '.+@.+'
+    Description: 알림 받을 이메일. 스택 생성 후 받은 구독 확인 메일에서 Confirm을 눌러야 발송된다
+  InstanceRoleName:
+    Type: String
+    Default: ''
+    Description: >-
+      EC2 인스턴스 역할 이름. 입력하면 Agent 지표 전송과 Docker 로그 전송 권한을 붙인다.
+      비워 두면 아래 두 정책과 동일한 권한을 직접 연결해야 한다
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [7, 14, 30, 60, 90]
+    Description: 앱 로그 보관 일수
+  DiskUsedPercent:
+    Type: Number
+    Default: 80
+    Description: EC2 루트 디스크 사용률 경고 기준(%)
+  MemoryUsedPercent:
+    Type: Number
+    Default: 90
+    Description: EC2 메모리 사용률 경고 기준(%)
+  RdsFreeStorageBytes:
+    Type: Number
+    Default: 3221225472
+    Description: RDS 남은 저장 공간 경고 기준(바이트). 기본 3 GiB
+  RdsCpuPercent:
+    Type: Number
+    Default: 85
+    Description: RDS CPU 사용률 경고 기준(%)
+
+Conditions:
+  AttachAgentPolicy: !Not [!Equals [!Ref InstanceRoleName, '']]
+
+Resources:
+  ApplicationLogs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /keepgo/v1/application
+      RetentionInDays: !Ref LogRetentionDays
+
+  DockerLogsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: AttachAgentPolicy
+    Properties:
+      Description: KeepGo application log streams only
+      Roles: [!Ref InstanceRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: [logs:CreateLogStream, logs:PutLogEvents]
+            Resource: !GetAtt ApplicationLogs.Arn
+
+  Alerts:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: keepgo-v1-alerts
+      DisplayName: KeepGo V1
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmEmail
+
+  # CloudWatch Agent가 CWAgent 네임스페이스에만 지표를 쓸 수 있게 한다.
+  AgentMetricsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: AttachAgentPolicy
+    Properties:
+      Description: KeepGo V1 CloudWatch Agent 지표 전송
+      Roles: [!Ref InstanceRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: cloudwatch:PutMetricData
+            Resource: '*'
+            Condition:
+              StringEquals:
+                cloudwatch:namespace: CWAgent
+
+  # EC2 자체 또는 하드웨어 이상. 인스턴스가 응답하지 않아 지표가 끊겨도 경보로 본다.
+  Ec2StatusCheck:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-v1-ec2-status-check
+      AlarmDescription: >-
+        EC2 상태 검사 실패. EC2 콘솔의 상태 검사 탭을 확인한다.
+        인스턴스 검사 실패는 재부팅, 시스템 검사 실패는 중지 후 시작으로 다른 호스트로 옮긴다.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+
+  # Docker 이미지·로그가 쌓이는 루트 디스크. CloudWatch Agent 지표(InstanceId로 집계).
+  Ec2Disk:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-v1-ec2-disk
+      AlarmDescription: >-
+        EC2 루트 디스크 사용률 높음. EC2에서 df -h, docker system df로 원인을 확인하고
+        사용하지 않는 이미지(docker image prune)와 오래된 로그를 정리한다.
+      Namespace: CWAgent
+      MetricName: disk_used_percent
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: !Ref DiskUsedPercent
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+
+  Ec2Memory:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-v1-ec2-memory
+      AlarmDescription: >-
+        EC2 메모리 사용률이 15분 넘게 높음. docker stats로 컨테이너별 사용량을 확인한다.
+        특정 컨테이너가 mem_limit에 닿아 재시작을 반복하는지도 본다.
+      Namespace: CWAgent
+      MetricName: mem_used_percent
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: !Ref MemoryUsedPercent
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+
+  AgentMetricsMissing:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-v1-agent-metrics-missing
+      AlarmDescription: Agent 메모리 지표가 15분간 없음. Agent·IAM·AWS 통신 경로를 확인한다.
+      Namespace: CWAgent
+      MetricName: mem_used_percent
+      Dimensions: [{Name: InstanceId, Value: !Ref InstanceId}]
+      Statistic: SampleCount
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+
+  # DB가 멈추거나 삭제돼 지표가 끊겨도 경보로 본다.
+  RdsFreeStorage:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-v1-rds-free-storage
+      AlarmDescription: >-
+        RDS 남은 저장 공간 부족. 공간이 모두 차면 쓰기가 멈춘다.
+        큰 테이블·로그 테이블을 확인하고 RDS 콘솔에서 스토리지를 늘린다(서비스 중단 없이 가능).
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions: [{Name: DBInstanceIdentifier, Value: !Ref DBInstanceIdentifier}]
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref RdsFreeStorageBytes
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+
+  RdsCpu:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-v1-rds-cpu
+      AlarmDescription: >-
+        RDS CPU 사용률이 15분 넘게 높음. RDS 콘솔 모니터링에서 연결 수·쿼리 부하를 확인하고
+        느린 쿼리와 최근 배포 변경을 점검한다.
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions: [{Name: DBInstanceIdentifier, Value: !Ref DBInstanceIdentifier}]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: !Ref RdsCpuPercent
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref Alerts]
+      OKActions: [!Ref Alerts]
+
+Outputs:
+  ApplicationLogGroup:
+    Description: Docker awslogs 전송 대상 (14일 기본 보관)
+    Value: !Ref ApplicationLogs
+  AlertsTopicArn:
+    Description: 알림 SNS 토픽
+    Value: !Ref Alerts

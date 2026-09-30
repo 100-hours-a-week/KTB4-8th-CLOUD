@@ -71,6 +71,8 @@ origin/main은 2f17f80(PR #18, Backend c2dab78)이다. 이번 재점검에서는
 | Secret-v1-BE | GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, VWORLD_API_KEY | 선택. 없으면 경고만 | Google 로그인·redirect URI, 위치 기능 |
 | Secret-v1-AI | GOOGLE_API_KEY | 필수 | 실제 AI 요청 성공, 모델(gemini-3.8-flash)·할당량 |
 | Secret-v1-AI | NAVER_MAP_CLIENT_ID, NAVER_MAP_CLIENT_SECRET | 필수(TD-018). 없으면 배포 중단 | 지도·주소 기능. main 배포가 같은 검사를 통과해 왔으므로 운영 Secret에는 있다 |
+| Secret-v1-AI | SENTRY_DSN | 선택(TD-019). 있으면 ai.env로 전달 | AI main(8bd3c32~)의 Sentry. 운영 Secret에 있음(2026-09-30 확인) |
+| Secret-v1-AI | GOOGLE_MODEL, LANGSMITH_API_KEY | 전달하지 않음 | 모델은 compose.yaml이 결정. LangSmith는 v2에서 AI 팀과 결정. GOOGLE_MODEL은 Secret에서 제거 권장 |
 
 값은 줄바꿈(PEM 제외)이 없어야 하고 JSON 키 이름에 공백·`=`가 없어야 한다. 이미 main 배포가 이 Secret으로 성공하고 있으므로 새로 등록할 필요는 없고, 선택 키(BE의 Google·VWorld)가 빠진 기능만 확인한다.
 

@@ -22,6 +22,7 @@
 | TD-016 | 2026-09-30 | 배포 시 Secret 자동 조회 유지, 실패 시 교체 중단, env·JWT 적용 상태 추적 | 채택 (운영 적용 전) |
 | TD-017 | 2026-09-30 | main 보호 규칙 없이 GITHUB_TOKEN으로 자동 병합, 형식 검사는 release.sh에서 수행 | 채택 |
 | TD-018 | 2026-09-30 | main의 배포 사전 검사 복원(TLS·ACME·uploads, NAVER 키 필수), 배포는 main에서만 | 채택 (운영 적용 전) |
+| TD-019 | 2026-09-30 | AI의 SENTRY_DSN을 선택 키로 주입, 목록에 없는 Secret 키는 계속 전달하지 않음 | 채택 (운영 적용 전) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -311,6 +312,23 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 **검증:** prepare-runtime 단위 시험(NAVER 키 누락 시 파일 보존·중단), deploy.sh 회귀 시험(각 경로 누락 시 Secret 조회·Docker 호출 없이 종료). 경로 기준은 `HOST_DIR`(기본 `/opt/keepgo`)로 시험에서만 바꾼다.
 
 **재검토:** 지도 기능을 선택 기능으로 바꾸거나 TLS를 ALB/ACM으로 옮기면 해당 검사를 조정한다.
+
+## TD-019 — AI Secret 키 전달 범위와 SENTRY_DSN
+
+**상태:** 채택 (2026-09-30). 다음 AI 배포부터 적용된다.
+
+**맥락:** prepare-runtime.py는 Secret의 모든 키가 아니라 코드에 적힌 키만 env 파일로 옮긴다. 운영 `Secret-v1-AI`에는 `GOOGLE_MODEL`, `LANGSMITH_API_KEY`, `SENTRY_DSN`이 더 있지만 컨테이너에 전달되지 않았다(main도 동일). 운영 중인 AI `f7476b5`에는 영향이 없었지만, AI 원격 main(`4bd2efc`, 커밋 `8bd3c32`)은 `SENTRY_DSN`이 있을 때만 Sentry를 켜고 설정 주석에 "운영에서는 인프라가 환경변수로 주입한다"고 명시했다. 그대로 두면 자동 배포 후 Sentry가 오류 없이 꺼진 채 운영된다.
+
+| 대안 | 판단 |
+| --- | --- |
+| Secret의 모든 키를 그대로 전달 | 앱 팀이 키를 추가하면 바로 반영되지만, 의도하지 않은 값(추적 키 등)도 컨테이너에 들어가고 필수 검증이 약해진다 |
+| 필요한 키만 목록에 추가 — 채택 | 컨테이너에 들어가는 값을 Cloud 저장소에서 검토할 수 있다. 앱이 새 키를 요구하면 이 목록도 바꿔야 한다 |
+
+**선택:** `SENTRY_DSN`을 `AI_OPTIONAL`에 추가한다. 없으면 배포 로그에 경고만 남기고 계속한다. `LANGSMITH_API_KEY`는 AI 코드·의존성에서 쓰지 않고(v2 예정), LangChain 추적은 `LANGSMITH_TRACING=true`도 필요하므로 전달하지 않는다. 켜면 프롬프트·사용자 입력이 외부로 전송되므로 AI 팀과 별도로 결정한다. `GOOGLE_MODEL`은 비밀값이 아니며 compose.yaml(`gemini-3.8-flash`)에서 관리한다. Secret의 값은 쓰이지 않으므로 AI 팀과 확인 후 Secret에서 제거하는 것을 권장한다.
+
+**감수하는 단점:** 앱이 새 환경변수를 요구할 때마다 Cloud 저장소의 목록 변경이 필요하다. 목록에 없는 키는 조용히 무시된다.
+
+**재검토:** LangSmith 추적을 켜기로 하거나 앱이 Secret 기반 설정을 더 늘리면, 전달 목록을 앱 계약 문서와 함께 다시 정한다.
 
 ## 이후 기록 양식
 

@@ -65,7 +65,13 @@ Compose 라벨에 의존하지 않고 **마지막 배포가 그 컨테이너에 
   - backend 설정만 변경 → backend만 한 번 재생성
   - 직접 재생성된 컨테이너 → 라벨로 판단해 한 번 재생성
 - **수정 전 deploy.sh로 돌리면 새 시험 2개가 운영과 똑같이 실패**(`['ai-api', 'backend'] != ['backend']`, `unchanged` 없음)한다. 시험이 버그를 재현하는 것을 확인했다.
-- 운영 반영 후 첫 배포는 기록을 만들며 backend·ai-api를 한 번 더 재생성한다. **이후 같은 커밋으로 한 번 더 배포해 `result=unchanged services=none`을 확인한다**(미확인, 체크리스트 8절).
+- 운영 확인 (EC2 `history.log`):
+
+```text
+08:20:55 commit=970f4e4… result=success   services=backend frontend web   ← 수정 반영 첫 배포. backend는 기록이 없어 한 번 재생성(예상대로)
+08:21:20 commit=5ec6cf7… result=unchanged services=none                   ← 수정 전이라면 backend·ai-api를 또 재생성했을 배포
+11:53:03 commit=430c4ed… result=unchanged services=none                   ← 변경 없는 수동 배포(#20), 약 30초
+```
 
 ## 회고
 

@@ -16,7 +16,7 @@
 | 날짜 | 문제 | 영향 | 상태 |
 | --- | --- | --- | --- |
 | 2026-09-30 | [GitHub Actions schedule이 한 번도 실행되지 않음](2026-09-30-actions-schedule-not-running.md) | 자동 배포·외부 감시가 돌지 않음 | 우회 해결 (EventBridge), 조직 원인 문의 중 |
-| 2026-09-30 | [변경 없는 배포가 backend·ai-api를 매번 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) | 배포마다 두 서비스 재시작·순단, 배포 시간 약 2분 증가 | 수정 반영(#23), 운영 unchanged 확인 대기 |
+| 2026-09-30 | [변경 없는 배포가 backend·ai-api를 매번 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) | 배포마다 두 서비스 재시작·순단, 배포 시간 약 2분 증가 | 해결 (#23, 운영 `unchanged` 확인) |
 | 2026-09-30 | [첫 수동 배포가 13분 걸림 (승인 대기)](2026-09-30-deploy-approval-wait.md) | 배포가 승인자 확인 전까지 멈춤 | 해결 (승인자 제거) |
 | 2026-09-30 | [JSON Manifest가 main보다 이전 backend를 가리킴](2026-09-30-manifest-backend-regression.md) | 병합 시 backend가 이전 버전으로 되돌아갈 뻔함 | 해결 (병합 전 발견) |
 | 2026-09-30 | [Validate에서 `backend.env not found`](2026-09-30-validate-env-file-not-found.md) | PR 검사 실패로 병합 불가 | 해결 |

@@ -25,7 +25,8 @@ env:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || vars.AUTO_DEPLOY_ENABLED == 'true'
+    # EC2는 origin main만 fetch한다. Run workflow에서 다른 브랜치를 고르면 배포하지 않고 skip한다(TD-018).
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.AUTO_DEPLOY_ENABLED == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment:

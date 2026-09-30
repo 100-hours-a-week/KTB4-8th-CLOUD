@@ -11,7 +11,8 @@ contactPoints:
 policies:
   - orgId: 1
     receiver: keepgo-discord
-    group_by: [grafana_folder, alertname, service]
+    # 앱 전달 rule 하나에서 여러 장애를 내보내므로 signal별로 묶는다.
+    group_by: [grafana_folder, alertname, service, signal]
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 4h

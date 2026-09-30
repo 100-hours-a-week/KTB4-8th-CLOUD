@@ -1,0 +1,88 @@
+# 초기 운영 가설이며 확정 SLO가 아니다. 근거·담당자 확인 항목은 docs/monitoring-metrics-contract.md.
+# 이 규칙이 for 시간을 판정하고 Grafana가 ALERTS를 Discord에 전달한다. Alertmanager는 추가하지 않는다.
+# 타깃을 등록하지 않은 파트에는 알리지 않는다. up=0은 기존 수집 실패 알림이 담당한다.
+groups:
+  - name: keepgo-application-alerts
+    rules:
+      - alert: KeepGoHttpMetricsMissing
+        expr: |
+          (up{job="application",metrics_contract="v1"} == 1)
+          unless on (service, instance)
+          (
+            (keepgo_observability_info{job="application",contract="1",capability="http"} == 1)
+            and on (service, instance)
+            (
+              http_server_requests_seconds_count{job="application",service="backend",traffic_class=~"interactive|generation|stream"}
+              or keepgo_http_requests_total{job="application",service="ai-api",traffic_class=~"interactive|generation|stream"}
+            )
+            and on (service, instance)
+            (
+              http_server_requests_seconds_bucket{job="application",service="backend",traffic_class=~"interactive|generation|stream",le="+Inf"}
+              or keepgo_http_request_duration_seconds_bucket{job="application",service="ai-api",traffic_class=~"interactive|generation|stream",le="+Inf"}
+            )
+          )
+        for: 10m
+        labels: {scope: application, severity: warning, signal: http_metrics_missing}
+        annotations:
+          summary: Registered HTTP metrics contract is incomplete; check capability, traffic_class, count and histogram.
+      - alert: KeepGoHttp5xxHigh
+        expr: |
+          (keepgo:http_5xx:ratio5m > 0.05)
+          and on (service) (sum by (service) (keepgo:http_requests:increase5m) >= 20)
+          and on (service) (sum by (service) (keepgo:http_requests:increase5m{status=~"5.."}) >= 5)
+        for: 5m
+        labels: {scope: application, severity: warning, signal: http_5xx}
+        annotations:
+          summary: HTTP 5xx exceeds 5 percent with at least 20 requests and 5 errors in the rolling 5 minute window.
+      # 전체 요청 p95에 느린 생성/스트리밍을 섞지 않는다. 각 class에서 최소 100건을 요구한다.
+      - alert: KeepGoHttpLatencyHigh
+        expr: |
+          ((keepgo:http_duration:p95_5m{traffic_class="interactive"} > 2)
+           or (keepgo:http_duration:p95_5m{traffic_class="generation"} > 30))
+          and on (service, traffic_class)
+          (sum by (service, traffic_class) (keepgo:http_requests:increase5m) >= 100)
+        for: 10m
+        labels: {scope: application, severity: warning, signal: http_latency}
+        annotations:
+          summary: HTTP p95 exceeds the initial class budget (interactive 2s, generation 30s); streaming is excluded.
+      - alert: KeepGoJvmHeapHigh
+        expr: keepgo:jvm_heap:ratio > 0.85
+        for: 15m
+        labels: {scope: application, severity: warning, signal: jvm_heap}
+        annotations:
+          summary: JVM heap usage exceeds 85 percent for 15 minutes; correlate with GC before changing limits.
+      - alert: KeepGoDbPoolSaturated
+        expr: |
+          (keepgo:db_pool:ratio > 0.9)
+          and on (service, instance, pool)
+          (hikaricp_connections_pending{job="application",metrics_contract="v1"} > 0)
+        for: 5m
+        labels: {scope: application, severity: warning, signal: db_pool}
+        annotations:
+          summary: DB pool exceeds 90 percent usage with waiting callers for 5 minutes.
+      - alert: KeepGoDbConnectionTimeout
+        expr: sum by (service) (increase(hikaricp_connections_timeout_total{job="application",metrics_contract="v1"}[5m])) >= 3
+        for: 2m
+        labels: {scope: application, severity: warning, signal: db_timeout}
+        annotations:
+          summary: At least 3 DB connection acquisition timeouts in the rolling 5 minute window.
+      - alert: KeepGoAiProviderErrors
+        expr: |
+          (keepgo:ai_provider_errors:ratio5m > 0.1)
+          and on (service, provider, model)
+          (sum by (service, provider, model) (increase(keepgo_ai_provider_requests_total{job="application",metrics_contract="v1",outcome!="cancelled"}[5m])) >= 20)
+          and on (service, provider, model)
+          (sum by (service, provider, model) (increase(keepgo_ai_provider_requests_total{job="application",metrics_contract="v1",outcome=~"error|timeout|rate_limited"}[5m])) >= 5)
+        for: 5m
+        labels: {scope: application, severity: warning, signal: ai_provider_errors}
+        annotations:
+          summary: AI provider attempt failures exceed 10 percent, with at least 20 attempts and 5 failures per 5 minutes.
+      - alert: KeepGoAiFirstTokenSlow
+        expr: |
+          (histogram_quantile(0.95, sum by (service, provider, model, le) (rate(keepgo_ai_first_token_seconds_bucket{job="application",metrics_contract="v1"}[10m]))) > 5)
+          and on (service, provider, model)
+          (sum by (service, provider, model) (increase(keepgo_ai_first_token_seconds_count{job="application",metrics_contract="v1"}[10m])) >= 20)
+        for: 10m
+        labels: {scope: application, severity: warning, signal: ai_first_token}
+        annotations:
+          summary: Successful streaming first-token p95 exceeds 5 seconds with at least 20 observations per 10 minutes.

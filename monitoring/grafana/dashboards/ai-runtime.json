@@ -1,0 +1,300 @@
+{
+  "id": null,
+  "uid": "keepgo-ai",
+  "title": "KeepGo - AI Providers and Streaming",
+  "description": "Contract v1. Provider attempts include retries; logical requests do not. First-token samples require a delivered token. Token usage is reported usage, not an estimated bill.",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "keepgo",
+    "application"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Provider attempts / second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "keepgo-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(provider,model,outcome)(rate(keepgo_ai_provider_requests_total{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "legendFormat": "{{provider}} / {{model}} / {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Provider failure ratio (cancelled attempts excluded)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "keepgo-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "keepgo:ai_provider_errors:ratio5m",
+          "legendFormat": "{{provider}} / {{model}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Provider attempt p95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "keepgo-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(provider,model,le)(rate(keepgo_ai_provider_request_duration_seconds_bucket{job=\"application\",metrics_contract=\"v1\"}[5m])))",
+          "legendFormat": "{{provider}} / {{model}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Successful streaming first-token p95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "keepgo-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(provider,model,le)(rate(keepgo_ai_first_token_seconds_bucket{job=\"application\",metrics_contract=\"v1\"}[10m])))",
+          "legendFormat": "{{provider}} / {{model}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Extra provider attempts / second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "keepgo-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(provider,model,reason)(rate(keepgo_ai_retries_total{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "legendFormat": "{{provider}} / {{model}} / {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "In-flight logical AI requests",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "keepgo-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation)(keepgo_ai_requests_in_flight{job=\"application\",metrics_contract=\"v1\"})",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Reported tokens / minute (not a cost estimate)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "keepgo-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "60 * sum by(provider,model,type)(rate(keepgo_ai_tokens_total{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "legendFormat": "{{provider}} / {{model}} / {{type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Provider 429 / timeout / cancellation attempts",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "keepgo-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(provider,model,outcome)(increase(keepgo_ai_provider_requests_total{job=\"application\",metrics_contract=\"v1\",outcome=~\"rate_limited|timeout|cancelled\"}[5m]))",
+          "legendFormat": "{{provider}} / {{model}} / {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ]
+}

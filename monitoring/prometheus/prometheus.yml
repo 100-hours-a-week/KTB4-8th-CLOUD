@@ -6,6 +6,10 @@ global:
     environment: production
     cluster: keepgo-v1
 
+# 앱 미등록 상태에서도 규칙을 로드한다. 발송 조건은 등록된 계약 v1 타깃에만 적용한다.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
 scrape_configs:
   - job_name: prometheus
     static_configs:
@@ -36,7 +40,8 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox-exporter:9115
-  # 앱 팀이 endpoint를 구현하고 내부 접근·외부 차단을 확인한 뒤 JSON에 등록한다.
+  # 계약·기본 대시보드·알림은 미리 준비한다. 앱 구현 확인 후 아래 타깃만 활성화한다.
+  # docs/monitoring-metrics-contract.md, monitoring/examples/application-targets.json 참고.
   - job_name: application
     sample_limit: 10000
     label_limit: 40

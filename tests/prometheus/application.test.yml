@@ -1,0 +1,769 @@
+# JSON is valid YAML. Independent time-series fixtures; no live app or notification is used.
+{
+  "rule_files": [
+    "../../monitoring/prometheus/rules/*.yml"
+  ],
+  "evaluation_interval": "30s",
+  "fuzzy_compare": true,
+  "group_eval_order": [
+    "keepgo-application-recording",
+    "keepgo-application-alerts"
+  ],
+  "tests": [
+    {
+      "name": "Unregistered applications must not page",
+      "interval": "1m",
+      "input_series": [],
+      "alert_rule_test": [
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoHttpMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoHttp5xxHigh",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoHttpLatencyHigh",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoJvmHeapHigh",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoDbPoolSaturated",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoDbConnectionTimeout",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoAiProviderErrors",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoAiFirstTokenSlow",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Native BE metrics normalize route and no-error numerator",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+          "values": "0+180x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoHttp5xxHigh",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "keepgo:http_5xx:ratio5m",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "keepgo:http_5xx:ratio5m{service=\"backend\"}",
+              "value": 0
+            }
+          ]
+        },
+        {
+          "expr": "keepgo:http_requests:rate5m",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "keepgo:http_requests:rate5m{service=\"backend\",route=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+              "value": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Sustained HTTP failures respect pending time",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+          "values": "0+180x40"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"500\",traffic_class=\"interactive\"}",
+          "values": "0+20x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m",
+          "alertname": "KeepGoHttp5xxHigh",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "10m",
+          "alertname": "KeepGoHttp5xxHigh",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "http_5xx",
+                "service": "backend"
+              },
+              "exp_annotations": {
+                "summary": "HTTP 5xx exceeds 5 percent with at least 20 requests and 5 errors in the rolling 5 minute window."
+              }
+            }
+          ]
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Low-traffic ratio spikes must not page",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+          "values": "0+1x40"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"500\",traffic_class=\"interactive\"}",
+          "values": "0+1x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoHttp5xxHigh",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Zero traffic must not be treated as an error",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+          "values": "0+0x40"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"500\",traffic_class=\"interactive\"}",
+          "values": "0+0x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoHttp5xxHigh",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoHttpLatencyHigh",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Slow interactive class pages after ten minutes",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+          "values": "0+200x40"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\",le=\"2\"}",
+          "values": "0+20x40"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\",le=\"5\"}",
+          "values": "0+200x40"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\",le=\"+Inf\"}",
+          "values": "0+200x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "9m",
+          "alertname": "KeepGoHttpLatencyHigh",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "15m",
+          "alertname": "KeepGoHttpLatencyHigh",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "http_latency",
+                "service": "backend",
+                "traffic_class": "interactive"
+              },
+              "exp_annotations": {
+                "summary": "HTTP p95 exceeds the initial class budget (interactive 2s, generation 30s); streaming is excluded."
+              }
+            }
+          ]
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Streaming full duration is excluded from HTTP latency alarms",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"stream\"}",
+          "values": "0+200x40"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"stream\",le=\"30\"}",
+          "values": "0+20x40"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"stream\",le=\"300\"}",
+          "values": "0+200x40"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"stream\",le=\"+Inf\"}",
+          "values": "0+200x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "30m",
+          "alertname": "KeepGoHttpLatencyHigh",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Reachable endpoint with missing instrumentation is not healthy",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\"}",
+          "values": "1x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "9m",
+          "alertname": "KeepGoHttpMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "11m",
+          "alertname": "KeepGoHttpMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "http_metrics_missing",
+                "job": "application",
+                "metrics_contract": "v1",
+                "service": "backend",
+                "instance": "backend:8080"
+              },
+              "exp_annotations": {
+                "summary": "Registered HTTP metrics contract is incomplete; check capability, traffic_class, count and histogram."
+              }
+            }
+          ]
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Endpoint down is handled by scrape alert, not contract alert",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\"}",
+          "values": "0x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoHttpMetricsMissing",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "AI cancellation cannot dilute provider error ratio",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "keepgo_ai_provider_requests_total{job=\"application\",metrics_contract=\"v1\",service=\"ai-api\",instance=\"ai-api:8080\",provider=\"google\",model=\"configured-model\",outcome=\"success\"}",
+          "values": "0+10x40"
+        },
+        {
+          "series": "keepgo_ai_provider_requests_total{job=\"application\",metrics_contract=\"v1\",service=\"ai-api\",instance=\"ai-api:8080\",provider=\"google\",model=\"configured-model\",outcome=\"error\"}",
+          "values": "0+2x40"
+        },
+        {
+          "series": "keepgo_ai_provider_requests_total{job=\"application\",metrics_contract=\"v1\",service=\"ai-api\",instance=\"ai-api:8080\",provider=\"google\",model=\"configured-model\",outcome=\"cancelled\"}",
+          "values": "0+100x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "10m",
+          "alertname": "KeepGoAiProviderErrors",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "ai_provider_errors",
+                "service": "ai-api",
+                "provider": "google",
+                "model": "configured-model"
+              },
+              "exp_annotations": {
+                "summary": "AI provider attempt failures exceed 10 percent, with at least 20 attempts and 5 failures per 5 minutes."
+              }
+            }
+          ]
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Heap pressure requires fifteen minutes",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "jvm_memory_used_bytes{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",area=\"heap\",id=\"old\"}",
+          "values": "90x40"
+        },
+        {
+          "series": "jvm_memory_max_bytes{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",area=\"heap\",id=\"old\"}",
+          "values": "100x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "14m",
+          "alertname": "KeepGoJvmHeapHigh",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "16m",
+          "alertname": "KeepGoJvmHeapHigh",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "jvm_heap",
+                "service": "backend",
+                "instance": "backend:8080"
+              },
+              "exp_annotations": {
+                "summary": "JVM heap usage exceeds 85 percent for 15 minutes; correlate with GC before changing limits."
+              }
+            }
+          ]
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Busy DB pool without waiters is not saturation",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "hikaricp_connections_active{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",pool=\"main\"}",
+          "values": "10x40"
+        },
+        {
+          "series": "hikaricp_connections_max{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",pool=\"main\"}",
+          "values": "10x40"
+        },
+        {
+          "series": "hikaricp_connections_pending{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",pool=\"main\"}",
+          "values": "0x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoDbPoolSaturated",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "AI native HTTP counter is normalized",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "keepgo_http_requests_total{job=\"application\",metrics_contract=\"v1\",service=\"ai-api\",instance=\"ai-api:8080\",method=\"POST\",route=\"/generate\",status=\"200\",traffic_class=\"generation\"}",
+          "values": "0+60x40"
+        }
+      ],
+      "alert_rule_test": [],
+      "promql_expr_test": [
+        {
+          "expr": "keepgo:http_requests:rate5m",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "keepgo:http_requests:rate5m{service=\"ai-api\",method=\"POST\",route=\"/generate\",status=\"200\",traffic_class=\"generation\"}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Healthy traffic recovers from previous HTTP errors",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+          "values": "0+180x40"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"500\",traffic_class=\"interactive\"}",
+          "values": "0+20x10 200x30"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "10m",
+          "alertname": "KeepGoHttp5xxHigh",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "http_5xx",
+                "service": "backend"
+              },
+              "exp_annotations": {
+                "summary": "HTTP 5xx exceeds 5 percent with at least 20 requests and 5 errors in the rolling 5 minute window."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoHttp5xxHigh",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": []
+    },
+    {
+      "name": "Counter reset is handled before aggregation",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",uri=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+          "values": "0 60 120 180 240 0 60 120 180 240 300"
+        }
+      ],
+      "alert_rule_test": [],
+      "promql_expr_test": [
+        {
+          "expr": "keepgo:http_requests:rate5m",
+          "eval_time": "8m",
+          "exp_samples": [
+            {
+              "labels": "keepgo:http_requests:rate5m{service=\"backend\",route=\"/items/{id}\",method=\"GET\",status=\"200\",traffic_class=\"interactive\"}",
+              "value": 0.75
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DB pool high usage with waiters pages",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "hikaricp_connections_active{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",pool=\"main\"}",
+          "values": "10x40"
+        },
+        {
+          "series": "hikaricp_connections_max{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",pool=\"main\"}",
+          "values": "10x40"
+        },
+        {
+          "series": "hikaricp_connections_pending{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",pool=\"main\"}",
+          "values": "1x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoDbPoolSaturated",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "db_pool",
+                "job": "application",
+                "metrics_contract": "v1",
+                "service": "backend",
+                "instance": "backend:8080",
+                "pool": "main"
+              },
+              "exp_annotations": {
+                "summary": "DB pool exceeds 90 percent usage with waiting callers for 5 minutes."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Connection timeout events page",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "hikaricp_connections_timeout_total{job=\"application\",metrics_contract=\"v1\",service=\"backend\",instance=\"backend:8080\",pool=\"main\"}",
+          "values": "0+2x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoDbConnectionTimeout",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "db_timeout",
+                "service": "backend"
+              },
+              "exp_annotations": {
+                "summary": "At least 3 DB connection acquisition timeouts in the rolling 5 minute window."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Slow first token with sufficient successful samples pages",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "keepgo_ai_first_token_seconds_count{job=\"application\",metrics_contract=\"v1\",service=\"ai-api\",instance=\"ai-api:8080\",provider=\"google\",model=\"configured-model\"}",
+          "values": "0+10x40"
+        },
+        {
+          "series": "keepgo_ai_first_token_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"ai-api\",instance=\"ai-api:8080\",provider=\"google\",model=\"configured-model\",le=\"5\"}",
+          "values": "0+5x40"
+        },
+        {
+          "series": "keepgo_ai_first_token_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"ai-api\",instance=\"ai-api:8080\",provider=\"google\",model=\"configured-model\",le=\"10\"}",
+          "values": "0+10x40"
+        },
+        {
+          "series": "keepgo_ai_first_token_seconds_bucket{job=\"application\",metrics_contract=\"v1\",service=\"ai-api\",instance=\"ai-api:8080\",provider=\"google\",model=\"configured-model\",le=\"+Inf\"}",
+          "values": "0+10x40"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "KeepGoAiFirstTokenSlow",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "scope": "application",
+                "severity": "warning",
+                "signal": "ai_first_token",
+                "service": "ai-api",
+                "provider": "google",
+                "model": "configured-model"
+              },
+              "exp_annotations": {
+                "summary": "Successful streaming first-token p95 exceeds 5 seconds with at least 20 observations per 10 minutes."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Shipped dashboard and relay queries handle unregistered applications",
+      "interval": "1m",
+      "input_series": [],
+      "promql_expr_test": [
+        {
+          "expr": "sum by (service) (keepgo:http_requests:rate5m)",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "keepgo:http_5xx:ratio5m",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "(sum by (service) (keepgo:http_requests:rate5m{status=~\"4..\"}) or on(service) (0 * sum by(service)(keepgo:http_requests:rate5m))) / sum by(service)(keepgo:http_requests:rate5m)",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(service,traffic_class)(keepgo:http_requests:increase5m)",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "histogram_quantile(0.5, sum by(service,traffic_class,le)(keepgo:http_duration_seconds_bucket:rate5m))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by(service,traffic_class,le)(keepgo:http_duration_seconds_bucket:rate5m))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by(service,traffic_class,le)(keepgo:http_duration_seconds_bucket:rate5m))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "topk(10, sum by(service,method,route)(keepgo:http_requests:rate5m))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "up{job=\"application\",metrics_contract=\"v1\"}",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "keepgo_observability_info{job=\"application\",metrics_contract=\"v1\"}",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "keepgo:jvm_heap:ratio",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(instance,area)(jvm_memory_used_bytes{job=\"application\",metrics_contract=\"v1\"})",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(instance)(rate(jvm_gc_pause_seconds_sum{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(instance)(rate(jvm_gc_pause_seconds_count{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "jvm_threads_live_threads{job=\"application\",metrics_contract=\"v1\"}",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "keepgo:db_pool:ratio",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "hikaricp_connections_pending{job=\"application\",metrics_contract=\"v1\"}",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(instance,pool)(increase(hikaricp_connections_timeout_total{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(provider,model,outcome)(rate(keepgo_ai_provider_requests_total{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "keepgo:ai_provider_errors:ratio5m",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "histogram_quantile(0.95,sum by(provider,model,le)(rate(keepgo_ai_provider_request_duration_seconds_bucket{job=\"application\",metrics_contract=\"v1\"}[5m])))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "histogram_quantile(0.95,sum by(provider,model,le)(rate(keepgo_ai_first_token_seconds_bucket{job=\"application\",metrics_contract=\"v1\"}[10m])))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(provider,model,reason)(rate(keepgo_ai_retries_total{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(operation)(keepgo_ai_requests_in_flight{job=\"application\",metrics_contract=\"v1\"})",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "60 * sum by(provider,model,type)(rate(keepgo_ai_tokens_total{job=\"application\",metrics_contract=\"v1\"}[5m]))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "sum by(provider,model,outcome)(increase(keepgo_ai_provider_requests_total{job=\"application\",metrics_contract=\"v1\",outcome=~\"rate_limited|timeout|cancelled\"}[5m]))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "max by(service,signal,severity,instance,pool,traffic_class,provider,model)(ALERTS{scope=\"application\",alertstate=\"firing\"})",
+          "eval_time": "10m",
+          "exp_samples": []
+        }
+      ]
+    }
+  ]
+}

@@ -27,8 +27,9 @@ BACKEND_UID = 10001  # BE Dockerfile의 app 사용자(uid/gid 10001)
 BACKEND_REQUIRED = ["DB_USERNAME", "DB_PASSWORD"]
 # 없으면 뜨기는 하지만 해당 기능이 실패한다 (Google 값이 없으면 yaml 기본값으로 붙는다)
 BACKEND_OPTIONAL = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "VWORLD_API_KEY"]
-AI_REQUIRED = ["GOOGLE_API_KEY"]
-AI_OPTIONAL = ["NAVER_MAP_CLIENT_ID", "NAVER_MAP_CLIENT_SECRET"]
+# NAVER 키가 없으면 AI는 뜨지만 지도·주소 요청이 모두 실패한다. main의 deploy.sh도 필수로 검사했다(TD-018)
+AI_REQUIRED = ["GOOGLE_API_KEY", "NAVER_MAP_CLIENT_ID", "NAVER_MAP_CLIENT_SECRET"]
+AI_OPTIONAL = []
 # BE는 RSA 키 쌍을 읽는다. JWT_SECRET(HMAC 문자열)은 코드에서 쓰지 않는다
 JWT_FILES = {
     "JWT_PUBLIC_KEY": ("public_key.pem", "-----BEGIN PUBLIC KEY-----"),

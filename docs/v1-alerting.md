@@ -173,7 +173,7 @@ Grafana 알림은 같은 Discord 채널에 Grafana 기본 형식으로 온다. �
 | 🚨 자동 릴리스 실패 | 실패한 저장소와 단계 | GitHub API 일시 오류면 다음 조회에서 풀린다. PR 생성 권한 설정이나 브랜치 보호 규칙 문제면 설정을 고친다. **PR 병합 후 배포 호출만 실패했다면 다음 조회가 배포를 다시 부르지 않으므로** Deploy production을 수동으로 실행한다 |
 | 🚨 서비스 장애 (Actions) | 메시지의 구간별 응답 코드 | `backend=502`: Backend 컨테이너와 RDS 연결 확인. `frontend=502`: Frontend 컨테이너 확인. `nginx=000`: 앱 EC2 자체, 보안 그룹, 인증서 확인 |
 | ✅ 서비스 복구 | 장애 시간대의 배포 이력과 로그 | 원인을 기록한다. 자동으로 회복됐더라도 같은 원인이 반복되지 않는지 확인한다 |
-| Grafana `KeepGo internal service unhealthy` | `service` 라벨 | 해당 컨테이너 상태·로그를 본다. Actions 서비스 장애 알림이 함께 왔다면 같은 장애다 |
+| Grafana `KeepGo internal service unhealthy` | `service` 라벨 | 해당 컨테이너 상태·로그를 본다. Actions 서비스 장애 알림이 함께 왔다면 같은 장애다. 컨테이너가 `Up`인데 CPU 0%이고 로그가 끊겼다면 재시작 전에 [Backend 무응답 사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)의 확인 순서(스레드 상태, `docker attach` 여부)를 따른다 |
 | Grafana `KeepGo metrics collection unavailable` | 어느 수집 대상인지 | 앱 EC2의 exporter 프로젝트·앱 SG 규칙, 또는 모니터링 EC2의 Prometheus를 확인한다. 서비스 장애가 아니라 감시가 끊긴 것일 수 있다 |
 | Grafana 앱 경고 (5xx·지연·DB 풀 등) | `signal` 라벨 | [앱 알림 운영 절차](monitoring-alert-runbook.md)의 장애별 대응을 따른다 |
 | CloudWatch EC2·RDS 알람 | 알람 이름 | 상태 검사 실패면 EC2 콘솔에서 인스턴스 상태를 본다. 디스크·메모리면 `df -h`·`docker system df`·컨테이너 메모리를 본다. Agent 지표 누락이면 Agent 상태를 본다 |
@@ -281,6 +281,7 @@ GitHub Actions 알림은 추가 서버 없이 시작했다. 이후 CloudWatch·G
 - **한계:** Docker 자동 재시작은 프로세스가 **종료된** 경우만 처리한다. 떠 있지만 응답하지 않는(unhealthy) 컨테이너는 그대로 남는다.
 - **감수한 이유:** unhealthy 컨테이너까지 자동 재시작하려면 별도 감시 컨테이너(autoheal 등)를 추가해야 한다. 원인을 모른 채 재시작을 반복하면 DB 연결 문제 같은 실제 원인을 가리게 된다. 이 경우는 외부 감시와 Grafana 내부 알림이 잡고, 사람이 원인을 확인한 뒤 조치하는 편이 안전하다고 판단했다.
 - **필요해지면:** 같은 원인의 unhealthy가 반복되고 재시작으로 해결되는 것이 확인되면 자동 재시작 컨테이너를 추가한다.
+- **2026-10-01 사례:** Backend가 약 55분 동안 `Up (unhealthy)`로 멈췄다. 원인은 운영 컨테이너에 걸린 `docker attach`였다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). 자동 재시작이 있었다면 증상은 사라졌겠지만 attach가 남아 재발했을 것이고, 원인을 보여준 스레드 덤프도 남지 않았을 것이다. 판단은 유지한다. 또 attach가 전달한 시그널로 종료된 컨테이너는 수동 중지로 처리돼 `restart: unless-stopped`가 다시 띄우지 않은 것으로 보인다(확인 대기). "종료되면 Docker가 살린다"도 항상 성립하지는 않는다.
 
 ### 7. 새 버전이 조용히 안 나갈 수 있다
 

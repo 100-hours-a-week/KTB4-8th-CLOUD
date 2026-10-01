@@ -247,6 +247,17 @@ docker ps --filter name=backend --format '{{.Status}}'   # Up … (healthy)
 - EC2 디스크에만 있으므로 인스턴스를 교체하면 사라진다.
 - CloudWatch `/keepgo/v1/application`의 `keepgo-v1-backend-1` 스트림도 14일 보관이지만, 막혀 있던 동안의 로그는 빠져 있다.
 
+### 남은 할 일 (TODO)
+
+- [ ] **main PR 생성·병합:** 브랜치 `fix/backend-log-level-healthcheck`(코드만, prep `4a20e13`과 같은 내용). PC에 `gh`가 없어 PR은 아직 만들지 않았다. backend가 한 번 재생성되므로 점검 시간에 병합한다. 배포 후 다음 두 가지를 확인한다.
+  - `docker inspect -f '{{json .Config.Healthcheck}}' keepgo-v1-backend-1`에 `timeout -k 1 2`가 있는지
+  - `docker logs --since 5m keepgo-v1-backend-1 | wc -c`로 로그 양이 크게 줄었는지
+- [ ] **증거 파일을 PC로 받기:** 위 4개 파일(`be-all.txt` 제외). PC의 AWS CLI로 앱 EC2 포트 포워딩을 시도하면 403이 났다. 먼저 `--region ap-northeast-2`를 넣어 다시 시도하고, 안 되면 CloudShell에서 터널을 연 뒤 Actions → Download file로 받는다. 받은 뒤 EC2의 `be-all.txt`와 `/tmp` 사본을 지운다.
+- [ ] **BE 팀 공유:** 운영 컨테이너 `docker attach` 금지(로그는 `docker logs -f`), 로그 레벨 기본값 TRACE → INFO, Google OAuth secret 교체. 위 「BE 팀에 요청」 참고.
+- [ ] **PC AWS CLI 권한 확인:** PC CLI 사용자가 앱 EC2에 `ssm:StartSession`을 할 수 있는지 확인한다(`aws sts get-caller-identity`로 사용자 확인).
+- [ ] (선택) **SSM 세션 경위:** 앱 EC2의 `/var/log/amazon/ssm/amazon-ssm-agent.log`에서 13:35~14:15 UTC 기록을 보거나, CloudShell에서 `aws ssm describe-sessions --state History`를 실행한다. 22:53 출력 중단과 23:14 세션 종료의 원인을 확인한다.
+- [ ] (선택) **재시작 정책 미동작 이유:** `journalctl -u docker -S '2026-10-01 14:54' -U '2026-10-01 15:00'`(root)에서 backend의 `hasBeenManuallyStopped`나 `restart canceled`를 확인한다. 확인되면 4절 표의 "추정"을 지운다.
+
 ## 회고
 
 - **`docker attach`는 "로그 보기" 명령이 아니다.** 컨테이너의 stdin·stdout·시그널에 직접 연결된다. 세션이 끊기면 SIGHUP이 앱으로 가고, 읽지 않는 클라이언트는 앱의 출력을 막는다. 같은 목적이면 `docker logs -f`를 쓴다. 부득이하게 attach해야 하면 `--sig-proxy=false --no-stdin`으로 붙고 `Ctrl+P Ctrl+Q`로 분리한다.

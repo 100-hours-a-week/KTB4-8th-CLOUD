@@ -103,7 +103,17 @@ Agent는 메트릭만 수집한다. 앱 로그는 Docker daemon이 인스턴스 
 
 2. CloudWatch Logs에서 위 메시지가 도착한 것을 확인한다. 이 검사는 로그 쓰기만 한다. 기존 IAM 전파가 끝나지 않았으면 기다린 뒤 재시도한다.
 3. `sudo touch /opt/keepgo/runtime/cloudwatch-logs.enabled` 후 기존 **Deploy production**을 수동 실행한다. 설정 해시가 바뀌므로 앱 네 개가 순차 재생성된다. 짧은 중단이 가능하므로 점검 시간에 적용한다.
-4. 서비스 이름/컨테이너 ID별 로그 스트림, `docker logs`, 외부 health를 확인한다. 기존 json-file 로그를 소급 전송하지는 않는다.
+4. 서비스별 로그 스트림, `docker logs`, 외부 health를 확인한다. 기존 json-file 로그를 소급 전송하지는 않는다.
+
+**스트림 이름은 컨테이너 이름으로 고정한다**(`tag: "{{.Name}}"`). 각 파트는 배포 횟수와 상관없이 자기 스트림 하나만 본다. 배포·롤백·재시작 전후 로그는 같은 스트림에 시간순으로 이어진다. 2026-10-01까지는 `{{.Name}}/{{.ID}}`라 재생성할 때마다 스트림이 늘었다.
+
+| 파트 | 스트림 |
+| --- | --- |
+| BE | `keepgo-v1-backend-1` |
+| AI | `keepgo-v1-ai-api-1` |
+| FE | `keepgo-v1-frontend-1`(Next.js), `keepgo-v1-web-1`(Nginx) |
+
+로그 그룹 하나를 같이 쓰므로 볼 수 있는 사람은 모든 파트 로그를 본다. 파트별 접근 제한이 필요하면 서비스별 로그 그룹과 IAM 권한으로 나눠야 한다.
 
 전송은 non-blocking, 메모리 버퍼 4MB다. CloudWatch 장애 때 버퍼가 차면 로그가 유실될 수 있다. 원격 로깅 장애를 견디는 영구 재전송 큐가 아니다. Docker 로컬 읽기 캐시(10MB × 3)는 최근 `docker logs`를 위한 것으로 별도 장기 백업이 아니다. **non-blocking도 최초 로그 스트림 생성 실패를 우회하지는 않는다.**
 

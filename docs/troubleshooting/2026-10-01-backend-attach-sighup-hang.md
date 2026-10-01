@@ -249,7 +249,8 @@ docker ps --filter name=backend --format '{{.Status}}'   # Up … (healthy)
 
 ### 남은 할 일 (TODO)
 
-- [ ] **main PR 생성·병합:** 브랜치 `fix/backend-log-level-healthcheck`(코드만, prep `4a20e13`과 같은 내용). PC에 `gh`가 없어 PR은 아직 만들지 않았다. backend가 한 번 재생성되므로 점검 시간에 병합한다. 배포 후 다음 두 가지를 확인한다.
+- [x] **main PR 병합:** #52(`fix/backend-log-level-healthcheck`, 코드만, prep `4a20e13`과 같은 내용). 2026-10-02 00:35 KST 병합. `compose.yaml` 변경이라 Deploy production이 자동 실행되고 backend가 한 번 재생성된다.
+- [ ] **배포 결과 확인:** 다음 두 가지를 확인한다.
   - `docker inspect -f '{{json .Config.Healthcheck}}' keepgo-v1-backend-1`에 `timeout -k 1 2`가 있는지
   - `docker logs --since 5m keepgo-v1-backend-1 | wc -c`로 로그 양이 크게 줄었는지
 - [ ] **증거 파일을 PC로 받기:** 위 4개 파일(`be-all.txt` 제외). PC의 AWS CLI로 앱 EC2 포트 포워딩을 시도하면 403이 났다. 먼저 `--region ap-northeast-2`를 넣어 다시 시도하고, 안 되면 CloudShell에서 터널을 연 뒤 Actions → Download file로 받는다. 받은 뒤 EC2의 `be-all.txt`와 `/tmp` 사본을 지운다.

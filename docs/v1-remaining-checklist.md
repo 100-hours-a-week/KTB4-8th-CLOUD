@@ -173,6 +173,7 @@ dry_run은 후보 조회 시험이다. 실제 PR 생성·병합 권한, ECR pull
 | **차단된 서비스가 있어도 결과가 `unchanged`** (TODO) | 2026-09-30 17:21 KST 배포(#17)에서 ai-api가 차단돼 LangSmith 설정이 반영되지 않았는데 `result=unchanged`, 알림 없음. 약 1시간 20분 미반영 | 차단 때문에 건너뛴 서비스가 있으면 `result=blocked`(종료 코드 2)로 기록하고 Discord 알림. `history.log`에 건너뛴 서비스도 남김 |
 | Manifest 병합 후 배포 실패 | 다음 조회만으로 재배포 안 됨 | 수동 재배포 절차 유지 또는 자동 재처리 추가 |
 | Grafana 단독 장애 | 별도 외부 감시 없음 | 필요 시 추가 |
+| **외부 감시 이전** (TD-023) | Actions Health check를 EventBridge가 5분마다 실행. 개인 PAT 의존, 하루 288건 기록 | 모니터링 설치·시험 후 진행. ① blackbox에 공개 주소 HTTPS 프로브와 인증서 만료 알림 추가(Route 53은 인증서를 검증하지 않음) ② us-east-1에 Route 53 헬스 체크(`/healthz`) + 알람 + SNS 스택 ③ 장애 시험 ④ `health-check.yaml`과 EventBridge의 Health check 규칙 제거 |
 | 백업/복원 | main 서비스 동작만으로 검증되지 않음 | RDS 백업·복원 시험, 업로드 파일 백업 담당/주기 확인 |
 | DB/설정 복구 | 이미지 롤백으로 복구 안 됨 | migration 호환성과 설정·Secret 복구 절차 확인 |
 | V2 ECS/ASG·Worker | 설계 문서 영역 | V1 적용과 별도로 채택 범위·일정 결정 |

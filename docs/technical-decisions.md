@@ -26,6 +26,7 @@
 | TD-020 | 2026-09-30 | production Environment의 필수 승인자 제거, 배포 승인 없이 자동 배포 | 채택 |
 | TD-021 | 2026-09-30 | 변경 감지를 Compose 라벨 대신 마지막 배포의 적용 기록으로 판단 (TD-012 보완) | 채택 (운영 적용 전) |
 | TD-022 | 2026-09-30 | GitHub schedule 대신 EventBridge 예약 규칙 + API destination으로 Auto release·Health check 실행 (TD-009 실행 수단 변경) | 채택 (운영 적용) |
+| TD-023 | 2026-10-01 | 외부 감시는 유지하되 Actions Health check를 Route 53 헬스 체크 + CloudWatch 알람으로 이전, 인증서 만료는 blackbox로 보완 | 결정 (모니터링 설치 후 적용) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -163,9 +164,23 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 
 **선택 이유:** 기존 앱 CI의 SHA 이미지 게시를 활용해 Cloud 안에서 자동화를 시작하고, Cloud 쓰기 토큰을 앱 저장소마다 전달하는 부담을 줄인다. 최신 main에서 PR을 만들더라도 사람이 동시에 바꾸는 경우의 충돌까지 없어지는 것은 아니다.
 
-**감수하는 단점:** 10분은 조회 간격이며 완료 시간 상한이 아니다. 첫 저장소 API 오류가 뒤 저장소를 막을 수 있다. 병합 전 후보는 다시 조회하지만 이미 Manifest에 반영된 버전의 배포 실패까지 자동 재시도하지 않는다. 스케줄 지연·누락과 공개 저장소의 무활동 비활성화도 운영에서 확인한다.
+**감수하는 단점:** 10분은 조회 간격이며 완료 시간 상한이 아니다. 첫 저장소 API 오류가 뒤 저장소를 막을 수 있다. 병합 전 후보는 다시 조회하지만 이미 Manifest에 반영된 버전의 배포 실패까지 자동 재시도하지 않는다. 스케줄 지연·누락과 공개 저장소의 무활동 비활성화도 운영에서 확인한다. **주기 실행 수단 자체가 멈추면 자동 CD 전체가 멈춘다**(아래 사후 검토).
 
 **재검토:** 즉시 반영이 필요하면 앱 CI의 dispatch 알림과 조회를 병행하는 방식을 검토한다. 인증·호출 권한과 중복 실행 처리까지 함께 설계한다.
+
+**사후 검토 (2026-10-01):** 2026-09-30 이 레포(또는 조직)에서 schedule 이벤트가 한 번도 발생하지 않아 자동 CD가 멈췄다([TD-022](#td-022--github-schedule-대신-eventbridge로-주기-실행)). 처음 감수한 단점에는 "지연·누락"만 있었고, 실행 수단이 아예 멈추는 경우는 없었다.
+
+PR 생성 방식이었다면 앱 저장소의 push로 시작하므로 **이 장애는 피했을 것이다.** 당시 schedule만 안 됐고 push·수동 실행은 정상이었다. 대신 앱 CI가 Cloud 저장소에 쓰는 인증이 필요해 다른 벽에 부딪힌다. 앱 CI의 `GITHUB_TOKEN`은 다른 저장소에 쓸 수 없고 GitHub App은 조직 owner가 필요해 진행이 어렵다([TD-017](#td-017--자동-릴리스-pr-병합과-main-보호-규칙)). 남는 수단은 개인 PAT이며, 결국 조회 방식도 EventBridge 때문에 개인 PAT을 받아들였다. 두 방식을 같은 전제(개인 PAT)에서 비교하면 다음과 같다.
+
+| 기준 | 조회 + EventBridge — 현재 | 앱 CI가 PR 생성 |
+| --- | --- | --- |
+| schedule 장애 영향 | 받음. EventBridge로 우회 | 받지 않음 |
+| 토큰 권한 | Cloud 레포 Actions Read and write | Cloud 레포 Contents·Pull requests 쓰기 |
+| 토큰 보관 위치 | AWS 한 곳 | 앱 저장소 3곳의 Secrets. 등록·교체에 각 저장소 관리자 권한 필요 |
+| 호출 한 번 실패 | 다음 조회가 다시 잡음 | 그 버전은 다음 커밋까지 누락. 재실행 설계 필요 |
+| 외부 감시(Health check) | 같은 EventBridge로 함께 해결 | 주기 실행이 필요한 작업이라 별도 수단이 또 필요 |
+
+**판단:** 결정을 유지한다. schedule 장애를 피하는 이점보다 토큰 권한 범위·보관 위치·누락 복구의 부담이 더 크다. 교훈으로, 주기 실행에 기대는 결정은 "실행 수단이 멈추는 경우"를 단점에 적고, 병합 직후 실제 실행을 확인한다.
 
 ## TD-010 — 조회·병합 로직을 어디에 쓸 것인가
 
@@ -234,7 +249,7 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 
 **감수하는 단점:** 감지 시간 상한을 보장하지 않는다. 외부 검사는 HTTP 코드만 보므로 AI·DB·업무 오류를 놓칠 수 있다. 직전 workflow 결과가 검사·API·알림 오류로 실패한 경우 장애 상태 비교도 영향을 받는다. 호스트 지표와 로그 수집은 포함하지 않는다.
 
-**재검토:** 감지 시간·알림 전달 보장이나 호스트 지표가 필요하면 별도 모니터링을 추가한다.
+**재검토:** 감지 시간·알림 전달 보장이나 호스트 지표가 필요하면 별도 모니터링을 추가한다. 외부 감시를 Route 53 헬스 체크로 옮기는 결정은 [TD-023](#td-023--외부-감시-유지-route-53-헬스-체크로-이전)에 있다. 옮기면 외부 장애 알림은 Discord가 아니라 SNS 이메일로 받는다.
 
 ## TD-014 — Backend healthcheck를 `/actuator/health`로 강화
 
@@ -248,7 +263,7 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 
 **맥락:** 사용자가 CloudWatch와 PG(Prometheus·Grafana)를 도입하고 Loki는 제외하도록 지정했다. 기존 CloudWatch 알람·Agent 초안을 확장한다.
 
-**선택:** CloudWatch에 앱 로그·EC2/RDS 알람을 두고, PG는 내부 health·상세 호스트 지표·앱 계측 지표를 담당한다. Grafana의 서비스/수집 장애는 Discord로, CloudWatch 알람은 SNS 이메일로 보낸다. 기존 Actions 외부 감시는 유지한다. 로그는 Docker awslogs를 사용하며, IAM·그룹 준비 후 호스트 marker로 활성화한다. PG는 같은 EC2의 별도 checkout·Compose 프로젝트에서 수동 갱신한다.
+**선택:** CloudWatch에 앱 로그·EC2/RDS 알람을 두고, PG는 내부 health·상세 호스트 지표·앱 계측 지표를 담당한다. Grafana의 서비스/수집 장애는 Discord로, CloudWatch 알람은 SNS 이메일로 보낸다. 기존 Actions 외부 감시는 유지한다. 내부 프로브·CloudWatch로 대체되지 않는 범위와 이후 Route 53으로 옮기는 계획은 [TD-023](#td-023--외부-감시-유지-route-53-헬스-체크로-이전)에 있다. 로그는 Docker awslogs를 사용하며, IAM·그룹 준비 후 호스트 marker로 활성화한다. PG는 같은 EC2의 별도 checkout·Compose 프로젝트에서 수동 갱신한다.
 
 **대안·이유:** CloudWatch만으로 통일하면 PromQL 기반 앱 지표·부하 관측 요구를 충족하기 어렵다. Loki 추가는 요구 범위를 벗어나며 별도 로그 저장소를 늘린다. Agent로 Docker 로그 glob을 읽는 대신 awslogs를 써 컨테이너별 스트림을 만들고, Agent에는 호스트 메트릭만 맡긴다. 초기부터 별도 감시 호스트를 추가하는 대신 기존 EC2 용량을 확인해 시작한다. 상세 설정·적용 순서는 [모니터링 운영 구성](v1-monitoring.md)에 둔다.
 
@@ -282,7 +297,7 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 
 **상태:** 채택 (2026-09-30, 사용자 결정). main에 브랜치 보호 규칙(필수 status check·필수 리뷰)을 설정하지 않는다.
 
-**맥락:** release.sh는 Actions 기본 `GITHUB_TOKEN`으로 Manifest PR을 만들고 즉시 squash 병합한다. GitHub는 `GITHUB_TOKEN`이 만든 PR·push에서 다른 workflow를 실행하지 않는다. 따라서 release PR에서는 Validate가 돌지 않고, main에 필수 check가 있으면 `gh pr merge`가 실패한다. `GITHUB_TOKEN`은 자기 PR을 승인할 수 없어 필수 리뷰와도 양립하지 않는다.
+**맥락:** release.sh는 Actions 기본 `GITHUB_TOKEN`으로 Manifest PR을 만들고 즉시 squash 병합한다. GitHub는 `GITHUB_TOKEN`이 만든 push에서 다른 workflow를 실행하지 않는다. PR의 `pull_request` workflow는 run이 생기지만 사람의 승인을 기다린다(아래 2026-10-01 추가). 따라서 release PR에서는 Validate가 실제로 돌지 않고, main에 필수 check가 있으면 `gh pr merge`가 실패한다. `GITHUB_TOKEN`은 자기 PR을 승인할 수 없어 필수 리뷰와도 양립하지 않는다.
 
 | 대안 | 판단 |
 | --- | --- |
@@ -294,7 +309,9 @@ Git의 목표 Manifest와 호스트의 current/previous 성공 상태를 분리�
 
 **감수하는 단점:** 사람도 리뷰·Validate 통과 없이 main에 직접 push·병합할 수 있다. compose.yaml·deploy.sh 같은 사람의 변경은 Validate 결과를 보고 병합하는 팀 규칙에 의존한다. AUTO_DEPLOY_ENABLED=true이면 그런 변경의 main push가 곧바로 운영 배포된다.
 
-**재검토:** 조직 App 발급이 가능해지거나, 사람의 main 직접 변경으로 사고가 나면 App 토큰 + 필수 check로 전환한다. 전환 시 병합 push가 Deploy production을 직접 트리거하므로 auto-release.yaml의 배포 호출 단계는 제거한다.
+**재검토:** 조직 App 발급이 가능해지거나, 사람의 main 직접 변경으로 사고가 나면 App 토큰 + 필수 check로 전환한다. 전환 시 병합 push가 Deploy production을 직접 트리거하므로 auto-release.yaml의 배포 호출 단계는 제거한다. 아래의 `[skip ci]`도 함께 뺀다. 남겨 두면 release PR의 Validate와 병합 후 main push의 workflow까지 건너뛴다.
+
+**추가 (2026-10-01): release 커밋에 `[skip ci]`.** release PR마다 Validate run이 생겨 승인을 기다리다 만료되고 Failure로 남았다(예: PR #31, 01:30:34 병합 → 01:30:35 Validate 생성 → 만료. 같은 시각 Deploy production은 성공). job은 시작하지 않았으므로 검사 결과가 아니다. 그런데 릴리스마다 빨간 X가 쌓여 실제 실패를 가린다. workflow의 `if:` 조건은 승인 대기보다 늦게 평가돼 소용없으므로 release.sh 커밋 메시지에 `[skip ci]`를 넣어 run 자체를 만들지 않는다. 이 변경으로 잃는 검사는 없다. release PR이 바꾸는 것은 Manifest의 SHA뿐이고 그 형식은 release.sh가 같은 jq로 검사한다. 이미지 존재는 앱 CI·게시 job 성공 확인과 deploy.sh의 pull로, 실행은 health 확인·롤백으로 막는다. sources.json·compose·스크립트는 사람 PR의 Validate가 맡는다.
 
 ## TD-018 — 배포 사전 검사 복원과 main 전용 배포
 
@@ -397,14 +414,55 @@ GitHub 밖에서 workflow를 실행하려면 어떤 방식이든 Cloud 레포의
 - **실행 기록이 쌓인다.** Health check 하루 288건, Auto release 하루 144건. schedule이 동작했어도 같았을 조회 방식 자체의 특성이다. 배포·릴리스·장애는 Deploy production 목록, release PR, Discord, EC2 `history.log`에서 따로 확인한다.
 - **"Manually run by (토큰 소유자)"로 표시된다.** 사람이 누른 실행과 목록에서 구분되지 않는다. 주기(5·10분 간격)나 EventBridge 규칙의 모니터링 지표로 구분한다.
 - **최대 10분 반영 지연.** push 방식보다 느리다.
-- 외부 감시(Health check)를 CI 도구로 돌리는 구조가 그대로 남는다. 감시 전용 서비스(Route 53 헬스 체크 등)가 더 적합하다.
+- 외부 감시(Health check)를 CI 도구로 돌리는 구조가 그대로 남는다. 감시 전용 서비스가 더 적합하다. 교체 판단과 제약은 [TD-023](#td-023--외부-감시-유지-route-53-헬스-체크로-이전).
 
 **재검토:**
 
 - 조직에서 schedule이 복구되면 EventBridge 규칙을 끄고(스택 삭제) `on.schedule`로 돌아간다. 그 전에 probe로 실제 실행을 확인한다.
 - 반영 지연·기록 누적이 불편해지면 앱 CI의 dispatch 호출(push)을 추가하고 EventBridge 주기를 1시간 보조로 늘린다.
-- Health check 기록이 부담되면 Route 53 헬스 체크 + CloudWatch 알람으로 옮긴다.
+- TD-023을 적용하면 Health check 규칙을 스택에서 빼고 EventBridge는 Auto release만 실행한다.
 - 토큰 만료 전(발급 시 정한 만료일)에 새 토큰으로 스택을 다시 배포한다. 절차는 [운영 절차](v1-operations.md) 11절.
+
+## TD-023 — 외부 감시: 유지, Route 53 헬스 체크로 이전
+
+**상태:** 결정 (2026-10-01), 적용 대기. 모니터링 스택([TD-015](#td-015--cloudwatch--prometheus--grafana))을 설치하고 알림을 시험한 뒤 적용한다. 그 전까지는 현재 외부 장애를 잡는 유일한 수단인 Actions Health check(TD-022의 EventBridge 실행)를 유지한다.
+
+**맥락:** CloudWatch·PG를 붙이면서 Actions Health check가 따로 필요한지 다시 검토했다. Health check는 schedule 장애 때문에 EventBridge와 개인 PAT로 돌고 있고, 하루 288건의 실행 기록이 쌓인다. 중복 알림은 직전 실행 결과를 비교하는 방식으로 막고 있어 알림이 누락될 수 있다([장애 알림](v1-alerting.md) 8-3).
+
+**관측 범위 비교:**
+
+| 감시 | 보는 곳 | 못 보는 곳 |
+| --- | --- | --- |
+| blackbox → Prometheus → Grafana | Docker 내부망 주소로 서비스 4개의 health | DNS·TLS 인증서·보안 그룹·Nginx 443 설정. 같은 EC2에 있어 EC2·Docker가 멈추면 함께 멈춤 |
+| CloudWatch | EC2 상태 검사, 디스크·메모리, Agent 지표 누락, RDS | HTTP 응답. EC2는 살아 있는데 Nginx·인증서·보안 그룹이 잘못된 경우 |
+| Actions Health check | 사용자와 같은 경로: DNS → TLS(curl이 인증서 검증) → 보안 그룹 → Nginx → Frontend·Backend | 서비스별 내부 상태 |
+
+공개 경로의 장애는 다른 감시로 대체되지 않는다. 외부 감시는 유지하고 **실행 수단만 바꾼다.**
+
+| 대안 | 장점 | 단점 | 판단 |
+| --- | --- | --- | --- |
+| 외부 감시 제거, CloudWatch·PG만 사용 | 구성이 단순해지고 EventBridge 규칙이 하나 준다 | DNS·인증서·보안 그룹·Nginx 공개 설정 장애를 못 잡는다 | 기각 |
+| Actions + EventBridge 유지 — 현재 | 이미 동작한다. 인증서까지 검증하고 구간별 응답 코드로 원인 구간을 보여 준다. Discord로 알린다 | 개인 PAT에 의존하고 기록이 쌓인다. 상태 비교 방식이라 알림이 누락될 수 있다. GitHub 장애 때 함께 멈춘다 | 모니터링 적용 전까지 유지 |
+| **Route 53 헬스 체크 + CloudWatch 알람** — 채택 | AWS가 여러 지역에서 직접 확인한다(10초 또는 30초 간격). 정상↔장애 상태를 알람이 관리해 중복 방지 로직이 필요 없다. 토큰·runner가 필요 없고 CloudFormation으로 관리한다 | 아래 "감수하는 단점" | 채택 |
+| CloudWatch Synthetics canary | 스크립트로 여러 경로·응답 본문·인증서를 검사할 수 있다 | 실행마다 과금되고 canary 런타임을 관리해야 한다 | 로그인 같은 업무 흐름 검사가 필요해지면 검토 |
+| 외부 가동 감시 SaaS | 무료 요금제와 Discord 연동이 있다 | 팀 밖의 계정을 관리해야 하고 인프라 코드로 남지 않는다 | 기각 |
+
+**선택:** Route 53 HTTPS 헬스 체크로 공개 주소의 `/healthz`를 확인해 입구(DNS·TLS 연결·보안 그룹·Nginx)를 본다. 서비스별 상태는 blackbox 내부 프로브가 맡는다. Route 53 알람을 적용·시험한 뒤 `health-check.yaml`과 EventBridge의 Health check 규칙을 제거한다. 그러면 EventBridge는 Auto release만 실행한다.
+
+**감수하는 단점 (AWS 문서로 확인한 제약):**
+
+- **인증서를 검증하지 않는다.** HTTPS 헬스 체크는 SSL/TLS 인증서를 검증하지 않아서, 인증서가 만료되거나 무효여도 실패하지 않는다([AWS 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-determining-health-of-endpoints.html)). 지금 curl 검사가 잡던 인증서 만료를 잃는다. 그래서 blackbox에 공개 주소 HTTPS 프로브를 추가하고 `probe_ssl_earliest_cert_expiry` 기준으로 만료 임박 알림을 둔다. 같은 EC2에서 나가는 검사지만, 인증서 만료는 EC2가 살아 있을 때 생기는 문제라 충분하다. **이 보완 없이는 교체하지 않는다.**
+- **지표가 us-east-1에만 생긴다.** Route 53 지표는 CloudWatch의 US East (N. Virginia)에서만 보인다([AWS 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/monitoring-health-checks.html)). 알람과 SNS 토픽을 us-east-1에 따로 만들어야 해서 서울 리전 `monitoring.yaml`에 넣을 수 없고 별도 스택이 필요하다.
+- **알림 채널이 이메일로 바뀐다.** SNS는 Discord Webhook을 직접 호출하지 못한다. 우선 기존 CloudWatch 알람처럼 SNS 이메일로 받는다. Discord로 유지하려면 SNS → Lambda → Webhook을 추가해야 한다.
+- **2xx·3xx를 2초 안에 응답해야만 정상이다.** `/api`는 401을 돌려줘 장애로 판정되고, Frontend SSR이 느리면 오탐할 수 있다. 그래서 외부에서는 `/healthz`만 보고 Frontend·Backend는 내부 프로브에 맡긴다. 그 결과 Nginx → Backend 공개 라우팅(rewrite) 오류는 외부에서 직접 잡지 못한다.
+- **구간별 응답 코드가 사라진다.** 지금 알림은 `nginx=… frontend=… backend=…`로 원인 구간을 보여 준다. Route 53 알림은 정상·장애만 알려 주므로 Grafana의 서비스별 알림과 함께 봐야 한다.
+- **비용이 생긴다.** 헬스 체크마다 월 요금이 붙고 HTTPS 같은 선택 기능은 추가 요금이다. Actions는 public 레포라 무료였다. 금액은 적용할 때 요금표로 확인한다.
+
+**재검토:**
+
+- 모니터링 스택 설치·알림 시험이 끝나면 적용한다. 순서는 blackbox 인증서 프로브 → Route 53 스택(us-east-1) → 장애 시험 → Actions Health check와 EventBridge 규칙 제거다.
+- 로그인 같은 업무 흐름 검사가 필요해지면 Synthetics를 검토한다.
+- 외부 장애 알림을 Discord 한 채널로 받아야 하면 SNS → Lambda 연결을 추가한다.
 
 ## 이후 기록 양식
 

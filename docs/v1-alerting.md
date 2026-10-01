@@ -178,6 +178,7 @@ sudo tail -n 20 /opt/keepgo/state/history.log         # 최근 배포 결과
 - **한계:** GitHub Actions에 장애가 나면 Actions의 외부 HTTP 감시와 배포 알림도 멈춘다. 별도로 설치한 CloudWatch·Grafana 감시는 계속 동작한다. 공개 저장소의 예약 실행은 저장소 활동이 60일 동안 없으면 GitHub가 자동으로 끈다.
 - **감수한 이유:** 배포도 이미 GitHub Actions에서 돌고 있어서, 감시를 같은 곳에 두면 관리할 곳이 하나로 줄어든다. 자동 배포 커밋이 저장소 활동으로 잡히므로 서비스가 개발되는 동안에는 60일 제한에 걸리지 않는다.
 - **필요해지면:** 개발이 멈추는 시기에는 Actions 탭에서 비활성화 여부를 확인하거나, GitHub 밖의 외부 감시를 추가한다.
+- **현재 상태:** 2026-09-30부터 이 조직에서 schedule이 동작하지 않아 Health check는 AWS EventBridge가 실행한다([TD-022](technical-decisions.md#td-022--github-schedule-대신-eventbridge로-주기-실행)). 모니터링 설치 뒤 Route 53 헬스 체크로 옮길 예정이며, 옮기면 외부 장애 알림이 SNS 이메일로 바뀌고 인증서 만료는 blackbox가 잡는다([TD-023](technical-decisions.md#td-023--외부-감시-유지-route-53-헬스-체크로-이전)).
 
 ### 5. 공개 저장소라는 무료 전제는 GitHub Actions 부분에만 적용된다
 

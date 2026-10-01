@@ -26,8 +26,11 @@ Grafana 알림 `KeepGo internal service unhealthy`가 발생했다(대상 `http:
 | Blackbox | `context deadline exceeded`, `probe_duration_seconds ≈ 5.0`, DNS 정상 |
 | `docker stats` | CPU 0.10%, 메모리 353.7 MiB / 1 GiB, PIDS 149 |
 | 앱 로그 | 23:15 이후 ERROR·WARN·Exception·Hikari가 하나도 없음 |
-| 컨테이너 안 | 헬스체크의 `bash`와 `grep`이 15초마다 하나씩 생기고 사라지지 않음 |
+| 컨테이너 안 | 헬스체크의 `bash`와 `grep`이 15초마다 한 쌍씩 생기고 사라지지 않음. 경과 시간 `25:55`, `25:37`, `25:19` … 처럼 20분이 넘은 것과 새것이 함께 있음 |
+| Java 프로세스 | `java -jar /app/app.jar`(컨테이너 PID 7) 살아 있음, CPU 약 1.3% |
 | `kill -QUIT 7` | 성공했지만 `docker logs`에 스레드 덤프가 나오지 않음 |
+
+장애 전 정상 기록도 확인했다. 같은 `/actuator/health` 요청(Docker 헬스체크와 Blackbox)이 Spring Security·Actuator를 거쳐 JDBC 연결을 얻은 뒤 `Completed 200 OK`로 끝났다. Hikari pool은 `total=10, active=0, idle=10, waiting=0`이었고, RDS 연결 생성과 TLS handshake도 정상이었다. 그래서 처음부터 설정이 잘못된 것이 아니라 실행 중 어느 시점부터 응답이 멈춘 것으로 보고 조사를 시작했다.
 
 ## 시간순 정리
 
@@ -79,13 +82,22 @@ dockerd는 한 덩어리를 ①과 ② **모두에게 넘겨야** 다음 덩어�
 **JVM 스레드 상태 (`ps -L -o stat,wchan,comm`)**
 
 ```
-1 Sl   anon_pipe_write   http-nio-8080-P    ← Poller: stdout 쓰기에서 멈춤
-1 Sl   anon_pipe_write   VM Thread          ← kill -QUIT의 스레드 덤프 출력에서 멈춤
-1 Sl   futex_do_wait     SIGHUP handler     ← SIGHUP을 받았다는 표시
-… 나머지 전부 futex_do_wait
+ 10 Sl   futex_do_wait     http-nio-8080-e    ← 요청 처리 스레드(exec) 10개: logback 락 대기
+  1 Sl   anon_pipe_write   http-nio-8080-P    ← Poller: stdout 쓰기에서 멈춤
+  1 Sl   anon_pipe_write   VM Thread          ← kill -QUIT의 스레드 덤프 출력에서 멈춤
+  1 Sl   futex_do_wait     SIGHUP handler     ← SIGHUP을 받았다는 표시
+  1 Sl   futex_do_wait     HikariPool-1:ho    ← Hikari housekeeper도 대기(30초마다 남기던 로그가 끊긴 이유)
+  5 Sl   futex_do_wait     http-task-1~5      ← @Async AI 호출 스레드
+  8 Sl   futex_do_wait     HttpClient-2~9-Se  ← JDK HttpClient selector
+… 나머지(Catalina-utility, C1/C2 Compiler, Finalizer 등) 전부 futex_do_wait
+  1 Ss   do_sigtimedwait   docker-init        ← 컨테이너 PID 1 (init: true)
 ```
 
-**jhsdb 스레드 덤프** (`jcmd`는 VM Thread가 멈춰 동작하지 않았다. ptrace로 붙는 `jhsdb jstack`만 성공했다)
+`anon_pipe_write`가 두 개뿐이고 나머지가 모두 대기라는 점에서, CPU·DB가 아니라 출력 쪽에서 막혔다는 방향이 정해졌다. HttpClient selector가 8개 살아 있는 것은 이번 장애와 별개로, BE에서 HttpClient를 요청마다 새로 만드는지 확인할 만하다.
+
+**jhsdb 스레드 덤프** (`JVM version is 25.0.4.1+1-LTS`, 스레드 38개, 23:47 확보)
+
+런타임 이미지가 JRE라 JDK 이미지(`eclipse-temurin:25-jdk-jammy`)를 컨테이너 PID 네임스페이스에 붙여 실행했다. `jcmd Thread.print`도 시도했지만 SSM 붙여넣기 문제로 실제로는 실행되지 않았다(출력 파일이 생성되지 않음). VM Thread가 막혀 있어 safepoint가 필요한 `jcmd`는 동작하지 않을 것으로 보고, JVM 협조 없이 ptrace로 읽는 `jhsdb jstack`을 썼다.
 
 ```
 "http-nio-8080-Poller"  RUNNABLE / _thread_in_native
@@ -123,6 +135,16 @@ daemon/internal/stream/bytespipe.(*BytesPipe).Write(0xc009c36820, …)   ← 위
 daemon/internal/stream.(*unbuffered).Write(...)        ← 컨테이너 stdout을 구독자들에게 나눠 쓰는 단계
 ```
 
+로그 설정은 non-blocking이었다(`docker inspect -f '{{json .HostConfig.LogConfig}}'`).
+
+```
+{"Type":"awslogs","Config":{"awslogs-create-group":"false","awslogs-group":"/keepgo/v1/application",
+ "awslogs-region":"ap-northeast-2","cache-disabled":"false","cache-max-file":"3","cache-max-size":"10m",
+ "max-buffer-size":"4m","mode":"non-blocking","tag":"{{.Name}}"}}
+```
+
+dockerd journal(13:00 UTC 이후)에는 awslogs 오류나 throttling이 없었다. 있었던 것은 배포 때의 `Log stream already exists`(정상), 진단 중 누군가 시도한 `docker exec … curl`의 실패(14:25 UTC, `exec: "curl": executable file not found` — 이미지에 curl 없음), 진단용 exec·사이드카 종료 때의 `copy stream failed`(14:25, 14:47 UTC)뿐이다. 모두 장애 원인과 관계없다.
+
 로그 드라이버 copier 고루틴들은 모두 `BytesPipe.Read`에서 비어 있는 입력을 기다리고 있었다. 1절에서 설명한 대로, 나눠 쓰는 단계가 attach에서 멈춰 로그 드라이버 쪽에는 아무것도 오지 않은 것이다.
 
 **TRACE 로그 양 (`be-all.txt`, 앱 시각 기준 분당 바이트, Docker 시각 접두어 포함)**
@@ -134,7 +156,7 @@ daemon/internal/stream.(*unbuffered).Write(...)        ← 컨테이너 stdout�
 13:43 101300   13:47 101090   13:51 101081   13:55 115094   13:59 104975
 ```
 
-평소 **분당 약 100KB**(초당 약 1.7KB)가 나왔다. attach 클라이언트가 읽기를 멈춘 13:53부터 14:00까지만 합쳐도 약 1.05MB다. attach용 버퍼(약 1MB)와 소켓·터미널 버퍼가 10분 안에 찬 것과 맞는다. INFO 레벨이었다면 같은 양이 쌓이는 데 며칠이 걸렸을 것이다(단, 23:14의 SIGHUP은 로그 양과 관계없이 전달된다).
+평소 **분당 약 100KB**(초당 약 1.7KB)가 나왔다. 13:42(22:42 KST)의 1.1MB 급증은 원인을 확인하지 않았다. 그때는 attach가 아직 읽고 있어서 문제가 되지 않았다. attach 클라이언트가 읽기를 멈춘 13:53부터 14:00까지만 합쳐도 약 1.05MB다. attach용 버퍼(약 1MB)와 소켓·터미널 버퍼가 10분 안에 찬 것과 맞는다. INFO 레벨이었다면 같은 양이 쌓이는 데 며칠이 걸렸을 것이다(단, 23:14의 SIGHUP은 로그 양과 관계없이 전달된다).
 
 **호스트 프로세스**
 
@@ -174,14 +196,15 @@ attach를 끊자 stdout이 풀렸고, 멈춰 있던 종료 절차가 끝나 JVM�
 | 왜 `kill -QUIT`의 스레드 덤프가 안 나왔나 | 덤프도 stdout으로 출력된다. VM Thread가 덤프를 쓰다 멈췄고, 이후 safepoint가 필요한 `jcmd`도 동작하지 않았다. |
 | 헬스체크 프로세스가 원인이었나 | 아니다. 결과다. 아래 5절 참고. |
 | 왜 `restart: unless-stopped`가 다시 띄우지 않았나 | **추정:** attach의 시그널 전달은 `docker kill`과 같은 API를 쓴다. 그래서 Docker가 이를 수동 중지로 기록한 것으로 보인다. dockerd 로그 14:55 UTC 부근의 `hasBeenManuallyStopped`로 확인할 수 있다. |
-| attach는 22:35인데 왜 장애는 23:02부터인가 | attach만으로는 문제가 없다. **attach 쪽이 출력을 받아가지 않게 된 시점**(23:02 무렵)부터 문제가 된다. 세션 종료(SIGHUP)는 그보다 11분 뒤인 23:14였다. 브라우저 연결이 먼저 끊기고 SSM 세션이 나중에 종료된 것으로 추정하며, SSM 세션 이력으로 확인할 수 있다(아래 명령). |
+| attach는 22:35인데 왜 장애는 23:02부터인가 | attach만으로는 문제가 없다. **attach 클라이언트가 읽기를 멈춘 시점**(22:53 무렵)부터 버퍼가 차기 시작했고, 약 10분 뒤 버퍼가 다 찬 23:02:44에 응답이 멈췄다. 세션 종료(SIGHUP)는 그보다 11분 뒤인 23:14였다. 브라우저 연결이 먼저 끊기고 SSM 세션이 나중에 종료된 것으로 추정하며, SSM 세션 이력으로 확인할 수 있다(아래 명령). |
 | 처음에 알림·확인 시각이 23:18이었는데 | 사람이 상태를 확인한 시각이다. 앱 로그 기준 응답이 멈춘 시각은 23:02:44다. Prometheus `probe_success`의 0 전환 시각으로도 확인할 수 있다. |
 
-SSM 세션 종료 시각 확인(CloudShell):
+SSM 세션 종료 시각 확인은 **CloudShell**에서 한다. 앱 EC2에서 실행하면 EC2 역할(`keepgoEC2logRole`)에 `ssm:DescribeSessions` 권한이 없어 거부된다.
 
 ```sh
-aws ssm describe-sessions --state History --max-results 20 \
-  --query 'Sessions[].[SessionId,Owner,StartDate,EndDate]' --output table
+Q='Sessions[].[Owner,Target,StartDate,EndDate]';
+A='--state History --max-results 50';
+aws ssm describe-sessions $A --query "$Q" --output table;
 ```
 
 ### 5. 헬스체크 프로세스가 쌓인 이유 (2차 증상)
@@ -200,7 +223,8 @@ WSL에서 재현했다. 응답하지 않는 서버를 상대로 기존 스크립
 - **런타임 이미지가 JRE라 `jcmd`·`jstack`이 없다.** 같은 버전 JDK 이미지를 `--pid=container:<이름>`으로 붙여 실행했다. 사이드카 출력은 `--log-driver json-file`로 awslogs를 피했다.
 - **"awslogs blocking 모드" 가설은 틀렸다.** `HostConfig.LogConfig`가 non-blocking이었다. 막힌 지점을 dockerd 고루틴 덤프로 확인한 뒤에야 attach를 찾았다.
 - **`SIGHUP handler` 스레드를 처음 목록에서 놓쳤다.** 이 이름은 JVM이 SIGHUP을 받았을 때만 생긴다. attach를 끊으면 JVM이 종료될 것을 미리 알 수 있었다.
-- **SSM 셸에서 여러 줄 명령이 사라졌다.** `sudo` 줄 뒤에 붙여 넣은 줄을 sudo가 입력으로 가져갔다. 먼저 `sudo -i`로 root 셸에 들어간 뒤 실행했다.
+- **SSM 셸에서 여러 줄 명령이 사라졌다.** `sudo` 줄 뒤에 붙여 넣은 줄을 sudo가 입력으로 가져갔다. jcmd 시도와 첫 `docker logs` 확인이 이 때문에 실행되지 않았다(출력 파일이 없었음). 먼저 `sudo -i`로 root 셸에 들어간 뒤 실행했다.
+- **`docker logs --since`의 시간대.** 호스트가 UTC라 시간대 없이 KST 시각을 넣으면 9시간 뒤로 해석돼 결과가 비어 보인다. `2026-10-01T14:15:00Z`처럼 `Z`를 붙인다.
 
 ## ✅ 해결 방법
 
@@ -240,7 +264,7 @@ docker ps --filter name=backend --format '{{.Status}}'   # Up … (healthy)
 | `td-sa.txt` | jhsdb Java 스레드 덤프 |
 | `dds.log` | dockerd 고루틴 덤프 |
 | `hc.json` | 장애 중 Docker health 기록 |
-| `dockerd.txt` | dockerd journal (13:00 UTC 이후) |
+| `dockerd.txt` | dockerd journal (13:00 UTC 이후). 14:55 재시작 정책 판단 기록은 포함되지 않음(14:50 무렵 수집) |
 | `be-all.txt` | 장애 컨테이너의 전체 `docker logs` (TRACE) |
 
 - `be-all.txt`는 TRACE 로그라 토큰·개인정보가 섞여 있을 수 있다. **원문을 공유하지 말고**, 회고가 끝나면 지운다.

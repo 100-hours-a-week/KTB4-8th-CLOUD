@@ -91,6 +91,7 @@ services:
       DB_DRIVER: com.mysql.cj.jdbc.Driver
       DB_DIALECT: MySQL
       AI_SERVER_API_ADDRESS: http://ai-api:8000
+      FRONTEND_SERVER_ADDRESS: https://keepgo.kr
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
       # TLS가 nginx에서 끝나므로 X-Forwarded-* 로 원래 https 주소를 복원
       SERVER_FORWARD_HEADERS_STRATEGY: native

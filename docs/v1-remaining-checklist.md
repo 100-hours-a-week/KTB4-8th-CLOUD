@@ -118,22 +118,55 @@ Secret 변경 절차:
 
 ## 6. 모니터링 적용 작업
 
-- [ ] 기존 동명 로그 그룹(/keepgo/v1/application)·SNS·알람과 소유 스택 확인 후 infrastructure/monitoring.yaml 배포.
-- [ ] SNS 구독 확인 이메일에서 승인.
-- [ ] EC2 역할에 로그 그룹의 CreateLogStream·PutLogEvents, CWAgent 지표 전송 권한 연결(InstanceRoleName 입력 시 자동).
-- [ ] CloudWatch Agent 설치 및 monitoring/cloudwatch-agent.json 적용. 실제 CWAgent 지표 확인.
-- [ ] 임시 컨테이너 로그가 /keepgo/v1/application에 도착하는지 확인.
-- [ ] 성공 후 /opt/keepgo/runtime/cloudwatch-logs.enabled 생성 및 수동 배포. 앱 네 개가 로그 설정 변경으로 재생성되므로 점검 시간에 적용.
-- [ ] **모니터링 EC2 생성(TD-024, [구성](v1-monitoring.md) 5-1절):** 앱 SG에 넓은 인바운드 규칙이 없는지 먼저 확인. `infrastructure/monitoring-host.yaml` 스택 배포(VPC·퍼블릭 서브넷·앱 SG·AlertsTopicArn 필요). SSM 접속 확인. 저장소 설정은 이미 분리 구성(`compose.monitoring.yaml` / `compose.exporters.yaml`)이다.
-- [ ] observability checkout·Grafana 비밀번호·monitoring.env 준비.
-- [ ] 앱 EC2: 앱 네트워크 keepgo-v1_web, keepgo-v1_service가 있는 상태에서 compose.exporters.yaml 실행(5-2절). 예전 keepgo-monitoring 프로젝트가 앱 EC2에 떠 있으면 내림.
-- [ ] 모니터링 EC2: monitoring-host.env(APP_HOST_PRIVATE_IP) 준비, 9100·9115 curl 확인 후 compose.monitoring.yaml 실행(5-3절). CloudWatch Agent 설정 적용.
-- [ ] 모니터링 EC2로 SSM 터널을 열어 Grafana 3001, Prometheus 9090 접근. 관리 포트는 외부 공개하지 않음.
+2026-10-01 운영 적용 결과를 반영했다. 체크한 항목은 이날 실제로 확인한 것이다.
+
+- [x] infrastructure/monitoring.yaml 배포(`keepgo-v1-monitoring`). 기존 동명 자원 없음 확인 후 생성.
+- [ ] SNS 구독 확인 이메일(`keepgo127@gmail.com`)에서 승인.
+- [x] EC2 역할(`keepgoEC2logRole`)에 로그 쓰기·CWAgent 지표 정책 연결.
+- [x] 앱 EC2·모니터링 EC2에 CloudWatch Agent 설치 및 monitoring/cloudwatch-agent.json 적용. **CloudWatch 콘솔에서 두 인스턴스의 CWAgent 지표가 실제로 들어오는지는 아직 확인 안 함.**
+- [x] 로그 smoke 후 /opt/keepgo/runtime/cloudwatch-logs.enabled 생성, 앱 4개 awslogs 전환([구현 현황](v1-implementation-status.md)).
+- [x] **모니터링 EC2 생성(TD-024):** `keepgo-v1-monitoring-host` 스택, `i-0e2b9ff8599ff8023`(t4g.small, AL2023). 앱 SG에 수집 포트 4개(모니터링 SG 소스) 추가 확인.
+- [x] 앱 EC2: compose.exporters.yaml 실행, 9100·9115 응답 확인.
+- [x] 모니터링 EC2: runtime 파일 3개 준비, compose.monitoring.yaml 실행. 기본 scrape target 7개 UP, probe_success 4개 모두 1.
+- [x] SSM 터널(전용 IAM 사용자 `keepgo-grafana-tunnel`)로 Grafana 로그인 확인.
+- [x] **Grafana HTTPS 공개(TD-025):** EIP `3.34.14.66` 연결, 가비아 `grafana` A 레코드, 스택 갱신으로 443 인바운드(`UPDATE_COMPLETE`), Caddy 인증서 발급 성공.
 - [ ] 모니터링 SG가 아닌 곳에서 앱 EC2 8081·9464·9100·9115가 막혀 있는지 확인.
-- [ ] **Grafana HTTPS 공개(TD-025, [구성](v1-monitoring.md) 5-5절):** EIP `3.34.14.66` 콘솔 연결(완료) → `grafana` A 레코드 가비아 등록(완료) → 스택 갱신으로 443 인바운드 추가(변경 세트 실행까지, `UPDATE_COMPLETE` 확인) → DNS 반영 확인 후 Caddy 실행 → `https://grafana.keepgo.kr` 접속, admin 비밀번호 변경, 팀원별 계정 생성. 외부에서 9090·3001이 열리지 않는지 확인.
-- [ ] 기본 scrape target 7개 UP, 서비스 probe_success 4개 정상 확인.
-- [ ] Grafana Discord 및 CloudWatch SNS 이메일 실제 수신 확인.
+- [ ] Grafana Discord 및 CloudWatch SNS 이메일 실제 수신 확인(아래 6-1).
 - [ ] 앱 재배포 후에도 모니터링과 로그 수집 유지 확인.
+
+### 6-1. Grafana 할 일 (TODO)
+
+**접속·계정**
+
+- [ ] `https://grafana.keepgo.kr` 접속 확인. 2026-10-01 기준 KT DNS(168.126.63.1)가 레코드 추가 전의 "없음" 응답을 캐시해 최대 6시간 안 열린다(SOA 기준). Google·Cloudflare DNS에서는 `3.34.14.66`으로 정상 조회된다. 급하면 PC hosts 파일에 `3.34.14.66 grafana.keepgo.kr`을 임시로 넣는다.
+- [ ] 임시로 넣은 hosts 줄 제거(캐시가 풀린 뒤). EIP가 바뀌면 이 줄 때문에 접속이 안 된다.
+- [ ] admin 비밀번호 변경. 초기값은 모니터링 EC2 `/opt/keepgo/runtime/grafana_admin_password`이며, 바꾼 뒤에는 이 파일이 쓰이지 않는다.
+- [ ] 파트별 계정 생성(Administration → Users and access → Users). 기본 역할은 Viewer, 대시보드를 고칠 사람만 Editor. admin 계정은 공유하지 않는다.
+- [ ] HTTPS로 접속되면 SSM 터널 전용 IAM 사용자(`keepgo-grafana-tunnel`)의 액세스 키가 계속 필요한지 정한다. 필요 없으면 키 비활성화·삭제.
+
+**알림**
+
+- [ ] Discord 웹훅 교체 확인. 2026-10-01 설치 중 기존 웹훅 URL이 작업 대화에 노출됐다. 새 웹훅으로 바꿨는지, 기존 웹훅을 Discord에서 삭제했는지 확인한다.
+- [ ] Alerting → Contact points → `keepgo-discord` → Test로 Discord 수신 확인.
+- [ ] 실제 알림 경로 시험: 점검 시간에 앱 EC2의 node-exporter를 3분 이상 멈췄다가 다시 켜서 수집 실패 알림 → 복구 알림이 Discord로 오는지 확인([구성](v1-monitoring.md) 7절 표).
+
+**운영 상태**
+
+- [ ] Grafana 메모리 확인. 256 MiB에서 재시작해 512 MiB로 올렸다([사례](troubleshooting/2026-10-01-grafana-memory-limit.md)). 며칠 사용 후 `docker stats`와 `RestartCount`가 늘지 않는지 본다.
+- [ ] 모니터링 EC2 checkout 정리. 지금은 PR 브랜치 커밋(`feat/monitoring-host-split`)을 쓴다. PR이 main에 머지되면 main 커밋으로 다시 checkout한다(앱 EC2의 exporter checkout도 같이).
+- [ ] Caddy 인증서 자동 갱신 확인. 첫 발급 2026-10-01, 갱신은 만료 전 Caddy가 알아서 한다. 두 달쯤 뒤 `docker logs keepgo-monitoring-caddy-1`에 갱신 성공이 있는지 한 번 본다. `caddy-data` 볼륨은 지우지 않는다.
+- [ ] Grafana 보안 패치 관리 담당 정하기. 인터넷에 공개돼 있으므로 보안 공지가 나오면 compose의 이미지 태그를 올려 재생성한다(TD-025).
+- [ ] 외부에서 Prometheus(9090)·Grafana 직접 포트(3001)가 닫혀 있는지 확인. 모니터링 SG 인바운드는 443 하나여야 한다.
+
+**대시보드·지표**
+
+- [ ] `KeepGo V1 - Infrastructure and Health` 대시보드에서 앱 EC2 CPU·메모리·디스크, 서비스 4개 health가 보이는지 확인.
+- [ ] 앱 상세 대시보드 3개(HTTP·Backend·AI)는 BE·AI 계측 전까지 No data가 정상. 계측 배포 후 7절 순서로 수집 대상을 등록한다.
+- [ ] 파트별로 자주 볼 패널·쿼리가 있으면 받아서 대시보드에 추가한다. 대시보드는 저장소의 provisioning 파일이 원본이고 `allowUiUpdates: false`라 UI에서 고쳐도 저장되지 않는다. 고칠 때는 `scripts/render-app-monitoring.py` 또는 `monitoring/grafana/dashboards/`를 수정한다.
+
+**기타 (Grafana 밖)**
+
+- [ ] 연결되지 않은 EIP `3.34.10.134`의 주인 확인. 쓰지 않으면 해제한다(미연결 EIP도 월 약 $3.6).
 
 모니터링 EC2(t4g.small, 2 GiB)의 Prometheus·Grafana 상한은 1,024 MiB, 앱 EC2의 exporter 상한은 192 MiB다. 앱 자동 CD는 두 EC2의 observability checkout을 갱신하지 않는다. compose.yaml의 수집 포트·healthcheck 변경이 처음 배포될 때 backend·ai-api가 재생성되므로 점검 시간에 배포한다.
 

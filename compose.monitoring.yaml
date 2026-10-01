@@ -63,7 +63,8 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
-    mem_limit: 256m
+    # 256m에서 로그인 직후 243MiB까지 올라 재시작했다(2026-10-01 실측). 2GiB 호스트라 여유가 있다.
+    mem_limit: 512m
     cpus: 0.5
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:3000/api/health"]

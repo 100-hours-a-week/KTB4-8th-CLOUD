@@ -21,14 +21,44 @@ Grafana는 Prometheus를 기본 데이터 소스로 쓴다. 로그·RDS 조회�
 
 ## 2. 배포 경계·용량·접근
 
-- 앱: 기존 `/opt/keepgo/cloud`, `keepgo-v1` Compose 프로젝트, 기존 자동 CD.
-- PG: 별도 checkout `/opt/keepgo/observability`, `keepgo-monitoring` 프로젝트. 앱 CD의 checkout 변경이 모니터링 마운트 파일까지 바꾸지 않게 한다. 같은 파일을 앱 Compose와 `-f`로 합치지 않는다.
-- 앱이 먼저 떠서 `keepgo-v1_web`, `keepgo-v1_service` 네트워크가 있어야 한다. 앱 컨테이너 재생성 후에도 서비스 DNS 이름으로 다시 연결한다. 운영 중 앱 `compose down`은 이 외부 네트워크 사용 때문에 실패할 수 있으므로 서비스별 재배포 절차를 사용한다.
-- Grafana `127.0.0.1:3001`, Prometheus `127.0.0.1:9090`만 호스트에 바인딩한다. 보안 그룹에 3001·9090·9100·9115를 열지 않는다. exporter는 호스트 포트를 게시하지 않는다.
+2026-10-01 Prometheus·Grafana를 모니터링 전용 EC2로 분리했다([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리)). 저장소 설정은 분리 구성으로 바뀌었고 AWS 적용은 대기 중이다.
+
+| 호스트 | Compose | 서비스 | 메모리 상한 |
+| --- | --- | --- | --- |
+| 모니터링 EC2 (t4g.small, arm64, 2 vCPU / 2 GiB, gp3 20 GiB) | `compose.monitoring.yaml` (`keepgo-monitoring`) | Prometheus, Grafana | 768 MiB |
+| 앱 EC2 (기존) | `compose.exporters.yaml` (`keepgo-exporters`) | node-exporter, blackbox-exporter | 192 MiB |
+| 앱 EC2 (기존) | `compose.yaml` (`keepgo-v1`) | 앱 4개 | 2,432 MiB |
+
+node-exporter는 측정할 호스트에, blackbox-exporter는 `backend`·`ai-api` 같은 Docker 내부 이름으로 health를 확인해야 해서 앱 EC2에 둔다. 모니터링 EC2 예상 비용은 월 약 $20.7이다(인스턴스 $15.2 + 디스크 $1.8 + 공인 IPv4 $3.7). 비교는 TD-024에 있다.
+
+**앱 EC2가 게시하는 수집 포트:**
+
+| 포트 | 대상 | 게시하는 파일 | 수집 경로 |
+| --- | --- | --- | --- |
+| 9100 | node-exporter | `compose.exporters.yaml` | `/metrics` |
+| 9115 | blackbox-exporter | `compose.exporters.yaml` | `/probe?target=…` |
+| 8081 | BE 관리 포트(Actuator만) | `compose.yaml` | `/actuator/prometheus` |
+| 9464 | AI metrics 전용 포트 | `compose.yaml` | `/metrics` |
+
+- **보안 그룹이 경계다.** 포트는 모든 인터페이스에 게시하지만 EC2 ENI에는 private IP만 있다. 앱 SG에 위 4개 포트를 **모니터링 SG만 소스로** 허용한다(`infrastructure/monitoring-host.yaml`이 추가). 적용 전에 앱 SG에 `0.0.0.0/0`이나 VPC 전체를 허용하는 넓은 규칙이 없는지 확인한다. BE 8080, AI 8000은 게시하지 않는다.
+- **blackbox 9115는 요청받은 URL을 대신 호출한다.** 소스를 모니터링 SG보다 넓히지 않는다.
+- **모니터링 EC2:** 인바운드 규칙이 없다. 아웃바운드는 HTTPS(Discord·SSM·이미지 pull·GitHub·dnf)와 앱 SG 수집 포트만 허용한다. 공인 IPv4는 아웃바운드용이다. Grafana `127.0.0.1:3001`, Prometheus `127.0.0.1:9090`은 SSM 포트 포워딩으로 접근한다.
+- **앱 주소:** `prometheus.yml`과 앱 수집 대상은 IP 대신 `app-host` 이름을 쓴다. `compose.monitoring.yaml`이 `APP_HOST_PRIVATE_IP`로 이 이름을 앱 EC2 private IP에 연결한다. 앱 EC2를 교체하면 모니터링 EC2의 `/opt/keepgo/runtime/monitoring-host.env`만 바꾸고 Prometheus를 재생성한다.
+- **checkout:** 두 EC2 모두 별도 checkout `/opt/keepgo/observability`를 쓴다. 앱 CD의 checkout 변경이 모니터링 마운트 파일까지 바꾸지 않게 한다. 같은 파일을 앱 Compose와 `-f`로 합치지 않는다.
+- **앱 네트워크:** blackbox가 `keepgo-v1_web`, `keepgo-v1_service`에 붙으므로 앱 EC2에서는 앱이 먼저 떠 있어야 한다. 운영 중 앱 `compose down`은 이 외부 네트워크 사용 때문에 실패할 수 있으므로 서비스별 재배포 절차를 사용한다. Prometheus는 더 이상 앱 네트워크에 붙지 않는다.
 - node-exporter는 Linux 호스트 루트를 읽기 전용으로 마운트하고 host PID namespace를 사용한다. CPU·메모리·파일시스템·load만 수집한다. Docker socket, privileged 권한은 사용하지 않는다. 컨테이너별 CPU·메모리·재시작 이력은 이 구성에 포함되지 않는다.
-- PG 컨테이너 메모리 상한 합계는 **960 MiB**다. 기존 앱 상한 합계 2,432 MiB에 OS·Docker·Agent·캐시가 더해진다. 4 GiB 호스트는 여유를 측정해야 하며, 부하 테스트를 같이 하면 8 GiB급 또는 모니터링 분리 호스트를 검토한다. 상한은 실제 사용량 보장이 아니다.
-- Prometheus는 **7일 또는 2GB 중 먼저 도달하는 보관 한도**를 사용한다. WAL·head·일시 compaction 공간은 별도여서 디스크 전체가 2GB로 제한되는 것은 아니다. 최소 5 GiB 이상의 추가 여유를 확인하고 디스크 알람을 유지한다. 데이터는 named volume에 보관한다.
-- 버전은 Compose에 고정했다. 업그레이드는 변경 PR과 검증 후 수행한다. Grafana 관리자 비밀번호 파일은 최초 DB 초기화용이다. 기존 비밀번호 변경은 Grafana UI/CLI에서 처리한다.
+- Prometheus는 **7일 또는 2GB 중 먼저 도달하는 보관 한도**를 사용한다. WAL·head·일시 compaction 공간은 별도여서 디스크 전체가 2GB로 제한되는 것은 아니다. 모니터링 EC2 디스크 알람을 유지한다. 데이터는 named volume에 보관한다.
+- 버전은 Compose에 고정했다. 모니터링 EC2 이미지는 `linux/arm64`, 앱 EC2 exporter는 `linux/amd64`다. 업그레이드는 변경 PR과 검증 후 수행하고 두 아키텍처 이미지가 있는지 확인한다. Grafana 관리자 비밀번호 파일은 최초 DB 초기화용이다. 기존 비밀번호 변경은 Grafana UI/CLI에서 처리한다.
+- 모니터링 EC2가 멈추면 Discord 알림도 멈춘다. 이 경우는 CloudWatch 상태 검사 알람(이메일)이 잡는다. 반대로 앱 EC2가 통째로 멈추면 Prometheus `up`이 꺼져 Discord로도 알림이 온다.
+
+### 2-1. BE 관리 포트 전환
+
+BE가 관리 포트 8081을 쓰면 `/actuator/health`도 8081로 옮겨 간다. `compose.yaml`의 backend healthcheck는 **8081을 먼저 보고 실패하면 8080을 본다.** 그래서 지금 이미지와 8081 이미지 모두 통과한다. BE 8081 이미지가 정착하면 다음을 한 PR로 바꾼다.
+
+1. `compose.yaml` healthcheck의 `for port in 8081 8080`에서 8080을 지운다.
+2. `prometheus.yml` service-health의 backend 대상을 `http://backend:8081/actuator/health`로 바꾼다.
+
+`ports` 추가와 healthcheck 변경은 backend·ai-api 설정을 바꾸므로 이 변경이 처음 배포될 때 두 컨테이너가 재생성된다(TD-021). 점검 시간에 배포한다.
 
 ## 3. CloudWatch를 먼저 준비한다
 
@@ -86,41 +116,94 @@ sudo rm /opt/keepgo/runtime/cloudwatch-logs.enabled
 
 ## 5. PG 설치와 접근
 
-SSM 세션의 EC2에서 운영 앱이 정상인 것을 확인하고, 별도 checkout을 준비한다. 아래 COMMIT은 검토한 Cloud 커밋 SHA로 바꾼다.
+### 5-1. 모니터링 EC2 만들기
+
+`monitoring.yaml` 스택(3절)을 먼저 만들고 출력값 `AlertsTopicArn`을 확인한다. 앱 EC2의 VPC, 같은 VPC의 퍼블릭 서브넷, 앱 EC2 보안 그룹 ID를 준비한다.
+
+```sh
+aws cloudformation deploy --region ap-northeast-2 \
+  --stack-name keepgo-v1-monitoring-host \
+  --template-file infrastructure/monitoring-host.yaml \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides VpcId=vpc-REPLACE SubnetId=subnet-REPLACE \
+    AppSecurityGroupId=sg-REPLACE AlertsTopicArn=REPLACE_TOPIC_ARN
+```
+
+스택은 인바운드 없는 보안 그룹, SSM용 역할, 앱 SG의 수집 포트 인바운드 규칙 4개, 모니터링 EC2 상태·디스크 알람을 만든다. UserData가 Docker·git·CloudWatch Agent·Compose plugin을 설치한다. 출력값 `MonitoringInstanceId`로 SSM 접속이 되는지 확인한다.
+
+### 5-2. 앱 EC2: exporter 실행
+
+SSM 세션의 앱 EC2에서 운영 앱이 정상인 것을 확인하고 별도 checkout을 준비한다. 아래 COMMIT은 검토한 Cloud 커밋 SHA로 바꾼다.
 
 ```sh
 sudo git clone "$(git -C /opt/keepgo/cloud remote get-url origin)" /opt/keepgo/observability
 sudo git -C /opt/keepgo/observability checkout --detach COMMIT
+cd /opt/keepgo/observability
+sudo docker compose -f compose.exporters.yaml config --quiet
+sudo docker compose -f compose.exporters.yaml up -d
+sudo docker compose -f compose.exporters.yaml ps
 ```
 
-EC2에 다음 파일을 준비한다. 값은 저장소·명령 이력·SSM 명령 출력에 남기지 않는다. SSM의 대화형 셸에서 `sudoedit`를 사용하거나 기존 비밀값 관리 절차로 배치한다.
+이전 구성으로 앱 EC2에 `keepgo-monitoring` 프로젝트를 띄운 적이 있으면 먼저 `sudo docker compose -p keepgo-monitoring down`으로 내린다. 볼륨은 지우지 않는다.
+
+### 5-3. 모니터링 EC2: Prometheus·Grafana 실행
+
+SSM 세션의 모니터링 EC2에서 같은 COMMIT으로 checkout한다. 저장소 주소는 앱 EC2의 `/opt/keepgo/cloud` origin과 같다.
+
+```sh
+sudo git clone REPO_URL /opt/keepgo/observability
+sudo git -C /opt/keepgo/observability checkout --detach COMMIT
+sudo install -d -m 0700 /opt/keepgo/runtime
+```
+
+다음 파일을 준비한다. 값은 저장소·명령 이력·SSM 명령 출력에 남기지 않는다. SSM의 대화형 셸에서 `sudoedit`를 사용하거나 기존 비밀값 관리 절차로 배치한다.
 
 | 파일 | 내용 | 권한 |
 | --- | --- | --- |
 | `/opt/keepgo/runtime/grafana_admin_password` | 무작위 관리자 비밀번호 한 줄 | 472:0, 0400 (Grafana UID 472가 읽음) |
 | `/opt/keepgo/runtime/monitoring.env` | `DISCORD_WEBHOOK_URL=실제 URL` 한 줄 | root:root, 0600 |
+| `/opt/keepgo/runtime/monitoring-host.env` | `APP_HOST_PRIVATE_IP=앱 EC2 private IP` 한 줄 | root:root, 0600 |
 
-상위 runtime 디렉터리는 기존 root:root 0700을 유지한다. Compose 파일 기반 secret은 호스트 파일 권한을 그대로 사용한다. GitHub Secret을 EC2가 자동으로 읽지는 않으므로 같은 Discord 채널용 값을 별도로 배치해야 한다. contact point는 파일 provisioning으로 주입하고, Grafana는 Webhook을 런타임 환경변수로 받는다. 관리자 권한의 `docker inspect`에서는 보일 수 있다. 비밀번호와 Webhook 없이 운영 모니터링을 시작하지 않는다.
+Compose 파일 기반 secret은 호스트 파일 권한을 그대로 사용한다. GitHub Secret을 EC2가 자동으로 읽지는 않으므로 같은 Discord 채널용 값을 별도로 배치해야 한다. contact point는 파일 provisioning으로 주입하고, Grafana는 Webhook을 런타임 환경변수로 받는다. 관리자 권한의 `docker inspect`에서는 보일 수 있다. 비밀번호와 Webhook 없이 운영 모니터링을 시작하지 않는다.
+
+먼저 수집 경로가 열렸는지 확인한다. 9100·9115가 응답하지 않으면 앱 SG 규칙과 5-2절 exporter 상태를 본다.
+
+```sh
+. /opt/keepgo/runtime/monitoring-host.env
+curl -sf "http://${APP_HOST_PRIVATE_IP}:9100/metrics" | head -n 3
+curl -sf "http://${APP_HOST_PRIVATE_IP}:9115/metrics" | head -n 3
+```
 
 ```sh
 cd /opt/keepgo/observability
-sudo docker compose -f compose.monitoring.yaml config --quiet
-sudo docker compose -f compose.monitoring.yaml pull
-sudo docker compose -f compose.monitoring.yaml up -d --wait --wait-timeout 120
-sudo docker compose -f compose.monitoring.yaml ps
+compose="docker compose --env-file /opt/keepgo/runtime/monitoring-host.env -f compose.monitoring.yaml"
+sudo $compose config --quiet
+sudo $compose pull
+sudo $compose up -d --wait --wait-timeout 120
+sudo $compose ps
 ```
 
-운영자 PC에 AWS CLI와 Session Manager plugin을 준비하고:
+CloudWatch Agent는 앱 EC2와 같은 설정을 쓴다.
 
 ```sh
-aws ssm start-session --region ap-northeast-2 --target i-REPLACE \
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s \
+  -c file:/opt/keepgo/observability/monitoring/cloudwatch-agent.json
+```
+
+### 5-4. 접근과 확인
+
+운영자 PC에 AWS CLI와 Session Manager plugin을 준비하고 **모니터링 EC2**로 터널을 연다.
+
+```sh
+aws ssm start-session --region ap-northeast-2 --target MONITORING_INSTANCE_ID \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["3001"],"localPortNumber":["3001"]}'
 ```
 
 브라우저에서 `http://localhost:3001` → admin으로 로그인한다. Prometheus Targets 화면은 별도 터미널에서 동일 명령의 두 포트를 9090으로 바꿔 터널링한다. SSM의 대상 인스턴스 및 port forwarding document 사용 권한이 필요하며 SSH 인바운드는 필요 없다.
 
-기본 대시보드는 `KeepGo / KeepGo V1 - Infrastructure and Health`다. 7개 기본 scrape target(prometheus, node, blackbox, 서비스 probe 4개)이 UP인지 확인한다. **probe의 `up=1`은 exporter 호출 성공일 뿐**이므로 `probe_success=1`도 서비스 4개 각각 확인한다. HTTP 프로브는 2xx 기준이며 Backend의 기존 `/actuator/health`가 DB 장애 때 503을 내는 계약을 따른다. AI health 응답이 실제 외부 AI 제공자까지 검사하는지는 앱 구현에 달려 있다.
+기본 대시보드는 `KeepGo / KeepGo V1 - Infrastructure and Health`다. 7개 기본 scrape target(prometheus, node, blackbox, 서비스 probe 4개)이 UP인지 확인한다. node·blackbox의 instance는 `app-host:9100`, `app-host:9115`로 보인다. **probe의 `up=1`은 exporter 호출 성공일 뿐**이므로 `probe_success=1`도 서비스 4개 각각 확인한다. HTTP 프로브는 2xx 기준이며 Backend의 `/actuator/health`가 DB 장애 때 503을 내는 계약을 따른다. AI health 응답이 실제 외부 AI 제공자까지 검사하는지는 앱 구현에 달려 있다.
 
 ## 6. BE·AI 지표를 연결할 때
 
@@ -128,18 +211,18 @@ Cloud가 [상세 메트릭 계약 v1](monitoring-metrics-contract.md), HTTP/BE/A
 
 ```json
 [
-  {"targets":["backend:8080"],"labels":{"service":"backend","metrics_contract":"v1","__metrics_path__":"/actuator/prometheus"}},
-  {"targets":["ai-api:8000"],"labels":{"service":"ai-api","metrics_contract":"v1","__metrics_path__":"/metrics"}}
+  {"targets":["app-host:8081"],"labels":{"service":"backend","metrics_contract":"v1","__metrics_path__":"/actuator/prometheus"}},
+  {"targets":["app-host:9464"],"labels":{"service":"ai-api","metrics_contract":"v1","__metrics_path__":"/metrics"}}
 ]
 ```
 
-BE는 Micrometer Prometheus registry와 Actuator 노출·접근 설정이 필요하다. 현재 healthcheck 포트·경로는 유지한다. AI는 Prometheus 형식의 요청 수·오류·지연 histogram을 노출한다. 사용자 ID·요청 원문·토큰·전체 URL을 label로 쓰지 않고 정규화된 route·method·status로 제한한다. Nginx의 모든 공개 우회 경로에서 metrics가 차단되는지 앱 팀과 확인한 뒤 등록한다. 공개 `/api` rewrite로 actuator가 노출되지 않는지도 점검한다. 관리 포트를 별도로 바꾸면 healthcheck·probe와 네트워크 계약도 함께 수정해야 한다.
+BE는 Micrometer Prometheus registry, Actuator 노출·접근 설정, 관리 포트 8081이 필요하다. AI는 별도 포트 9464에 Prometheus 형식의 요청 수·오류·지연 histogram을 노출한다. 두 포트는 `compose.yaml`이 이미 게시한다. 사용자 ID·요청 원문·토큰·전체 URL을 label로 쓰지 않고 정규화된 route·method·status로 제한한다. Nginx의 모든 공개 우회 경로에서 metrics가 차단되는지 앱 팀과 확인한 뒤 등록한다. 공개 `/api` rewrite로 actuator가 노출되지 않는지도 점검한다. BE 8081 이미지가 정착하면 2-1절 정리를 함께 한다.
 
 file discovery는 약 30초 주기로 반영된다. `up{job="application"}=1`, 계약의 capability·class·count·bucket을 확인한 뒤 이미 준비된 대시보드와 초기 임계치를 실측으로 조정한다. 적용·검증·알림별 대응은 [앱 알림 운영 절차](monitoring-alert-runbook.md)를 따른다. 내부 health 지연 그래프는 실제 사용자 요청의 p95가 아니며, 없는 메트릭은 0으로 표현하지 않는다.
 
 ## 7. 변경·복구·인수 시험
 
-PG 변경은 별도 checkout의 검토한 커밋으로 이동한 후 설정 검사 → `up -d --wait` → Prometheus·Grafana `restart` 순서로 반영한다. 파일 내용만 변경되면 Compose가 자동 재생성하지 않기 때문에 재시작으로 Prometheus 설정과 Grafana provisioning을 다시 읽는다. blackbox 설정 변경 시 blackbox-exporter도 재시작한다. 앱 자동 배포는 PG를 갱신하지 않는다.
+PG 변경은 별도 checkout의 검토한 커밋으로 이동한 후 설정 검사 → `up -d --wait` → Prometheus·Grafana `restart` 순서로 반영한다. 파일 내용만 변경되면 Compose가 자동 재생성하지 않기 때문에 재시작으로 Prometheus 설정과 Grafana provisioning을 다시 읽는다. 두 EC2의 observability checkout을 같은 커밋으로 맞춘다. blackbox 설정 변경 시 앱 EC2의 blackbox-exporter도 재시작한다. 앱 자동 배포는 PG와 exporter를 갱신하지 않는다.
 
 PG 복구는 같은 checkout을 이전 검토 커밋으로 돌리고 동일 과정을 수행한다. Grafana 메이저 버전 업그레이드는 SQLite DB migration을 수반할 수 있어 사전에 볼륨 백업이 필요하고, 바이너리 downgrade만으로 복구를 보장하지 않는다. `down -v`는 데이터를 삭제하므로 일반 재배포에 사용하지 않는다.
 
@@ -153,8 +236,10 @@ PG 복구는 같은 checkout을 이전 검토 커밋으로 돌리고 동일 과�
 | 앱 로그 smoke + 실제 앱 요청 | 서비스별 CloudWatch 스트림에 새 로그 표시 |
 | 앱 하나 재배포 | PG 컨테이너·볼륨 유지, DNS 재해석 후 probe 회복 |
 | 관리 포트 외부 접속·공개 metrics 경로 확인 | 3001/9090 접근 불가, 앱 metrics 본문 노출 없음 |
+| 모니터링 SG가 아닌 곳(다른 EC2·외부)에서 앱 EC2 8081·9464·9100·9115 접속 | 연결 실패 |
+| 합의한 점검 시간에 앱 EC2의 exporter 프로젝트를 3분 이상 중지 | node·blackbox 수집 실패 알림이 Discord로 옴 → 복구 |
 
-Grafana 자체가 죽으면 Grafana 알림도 멈춘다. EC2 상태·외부 HTTPS 장애는 CloudWatch/Actions가 잡지만 **앱이 정상인 상태의 Grafana 단독 장애는 별도 외부 감시를 추가하기 전까지 자동 통보하지 못한다.** 재배포 후 `ps`·`api/health` 확인을 필수로 한다. PG 분리 시에는 사설망·SG·TLS/인증을 다시 설계하며 공개 scrape 포트를 열어 연결하지 않는다.
+Grafana 자체가 죽으면 Grafana 알림도 멈춘다. EC2 상태·외부 HTTPS 장애는 CloudWatch/Actions가 잡지만 **앱이 정상인 상태의 Grafana 단독 장애는 별도 외부 감시를 추가하기 전까지 자동 통보하지 못한다.** 재배포 후 `ps`·`api/health` 확인을 필수로 한다. 호스트 간 수집은 VPC 내부 평문 HTTP이며 TLS·인증 없이 보안 그룹으로만 제한한다(TD-024). 공개 scrape 포트를 열어 연결하지 않는다.
 
 CloudWatch Logs 수집·보관·조회, custom metric·alarm, SNS 및 EC2/EBS 용량은 과금 대상이다. 무비용 구성으로 표현하지 않는다. 애플리케이션은 비밀번호·JWT·개인정보를 로그에 남기지 않고, 운영 DEBUG 로그와 고빈도 health access log를 제한한다. 월 비용은 실제 수집 GB·조회 범위·AWS 요금표로 산정한다.
 

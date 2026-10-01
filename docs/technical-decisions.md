@@ -18,7 +18,7 @@
 | TD-012 | 2026-09-29 | 설정 해시로 바뀐 서비스만 교체, 실패 시 이미지 롤백·실패 이미지 차단 | 채택 |
 | TD-013 | 2026-09-29 | 자동 복구되지 않은 장애만 Discord로 알림 | 채택 |
 | TD-014 | 2026-09-29 | Backend healthcheck를 `/actuator/health`로 강화 | 채택 |
-| TD-015 | 2026-09-30 | CloudWatch 로그·인프라 알람 + Prometheus·Grafana 상세 관측 | 채택 (운영 적용 전) |
+| TD-015 | 2026-09-30 | CloudWatch 로그·인프라 알람 + Prometheus·Grafana 상세 관측 | 채택 (운영 적용 전, 호스트 배치는 TD-024로 대체) |
 | TD-016 | 2026-09-30 | 배포 시 Secret 자동 조회 유지, 실패 시 교체 중단, env·JWT 적용 상태 추적 | 채택 (운영 적용 전) |
 | TD-017 | 2026-09-30 | main 보호 규칙 없이 GITHUB_TOKEN으로 자동 병합, 형식 검사는 release.sh에서 수행 | 채택 |
 | TD-018 | 2026-09-30 | main의 배포 사전 검사 복원(TLS·ACME·uploads, NAVER 키 필수), 배포는 main에서만 | 채택 (운영 적용 전) |
@@ -27,6 +27,7 @@
 | TD-021 | 2026-09-30 | 변경 감지를 Compose 라벨 대신 마지막 배포의 적용 기록으로 판단 (TD-012 보완) | 채택 (운영 적용 전) |
 | TD-022 | 2026-09-30 | GitHub schedule 대신 EventBridge 예약 규칙 + API destination으로 Auto release·Health check 실행 (TD-009 실행 수단 변경) | 채택 (운영 적용) |
 | TD-023 | 2026-10-01 | 외부 감시는 유지하되 Actions Health check를 Sentry Uptime Monitoring으로 이전 (같은 날 Route 53 안에서 변경) | 결정 (적용 대기) |
+| TD-024 | 2026-10-01 | Prometheus·Grafana를 별도 t4g.small로 분리, 앱 EC2는 수집 전용 포트만 게시 (TD-015 호스트 배치 대체) | 결정 (저장소 반영, AWS 적용 대기) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -269,7 +270,7 @@ PR 생성 방식이었다면 앱 저장소의 push로 시작하므로 **이 장�
 
 **감수하는 단점:** PG가 앱과 자원을 공유하고 호스트 장애 때 함께 멈춘다. CloudWatch·Actions가 외부 감시를 보완하지만 Grafana 단독 장애 통보는 미구현이다. AWS 로그·지표 비용이 추가된다. non-blocking 버퍼가 차면 로그가 유실될 수 있고 최초 스트림 생성은 AWS에 의존한다. 로그 설정 변경은 기존 이미지 롤백으로 되돌아가지 않는다. 앱 계측은 별도 저장소 작업이며 완료 전에는 타깃을 활성화하지 않는다.
 
-**재검토:** 부하 테스트와 PG가 자원 경쟁을 하거나 다중 호스트로 확장할 때 감시 호스트 분리·중앙 저장을 검토한다. 로그의 무손실 전달·장기 보관 또는 단일 알림 채널이 필요하면 수집 경로·보관 정책·라우팅을 다시 정한다.
+**재검토:** 부하 테스트와 PG가 자원 경쟁을 하거나 다중 호스트로 확장할 때 감시 호스트 분리·중앙 저장을 검토한다. → 2026-10-01 [TD-024](#td-024--모니터링-전용-인스턴스-분리)에서 별도 인스턴스 분리로 결정했다. 로그의 무손실 전달·장기 보관 또는 단일 알림 채널이 필요하면 수집 경로·보관 정책·라우팅을 다시 정한다.
 
 ## TD-016 — 배포 시 Secret 자동 조회와 실패 처리
 
@@ -493,6 +494,49 @@ GitHub 밖에서 workflow를 실행하려면 어떤 방식이든 Cloud 레포의
 - 팀이 Sentry 계정을 함께 쓰지 않게 되거나 무료 한도가 바뀌면 Route 53 안(위 표)을 다시 검토한다.
 - 로그인 같은 업무 흐름 검사가 필요해지면 Synthetics를 검토한다.
 - V2(ECS)에서 ALB를 쓰면 대상 그룹 health check와 정상 호스트 수·5xx 알람, ACM 인증서 자동 갱신으로 범위가 바뀌므로 외부 감시 구성을 다시 정한다.
+
+## TD-024 — 모니터링 전용 인스턴스 분리
+
+**상태:** 결정 (2026-10-01), 저장소 반영 완료·AWS 적용 대기. [TD-015](#td-015--cloudwatch--prometheus--grafana)의 "같은 EC2에서 시작" 부분을 대체한다. 구성·설치 절차는 [모니터링 운영 구성](v1-monitoring.md) 2·5절, 앱 포트 계약은 [상세 메트릭 계약](monitoring-metrics-contract.md)에 둔다. 저장소에서는 `compose.monitoring.yaml`(모니터링 EC2)과 `compose.exporters.yaml`(앱 EC2)로 나누고, `infrastructure/monitoring-host.yaml`로 EC2·보안 그룹을 만든다.
+
+**맥락:** 앱 4개가 EC2 하나에 있고, 저장소 설정은 Prometheus·Grafana도 같은 EC2에 둔다. 컨테이너 메모리 상한 합계가 앱 2,432 MiB + 모니터링 960 MiB로, 4 GiB 호스트라면 OS·Docker·Agent에 남는 여유가 600 MiB 정도다. V2에서 앱 호스트가 여러 대가 되면 중앙 Prometheus가 어차피 필요하다.
+
+| 대안 | 장점 | 단점 | 판단 |
+| --- | --- | --- | --- |
+| 같은 EC2 유지 | 추가 비용 없음. 앱 포트를 호스트에 게시하지 않고 Docker 내부 DNS로 수집 | 앱과 메모리를 나눠 씀. 부하 테스트 때 측정 도구가 같이 흔들림. EC2가 죽으면 Discord 알림도 멈춤(CloudWatch 이메일만 남음). Prometheus가 앱 Docker 네트워크에 붙어 앱 `compose down`이 실패할 수 있음 | 기각 |
+| 앱 EC2를 8 GiB로 증설 | 보안 구조를 그대로 둠 | 앱과 같은 장애 영역. V2에서 다시 옮겨야 함 | 기각 |
+| **별도 t4g.small** — 채택 | 앱과 자원·장애 영역 분리. 앱 EC2가 통째로 죽어도 `up`이 꺼져 Discord로 알림. V2 중앙 수집 구조를 미리 갖춤 | 앱 EC2에 수집 포트를 열어야 함. EC2·디스크·알람 관리 대상이 하나 늘어남 | 채택 |
+| 별도 t3.small | x86이라 아키텍처 차이 없음 | t4g.small보다 약 20% 비쌈 | 기각 (아래 비용) |
+| 별도 t4g.micro (1 GiB) | 가장 쌈 | Prometheus 512m + Grafana 256m 상한에 OS를 더하면 여유가 없음 | 기각 |
+
+**비용 (서울 리전 온디맨드, 월 730시간):**
+
+| 항목 | t4g.small — 채택 | t3.small |
+| --- | --- | --- |
+| 인스턴스 | $0.0208/h → 약 $15.2 | $0.026/h → 약 $19.0 |
+| gp3 20 GiB | 약 $1.8 | 약 $1.8 |
+| 공인 IPv4 (Discord 아웃바운드·SSM용, 인바운드 없음) | $0.005/h → 약 $3.7 | 약 $3.7 |
+| **합계** | **약 $20.7** | **약 $24.5** |
+
+t4g.small 요금은 2026-10-01 공개 요금 집계([Vantage](https://instances.vantage.sh/aws/ec2/t4g.small))에서 확인했다. t3.small 요금은 [AWS 요금표](https://aws.amazon.com/ec2/pricing/on-demand/)에서 다시 확인한다. NAT Gateway는 월 $40 이상이라 쓰지 않고 공인 IPv4 + 인바운드 없는 보안 그룹으로 나간다.
+
+**선택:**
+
+- 모니터링 EC2(t4g.small, arm64)에는 Prometheus·Grafana만 둔다.
+- node-exporter(측정 대상 호스트에 있어야 함)와 blackbox-exporter(Docker 내부 이름으로 health를 확인해야 함)는 앱 EC2에 남긴다.
+- 앱 EC2는 **수집 전용 포트만** 게시한다: BE 관리 포트 8081, AI metrics 9464, node-exporter 9100, blackbox 9115. 보안 그룹은 모니터링 보안 그룹만 소스로 허용한다. 앱 API 포트(BE 8080, AI 8000)는 게시하지 않는다. BE 8080을 열면 API 전체가, AI 8000을 열면 인증 없는 AI API가 노출되기 때문이다.
+- Grafana·Prometheus 접근은 지금처럼 SSM 포트 포워딩으로 한다. 모니터링 EC2에도 인바운드 규칙을 두지 않는다.
+
+**감수하는 단점:**
+
+- **수집 경계가 바뀐다.** Docker 내부망 한 곳이던 경계가 포트 4개와 보안 그룹 규칙으로 늘어난다. blackbox 9115는 모니터링 호스트가 임의 URL 확인을 요청할 수 있는 포트라 보안 그룹 소스를 넓히지 않는다.
+- **BE health 포트가 바뀐다.** 관리 포트를 분리하면 `/actuator/health`도 8081로 간다. Cloud healthcheck·blackbox 대상과 BE 이미지의 배포 순서를 맞춰야 한다(계약 문서 0절).
+- **arm64 이미지가 필요하다.** Prometheus·Grafana 공식 이미지는 arm64를 제공하지만 설치 전 `docker manifest inspect`로 고정 버전의 arm64 존재를 확인한다.
+- **관리 대상이 늘어난다.** OS 패치, SSM 등록, 디스크·상태 알람을 모니터링 EC2에도 둔다. 모니터링 EC2 장애는 CloudWatch 상태 알람(이메일)이 잡는다. Grafana 단독 장애 통보 문제는 그대로다.
+- **앱 EC2 IP에 의존한다.** 설정 파일은 `app-host` 이름만 쓰고, 모니터링 EC2의 `monitoring-host.env`에 둔 private IP를 Compose `extra_hosts`로 연결한다. 앱 EC2를 교체하면 이 파일 한 줄을 바꾸고 Prometheus를 재생성한다.
+- **호스트 간 수집은 평문 HTTP다.** VPC 내부 통신이고 보안 그룹으로 출발지를 제한하지만 TLS·인증은 없다. 수집 대상이 VPC 밖으로 나가거나 같은 SG를 다른 용도로 쓰게 되면 TLS·basic auth를 다시 검토한다.
+
+**재검토:** V2에서 ECS·ASG로 앱 호스트가 동적으로 바뀌면 고정 IP 대신 EC2/ECS 서비스 디스커버리나 Amazon Managed Prometheus를 비교한다. 수집 대상이 늘어 t4g.small 메모리가 부족하면 t4g.medium으로 올린다.
 
 ## 이후 기록 양식
 

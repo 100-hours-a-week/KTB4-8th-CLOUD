@@ -7,7 +7,7 @@
 1. BE/AI/FE에 [계약 문서](monitoring-metrics-contract.md)를 전달하고 7절 확인 항목만 회신받는다. Cloud가 공통 설정을 먼저 제시하므로 모든 항목을 다시 설계할 필요는 없다.
 2. 앱 팀은 image SHA, 정상화된 route→class 표, 민감값을 제거한 `/metrics` 또는 `/actuator/prometheus` 출력, worker/registry 버전, 공개 metrics 차단 시험 결과를 남긴다.
 3. 준비된 앱에서 정상 요청·4xx·5xx·timeout·stream 취소·retry를 제한된 시험 환경으로 재현한다. counter를 요청/시도당 한 번 기록하는지, 초 단위인지, `+Inf`를 포함한 classic histogram인지, DB pool/JVM/AI 지표가 실제 설정과 맞는지 확인한다. 운영 사용자 요청에 오류를 주입하지 않는다.
-4. Cloud는 현재 적용할 PG 커밋을 별도 `/opt/keepgo/observability` checkout에 준비하고 아래 설정 검사를 실행한다. Prometheus recording/alert rule, Grafana 새 대시보드와 전달 rule을 먼저 반영한다.
+4. Cloud는 현재 적용할 PG 커밋을 모니터링 EC2(필요하면 앱 EC2의 exporter용도)의 별도 `/opt/keepgo/observability` checkout에 준비하고 아래 설정 검사를 실행한다. Prometheus recording/alert rule, Grafana 새 대시보드와 전달 rule을 먼저 반영한다.
 5. `monitoring/examples/application-targets.json`에서 **검증된 서비스 항목만** 실제 `monitoring/prometheus/targets/application.json`으로 옮긴다. 이 변경도 Git에 기록해 다른 checkout·재배포에서 유실되지 않게 한다. `metrics_contract=v1`을 빠뜨리면 이번 상세 규칙에서 제외되므로 수집 UP만 보고 완료 처리하지 않는다.
 6. file discovery가 최대 약 30초 간격으로 반영되고 두 번 이상 scrape된 뒤 rate가 계산된다. 의미 있는 5분/10분 창이 쌓일 때까지 관찰한다. 첫 등록 전 실제 business route를 한 번 호출해 lazy HTTP meter와 histogram을 초기화한다. 새 인스턴스의 정상 startup만으로 요청 지표가 없으면 10분 후 계약 누락 알림이 발생할 수 있다.
 7. Prometheus Targets에서 UP, Rules에서 두 application group 로드·평가 정상, Grafana 세 앱 대시보드에서 기대 값, 앱 타깃의 `keepgo_observability_info`를 확인한다. 아직 구현하지 않은 AI capability의 패널은 No data일 수 있다. 이를 0으로 숨기거나 성공으로 판정하지 않는다.

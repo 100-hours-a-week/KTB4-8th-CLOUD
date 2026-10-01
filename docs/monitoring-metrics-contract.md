@@ -2,6 +2,76 @@
 
 2026-09-30. **클라우드 초안과 설정 구현 완료 / 앱 계측·운영 적용 미확인.** PG는 Prometheus + Grafana이며 Loki는 사용하지 않는다. 이 문서는 각 파트가 구현할 수 있는 기본값을 먼저 정한다. 확인이 필요한 항목은 7절에 모았다. 숫자는 초기 운영 가설이며 합의·검증된 SLO가 아니다.
 
+## 0. 이 파일만 읽으면 되는 범위
+
+**BE·AI·FE에 구현을 요청할 때는 이 파일 하나를 전달하면 된다.** 공통 수집 계약, 파트별 구현 범위, 메트릭 이름·타입·label·bucket, 보안 조건, 초기 알림, 완료 기준·회신 항목을 담았다. 담당자는 0·2절과 자기 파트의 3/4/5절, 7·8절을 읽는다. 실제 코드 패치나 구현 완료 보고서는 아니므로 각 레포에 맞춘 구현·시험은 별도로 수행해야 한다.
+
+Cloud 담당자의 AWS 권한·Secret·Agent·Compose 설치는 [기본 구축 문서](v1-monitoring.md), 실제 등록·검사 명령·장애 대응은 [알림 운영 절차](monitoring-alert-runbook.md)를 함께 본다. 이 파일에 서버 비밀번호·Webhook·실제 AWS 연결 값을 복사하지 않는다.
+
+### 최신 배포 기준 코드 확인 결과와 레포별 추가 항목
+
+2026-10-01 각 레포의 **배포 기준 원격 브랜치**를 fetch해 읽었다. 실제 운영 컨테이너 이미지를 조회한 결과는 아니다. 구현 시작 시 커밋이 달라졌으면 변경분을 다시 확인한다.
+
+| 파트 | 기준 | 9/30 확인분 대비 |
+| --- | --- | --- |
+| BE | `main` `f20f4fc` (Spring Boot 4.1.1, Java 25) | 변경 없음 |
+| AI | `main` `6da303d` | `f7476b5` 이후 Sentry, `/v1/recommend-courses`·취소 API 추가 |
+| FE | `feat/v1` `d11c424` | [TD-011](technical-decisions.md#td-011--fe-배포-기준-브랜치)에 따라 `main`(9/22 `ea0683c`)이 아니라 `feat/v1`이 배포 기준. `d3ca2ac` 이후 nginx는 주석만 변경 |
+
+**프로세스 구조.** BE는 JVM 1개이고 요청은 Tomcat 스레드 풀이 처리하므로 Micrometer 값이 하나로 모인다. AI Dockerfile CMD에는 `--workers`가 없어 uvicorn worker가 1개다. `app/retrieval/chroma_store.py`가 임베디드 Chroma 때문에 다중 프로세스를 금지한다. Compose에도 `replicas`가 없으므로 지금은 Python multiprocess 수집이나 서비스당 다중 타깃 등록이 필요 없다. worker나 컨테이너 수를 늘리면 4절 multiprocess 조건과 타깃 등록을 다시 본다.
+
+#### BE 추가 항목
+
+| # | 위치 | 추가·변경 | 비고 |
+| --- | --- | --- | --- |
+| 1 | `build.gradle` | `runtimeOnly 'io.micrometer:micrometer-registry-prometheus'` | Actuator starter는 이미 있음. Boot 4 모듈 구성에서 `/actuator/prometheus`가 실제로 열리는지 scrape로 확인 |
+| 2 | `application.yaml` `management` | `exposure.include`를 `health` → `health,prometheus`, 3절 `slo` bucket 추가, **`server.port: 8081`** | `health.show-details: never` 유지. 관리 포트 분리는 모니터링 호스트 분리([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리)) 때문에 필수. Actuator 전체가 8081로 옮겨 가므로 `/actuator/health`도 8081에서 응답한다 |
+| 3 | `auth/SecurityConfig.java` `fallBackFilterChain` (`@Order(1000)`) | `EndpointRequest.to(PrometheusScrapeEndpoint.class)` 허용 규칙 추가 | 현재 health 외 `anyRequest().denyAll()`이라 추가하지 않으면 scrape가 403. `/api/**` 체인(`@Order(100)`)과 경로가 겹치지 않음 |
+| 4 | 새 Bean (`ServerRequestObservationConvention` 확장 등) | `http.server.requests`에 `traffic_class` low-cardinality tag | 아래 route→class 초안 사용 |
+| 5 | 새 Bean (Micrometer `Gauge`) | `keepgo_observability_info{contract="1",capability=...} 1`을 `http`·`jvm`·`db_pool` 각각 노출 | 2절. 없으면 타깃 등록 후 `http_metrics_missing` 알림이 난다 |
+| 6 | 코드 변경 없음 | JVM·GC·Hikari·Tomcat 지표, BE→AI `http.client.requests` | registry 추가만으로 자동 노출. AI 클라이언트는 Boot가 주입한 `RestClient.Builder`로 만들어 자동 계측 대상이며, `uri` tag가 템플릿인지 확인 |
+
+**관리 포트 8081 분리 이유.** Prometheus가 다른 EC2에서 수집하므로 앱 EC2에 포트를 열어야 한다. 8080을 열면 BE API 전체가 모니터링 호스트에 노출된다. 8081에는 Actuator만 있으므로 이 포트만 모니터링 보안 그룹에 연다. 공개 경로 차단도 FE Nginx 규칙 하나에 의존하지 않게 된다.
+
+**배포 순서 주의.** Cloud `compose.yaml`의 backend healthcheck는 현재 `127.0.0.1:8080/actuator/health`를 호출한다. 8081 이미지가 먼저 배포되면 healthcheck가 실패해 자동 롤백된다. 반대로 healthcheck만 먼저 8081로 바꾸면 현재 이미지가 실패한다. 그래서 Cloud healthcheck는 **8081을 먼저 시도하고 실패하면 8080으로 재시도**하도록 이미 바뀌었다. BE는 8081 이미지를 순서 걱정 없이 배포하면 된다. 8081 이미지가 정착하면 Cloud가 8080 재시도를 제거한다. 포트 8081·9464의 호스트 게시와 보안 그룹은 Cloud가 맡으므로 앱 레포에서 Compose·보안 그룹을 바꾸지 않는다. 3번 보안 규칙은 관리 포트에도 적용되므로 그대로 필요하다.
+
+BE route→class 초안 (BE 확인 필요):
+
+| class | route | 근거 |
+| --- | --- | --- |
+| `generation` | `POST /api/v1/user/recommendation` | 요청 안에서 AI `recommend-courses`를 동기 호출. AI 내부 제한 15초 |
+| `generation` | `POST /api/v1/user/youtube-analyze` | 좋아요 영상마다 AI `analyze-video`를 순차 동기 호출. 영상당 AI 제한 120초 |
+| `interactive` | 그 외 전체 | 채팅 `POST /api/v1/user/chat-messages`는 AI `extract`를 `@Async` worker에 넘기고 결과는 `GET /{chatId}/response`로 조회 |
+
+#### AI 추가 항목
+
+| # | 위치 | 추가·변경 | 비고 |
+| --- | --- | --- | --- |
+| 1 | `pyproject.toml`, `uv.lock` | `prometheus-client` 추가 | worker 1개라 기본 registry 사용 |
+| 2 | 새 HTTP 미들웨어 (예: `app/core/metrics.py`) + `app/main.py` 등록 | `keepgo_http_requests_total`, `keepgo_http_request_duration_seconds`, 권장 `keepgo_ai_requests_in_flight` | route는 매칭 후 `request.scope["route"].path` 템플릿. 미매칭은 `unmatched` |
+| 3 | `app/main.py` | **별도 포트 9464**에 metrics 노출(`prometheus_client.start_http_server(9464)`), `keepgo_observability_info{contract="1",capability="http"} 1` | AI API는 인증이 없어 8000을 모니터링 호스트에 열면 AI 호출까지 가능해진다. worker가 1개라 같은 프로세스에서 별도 포트를 띄워도 값이 하나로 모인다. worker를 늘리면 multiprocess 방식으로 다시 설계한다. `/health`는 HTTP 집계에서 제외 |
+| 4 | `Dockerfile` | `EXPOSE 9464` | 문서용. 실제 포트 게시는 Cloud Compose가 한다 |
+
+구현 시 주의:
+
+- `@app.exception_handler(Exception)`는 Starlette에서 가장 바깥 `ServerErrorMiddleware`가 처리한다. 예상하지 못한 예외는 사용자 미들웨어에 응답이 아니라 예외로 올라온다. 미들웨어에서 `except`로 status `500`을 기록하고 다시 raise하지 않으면 5xx가 지표에서 빠진다. `AIServerError`·`RequestValidationError`는 안쪽 `ExceptionMiddleware`가 응답으로 바꾸므로 정상 status로 보인다. 오류 요청 시험으로 확인한다.
+- `POST /v1/recommend-courses/{request_id}/cancel`은 경로에 요청 ID가 있다. 실제 경로를 label로 쓰면 요청마다 시계열이 생기므로 반드시 템플릿으로 기록한다.
+- `/v1/recommend-courses`는 BE가 중단한 요청에도 HTTP 200 + `message=cancel_accepted, data=null`을 반환한다. HTTP 지표에서는 성공으로 집계된다. 중단 비율이 필요하면 별도 counter를 계약 확장으로 추가한다.
+- Sentry(`sentry-sdk[fastapi]`)가 추가됐다. 오류 상세는 Sentry, 요청량·오류율·지연은 Prometheus가 맡는다. 둘 다 요청 경로에 붙으므로 오류 요청에서 status 기록이 어긋나지 않는지 함께 시험한다.
+- `app/models/factory.py`가 SDK 한 층에서 재시도한다(`max_retries`). 시도별 hook을 검증하기 전에는 `ainvoke` 1회를 제공자 시도 1회로 보고하지 않는다.
+
+AI route→class 초안 (AI 확인 필요): `/v1/analyze-video`, `/v1/analyze-videos`, `/v1/extract`, `/v1/verify-place`, `/v1/recommend-courses`, `/v1/embed-places`는 `generation`, `/v1/recommend-courses/{request_id}/cancel`은 `interactive`. 스트리밍 경로는 없다.
+
+#### FE 추가 항목
+
+| # | 위치 | 추가·변경 | 비고 |
+| --- | --- | --- | --- |
+| 1 | `nginx.conf` | **변경 불필요 가능성이 높음** | `/actuator`, `/metrics`는 `location /`로 `frontend:3000`에 간다. `/api/actuator/...`는 `$request_uri` 그대로 `backend:8080/api/actuator/...`로 가서 Actuator 경로 `/actuator/**`에 닿지 않는다. 8절 외부 요청 검사로 확정 |
+| 2 | `nginx.conf` (선택) | 요청 시간·upstream 시간·상태를 담은 `log_format` | 5절. 인증 헤더·쿠키·query 민감값 제외 |
+| 3 | `nginx.conf` (확인 필요) | `/api/` proxy의 `proxy_read_timeout` | 미설정이라 기본 60초. `youtube-analyze`처럼 60초를 넘는 동기 요청은 Nginx가 504를 내고 BE는 계속 처리해 BE 지표에는 2xx로 남을 수 있다. 계측 코드가 아니라 BE·FE timeout 결정 사항 |
+
+**AI의 TTFT·개별 제공자 시도·재시도 횟수는 이번 기본 구현의 필수 항목이 아니다.** 아래 4절에는 확장 시 사용할 계약도 함께 남겨 둔다. TTFT를 만들기 위해 스트리밍 기능을 새로 추가하거나, 계측을 위해 재시도 정책을 변경하지 않는다. 기본 구현만 완료해도 Cloud가 HTTP 모니터링을 연결할 수 있다.
+
 ## 1. 구현 경계와 파일
 
 | 파일 | 역할 |
@@ -20,7 +90,7 @@
 
 ## 2. 공통 수집·label·측정 규칙
 
-수집/평가 30초, timeout 10초, 타깃당 sample 10,000개, sample당 label 40개 한도다. 기본 보관은 7일/2GB이며 전체 디스크 한도는 아니다. 타깃은 내부 Docker DNS로만 접근하고 호스트에 앱 metrics 포트를 게시하지 않는다. 공개 Nginx 경로·rewrite 우회 차단 확인을 등록 조건으로 둔다.
+수집/평가 30초, timeout 10초, 타깃당 sample 10,000개, sample당 label 40개 한도다. 기본 보관은 7일/2GB이며 전체 디스크 한도는 아니다. Prometheus는 별도 모니터링 EC2에 있다([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리)). 앱 EC2는 **수집 전용 포트만** 게시하고(BE 관리 포트 8081, AI metrics 9464, node-exporter 9100, blackbox 9115) 보안 그룹에서 모니터링 보안 그룹만 허용한다. 앱 API 포트(BE 8080, AI 8000)는 게시하지 않는다. 공개 Nginx 경로·rewrite 우회 차단 확인을 등록 조건으로 둔다.
 
 단위는 시간 **초**, 크기 **바이트**, 누적 횟수 **counter**다. counter는 프로세스 재시작 때만 초기화한다. 분당/초당 수치를 앱에서 미리 계산해 counter로 보내지 않는다. JSON 응답이 아니라 Prometheus/OpenMetrics exposition 형식이어야 한다.
 
@@ -55,7 +125,7 @@ HTTP duration은 서버 요청 수신부터 응답 완료/연결 종료까지의
 | `hikaricp_connections_active`, `_max`, `_pending` | gauge / `pool` | 사용/최대/대기 connection 수 |
 | `hikaricp_connections_timeout_total` | counter / `pool` | connection 획득 timeout |
 
-Micrometer 기본 지표를 재구현하지 않는다. Prometheus registry 의존성과 `/actuator/prometheus` 노출을 추가하고, `traffic_class`만 저카디널리티 tag로 보완한다. Cloud가 `uri`를 `route`로 집계한다. 현재 `/actuator/health`의 포트 8080·DB 장애 503 동작은 유지한다. 보안 설정은 기존 SecurityFilterChain과 조합해 내부 scrape가 가능하도록 구현하되, Actuator 전체 공개를 기본값으로 두지 않는다.
+Micrometer 기본 지표를 재구현하지 않는다. Prometheus registry 의존성과 `/actuator/prometheus` 노출을 추가하고, `traffic_class`만 저카디널리티 tag로 보완한다. Cloud가 `uri`를 `route`로 집계한다. `/actuator/health`의 DB 장애 503 동작은 유지하고, 포트는 관리 포트 8081로 옮긴다(0절 BE 추가 항목의 배포 순서 주의 참고). 보안 설정은 기존 SecurityFilterChain과 조합해 내부 scrape가 가능하도록 구현하되, Actuator 전체 공개를 기본값으로 두지 않는다.
 
 HTTP histogram의 유한 bucket 경계는 **0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300초**, 그리고 `+Inf`다. Spring Boot 설정 예시는 아래와 같다. registry 버전에 따른 실제 노출 이름·경계를 scrape로 확인해야 한다.
 
@@ -78,16 +148,20 @@ JVM GC 종류에 따라 일부 지표가 없거나 이름이 달라질 수 있�
 
 ## 4. AI 구현 요청
 
-| 원본 메트릭 | 타입 / 주요 label | 측정 내용 |
-| --- | --- | --- |
-| `keepgo_http_requests_total` | counter / `method,route,status,traffic_class` | 서버 HTTP 요청 완료당 한 번 |
-| `keepgo_http_request_duration_seconds` | classic histogram / `method,route,traffic_class` | 공통 HTTP 경계 사용. `_bucket,_sum,_count` 노출 |
-| `keepgo_ai_provider_requests_total` | counter / `provider,model,outcome` | **제공자 호출 시도당** 완료 한 번. 재시도 포함 |
-| `keepgo_ai_provider_request_duration_seconds` | histogram / `provider,model,outcome` | 시도 시작→종료. 내부 재시도 대기 시간 제외 |
-| `keepgo_ai_first_token_seconds` | histogram / `provider,model` | 논리 스트리밍 요청 수신→클라이언트에 처음 전달한 내용 토큰. 전처리·대기·실패 후 재시도 포함 |
-| `keepgo_ai_retries_total` | counter / `provider,model,reason` | 첫 시도 이후 **실제로 시작한** 추가 시도 횟수 |
-| `keepgo_ai_requests_in_flight` | gauge / `operation` | 처리 중 논리 AI 요청. finally에서 감소 |
-| `keepgo_ai_tokens_total` | counter / `provider,model,type` | 제공자가 보고한 사용량. 재시도에서 보고된 사용량도 포함 |
+기본 구현은 `/metrics`와 HTTP counter/histogram 및 HTTP capability다. 추가 capability와 아래 확장 지표는 실제 측정이 검증된 경우에만 노출한다.
+
+| 원본 메트릭 | 타입 / 주요 label | 측정 내용 | 적용 범위 |
+| --- | --- | --- | --- |
+| `keepgo_http_requests_total` | counter / `method,route,status,traffic_class` | 서버 HTTP 요청 완료당 한 번 | 필수 |
+| `keepgo_http_request_duration_seconds` | classic histogram / `method,route,traffic_class` | 공통 HTTP 경계 사용. `_bucket,_sum,_count` 노출 | 필수 |
+| `keepgo_ai_provider_requests_total` | counter / `provider,model,outcome` | **제공자 호출 시도당** 완료 한 번. 재시도 포함 | SDK 시도별 계측 검증 후 확장 |
+| `keepgo_ai_provider_request_duration_seconds` | histogram / `provider,model,outcome` | 시도 시작→종료. 내부 재시도 대기 시간 제외 | SDK 시도별 계측 검증 후 확장 |
+| `keepgo_ai_first_token_seconds` | histogram / `provider,model` | 논리 스트리밍 요청 수신→첫 내용 토큰 전달 지점. 전처리·대기·실패 후 재시도 포함 | 스트리밍 기능 도입 후 확장 |
+| `keepgo_ai_retries_total` | counter / `provider,model,reason` | 첫 시도 이후 **실제로 시작한** 추가 시도 횟수 | SDK 시도별 계측 검증 후 확장 |
+| `keepgo_ai_requests_in_flight` | gauge / `operation` | 처리 중 논리 AI 요청. finally에서 감소 | 권장 |
+| `keepgo_ai_tokens_total` | counter / `provider,model,type` | 제공자가 보고한 사용량. 재시도에서 보고된 사용량도 포함 | usage 제공 범위 검증 후 선택 |
+
+현재 `ainvoke` 호출 바깥의 timer는 SDK 재시도·대기를 포함한 **논리 호출 전체 시간**이다. 이를 위 provider 시도별 duration 이름으로 내보내면 계약과 다르다. 논리 호출 별도 계측이 필요하면 이름·대시보드·분모를 함께 추가한다. 재시도 상수를 곱해서 실제 시도 횟수를 추정하지 않는다. SDK가 최종 호출의 usage만 제공하면 전체 시도 사용량을 관측했다고 표현하지 않는다.
 
 Provider duration bucket은 **0.1, 0.5, 1, 2, 5, 10, 20, 30, 60, 120초 +Inf**, TTFT는 **0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30초 +Inf**다. quantile은 근사치이고 마지막 유한 bucket보다 긴 요청은 꼬리 추정이 제한된다. HTTP stream 전체 시간과 TTFT는 별개다.
 
@@ -118,8 +192,10 @@ Uvicorn worker가 여러 개면 worker 하나의 `/metrics`만 노출해 전체 
 | `jvm_heap` | heap 사용률 >85% | 15분 | BE |
 | `db_pool` | active/max >90%이면서 pending >0 | 5분 | BE + Cloud |
 | `db_timeout` | 5분 창 connection timeout ≥3 | 2분 | BE + Cloud |
-| `ai_provider_errors` | 5분 실패율 >10%, 취소 제외 시도 ≥20, 실패 ≥5 | 5분 | AI |
-| `ai_first_token` | TTFT p95 >5초, 10분 관측 ≥20 | 10분 | AI |
+| `ai_provider_errors` | 5분 실패율 >10%, 취소 제외 시도 ≥20, 실패 ≥5 | 5분 | AI, 시도별 계측 확장 후 |
+| `ai_first_token` | TTFT p95 >5초, 10분 관측 ≥20 | 10분 | AI, 스트리밍 도입 후 |
+
+Cloud에는 8개 규칙을 준비했지만 마지막 두 AI 확장 규칙은 해당 지표가 없으면 평가 결과가 없으며 알림이 발생하지 않는다. 확장 패널은 No data로 남을 수 있다. 기본 구축 완료를 위해 이를 가짜 0으로 채우거나 해당 기능을 구현할 필요는 없다.
 
 모두 warning으로 시작한다. 비용·토큰 양은 provider 가격·예산·usage 신뢰도가 확인되기 전까지 조회만 한다. HTTP 4xx도 정보성 조회이며 전체를 서비스 장애로 호출하지 않는다. stream 전체 완료 시간에는 일반 API latency 경보를 적용하지 않는다. 인프라 임계치는 기존 CloudWatch가 담당한다.
 
@@ -132,11 +208,24 @@ Uvicorn worker가 여러 개면 worker 하나의 `/metrics`만 노출해 전체 
 | 파트 | 필요한 답·증거 | 기본 제안 |
 | --- | --- | --- |
 | BE | Spring/Micrometer/GC/DB pool 종류, 실측 scrape, route→class, 200 내부 업무 실패 의미 | native Micrometer + class tag, Hikari 계약 |
-| AI | 논리 요청 vs 제공자 시도 경계, TTFT 전달 위치, 취소·retry·cache 처리, worker 수, 토큰 사용량 신뢰도 | 4절 정의 적용, 변경점만 회신 |
+| AI | 기본 구현의 route→class, HTTP 200 안의 부분 실패 의미, worker 수·취소 처리. 시도별 hook·usage·TTFT는 확장할 때 확인 | 우선 HTTP 계측. SDK 재시도 포함 논리 호출과 개별 시도를 혼동하지 않음 |
 | FE | 공개 rewrite와 차단 경로, 생성/스트리밍 route, proxy timeout | 공개 metrics 차단·기존 health 유지 |
 | 서비스 담당 + Cloud | API 종류별 사용자 대기 목표, 실제 트래픽·부하 결과, 알림 담당/대응 시간 | 6절 숫자를 검증 전 초안으로 사용 |
 
 회신 형식: **구현 가능 / 변경이 필요한 항목과 이유 / 확인한 image SHA / 마스킹한 scrape 예시 / route→class 표**. 계정·키·Webhook·실제 사용자 데이터는 전달하지 않는다. 이 문서는 전달용 자료이며 이번 작업에서 메시지를 외부 채널로 발송하지 않았다.
+
+## 8. 파트별 완료 기준과 Cloud 인계
+
+| 파트 | 완료 조건 | 전달할 증거 |
+| --- | --- | --- |
+| BE | `backend:8081/actuator/prometheus`에서 200과 Prometheus 형식 응답. 8080에서는 Actuator가 응답하지 않음. 정상·4xx·5xx 요청의 HTTP counter/class/bucket, JVM/Hikari 지표 확인. 기존 인증·health 회귀 없음 | 이미지 SHA, route→class 표, 마스킹한 scrape, 검사 결과 |
+| AI | `ai-api:9464/metrics`에서 200. 실제 business route 요청 후 HTTP counter와 `+Inf` 포함 histogram, `capability=http` 확인. 동시 요청·오류·취소에서 이중 계수 없음 | 이미지 SHA, route→class 표, 마스킹한 scrape, worker 수·수집 방식, 구현한 capability 목록 |
+| FE | 외부 `/metrics`, `/actuator`, `/actuator/prometheus` 및 관련 `/api` 우회 경로에서 metrics 내용이 노출되지 않음. 기존 `/api`, 로그인·정적 파일·health 정상 | 적용 이미지 SHA와 외부 요청 경로별 검사 결과 |
+| Cloud | 검증된 서비스에 한해 target에 `service`, `metrics_contract=v1`, metrics path 등록. UP뿐 아니라 계약 지표·집계값·기본 대시보드·실제 알림 경로 확인 | 적용 Cloud SHA, 정상 수집·알림/복구 확인 기록 |
+
+200만 확인하고 완료 처리하지 않는다. 건강 검사 전용 요청이 아닌 실제 business route로 meter를 초기화하고, 요청 수와 오류 수·단위가 기대값과 맞는지 확인한다. 예상하지 못한 404·인증 응답·HTML 페이지는 정상 metrics 응답이 아니다. AI 부분 실패의 업무적 판정은 팀이 확인할 때까지 HTTP 상태 지표와 별개로 남긴다.
+
+파트가 계측 코드를 작성하는 동안 Cloud의 기본 로그·서버 지표·health 모니터링은 먼저 설치할 수 있다. 준비된 파트부터 상세 수집을 연결하며, 실제 운영 타깃 등록과 Webhook 수신 시험은 Cloud가 수행한다.
 
 ## 근거
 

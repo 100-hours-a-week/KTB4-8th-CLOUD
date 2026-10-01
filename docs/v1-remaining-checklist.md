@@ -124,23 +124,27 @@ Secret 변경 절차:
 - [ ] CloudWatch Agent 설치 및 monitoring/cloudwatch-agent.json 적용. 실제 CWAgent 지표 확인.
 - [ ] 임시 컨테이너 로그가 /keepgo/v1/application에 도착하는지 확인.
 - [ ] 성공 후 /opt/keepgo/runtime/cloudwatch-logs.enabled 생성 및 수동 배포. 앱 네 개가 로그 설정 변경으로 재생성되므로 점검 시간에 적용.
+- [ ] **모니터링 EC2 생성(TD-024, [구성](v1-monitoring.md) 5-1절):** 앱 SG에 넓은 인바운드 규칙이 없는지 먼저 확인. `infrastructure/monitoring-host.yaml` 스택 배포(VPC·퍼블릭 서브넷·앱 SG·AlertsTopicArn 필요). SSM 접속 확인. 저장소 설정은 이미 분리 구성(`compose.monitoring.yaml` / `compose.exporters.yaml`)이다.
 - [ ] observability checkout·Grafana 비밀번호·monitoring.env 준비.
-- [ ] 앱 네트워크 keepgo-v1_web, keepgo-v1_service가 있는 상태에서 compose.monitoring.yaml 실행.
-- [ ] SSM 터널로 Grafana 3001, Prometheus 9090 접근. 관리 포트는 외부 공개하지 않음.
+- [ ] 앱 EC2: 앱 네트워크 keepgo-v1_web, keepgo-v1_service가 있는 상태에서 compose.exporters.yaml 실행(5-2절). 예전 keepgo-monitoring 프로젝트가 앱 EC2에 떠 있으면 내림.
+- [ ] 모니터링 EC2: monitoring-host.env(APP_HOST_PRIVATE_IP) 준비, 9100·9115 curl 확인 후 compose.monitoring.yaml 실행(5-3절). CloudWatch Agent 설정 적용.
+- [ ] 모니터링 EC2로 SSM 터널을 열어 Grafana 3001, Prometheus 9090 접근. 관리 포트는 외부 공개하지 않음.
+- [ ] 모니터링 SG가 아닌 곳에서 앱 EC2 8081·9464·9100·9115가 막혀 있는지 확인.
 - [ ] 기본 scrape target 7개 UP, 서비스 probe_success 4개 정상 확인.
 - [ ] Grafana Discord 및 CloudWatch SNS 이메일 실제 수신 확인.
 - [ ] 앱 재배포 후에도 모니터링과 로그 수집 유지 확인.
 
-모니터링 컨테이너 메모리 상한은 합계 960 MiB다. 기존 앱 상한 2,432 MiB에 OS·Docker·Agent가 더해지므로 실제 여유를 확인한다. Prometheus 추가 디스크 여유 기준은 최소 5 GiB다. 앱 자동 CD는 observability checkout을 갱신하지 않는다.
+모니터링 EC2(t4g.small, 2 GiB)의 Prometheus·Grafana 상한은 768 MiB, 앱 EC2의 exporter 상한은 192 MiB다. 앱 자동 CD는 두 EC2의 observability checkout을 갱신하지 않는다. compose.yaml의 수집 포트·healthcheck 변경이 처음 배포될 때 backend·ai-api가 재생성되므로 점검 시간에 배포한다.
 
 ## 7. 실제로 빈 설정: 앱 상세 메트릭
 
 monitoring/prometheus/targets/application.json은 현재 []다. 앱의 요청률·오류율·p95·JVM·DB pool 지표는 아직 연결되지 않았다.
 
-- [ ] BE 팀: /actuator/prometheus 계측·접근 설정 확인. 현재 SecurityConfig는 health 외 actuator를 denyAll로 막는다.
-- [ ] AI 팀: /metrics와 요청 수·오류·지연 지표 확인.
+- [ ] BE 팀: /actuator/prometheus 계측·접근 설정 확인. 현재 SecurityConfig는 health 외 actuator를 denyAll로 막는다. 관리 포트 `management.server.port: 8081` 분리 포함(TD-024).
+- [ ] AI 팀: 요청 수·오류·지연 지표를 별도 포트 9464의 /metrics로 노출(TD-024).
 - [ ] Nginx 공개 경로에서 metrics가 노출되지 않는지 확인.
-- [ ] 준비 후 application.json에 backend:8080, ai-api:8000과 각각의 metrics path 등록.
+- [ ] Cloud: BE 8081 이미지가 정착하면 compose.yaml healthcheck의 8080 재시도 제거, prometheus.yml backend probe를 8081로 변경([구성](v1-monitoring.md) 2-1절). 전환용 8081 우선 + 8080 재시도는 저장소에 반영됨.
+- [ ] 준비 후 application.json에 `app-host:8081`(/actuator/prometheus), `app-host:9464`(/metrics) 등록.
 - [ ] 실제 지표 수집을 확인하고 앱 대시보드·임계치 확정.
 
 ## 8. 새 배포 흐름 적용 순서와 검증

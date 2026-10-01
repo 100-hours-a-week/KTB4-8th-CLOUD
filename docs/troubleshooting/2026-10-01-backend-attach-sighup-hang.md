@@ -193,7 +193,7 @@ attach를 끊자 stdout이 풀렸고, 멈춰 있던 종료 절차가 끝나 JVM�
 | --- | --- |
 | awslogs가 `mode: non-blocking`인데 왜 막혔나 | non-blocking은 ① 로그 드라이버가 느릴 때만 로그를 버려서 보호한다. 이번에 막힌 곳은 ②(attach)다. dockerd 고루틴 덤프에서 직접 확인했다. 다른 컨테이너(ai-api·frontend·web)의 `docker logs`는 정상이었다. |
 | 왜 CPU가 0%이고 로그가 한 줄도 없었나 | 로그를 쓰려는 모든 스레드가 같은 stdout을 기다리고 있었다. Hikari도 같은 이유로 로그가 없었다. DB와는 관계없다. |
-| 왜 `kill -QUIT`의 스레드 덤프가 안 나왔나 | 덤프도 stdout으로 출력된다. VM Thread가 덤프를 쓰다 멈췄고, 이후 safepoint가 필요한 `jcmd`도 동작하지 않았다. |
+| 왜 `kill -QUIT`의 스레드 덤프가 안 나왔나 | 덤프도 stdout으로 출력된다. VM Thread가 덤프를 쓰다 멈췄다. 이 상태에서는 safepoint가 필요한 `jcmd`도 동작하지 않으므로 ptrace로 읽는 `jhsdb`를 썼다. 막혀 있던 덤프는 attach를 끊은 23:55에 출력됐다. |
 | 헬스체크 프로세스가 원인이었나 | 아니다. 결과다. 아래 5절 참고. |
 | 왜 `restart: unless-stopped`가 다시 띄우지 않았나 | **추정:** attach의 시그널 전달은 `docker kill`과 같은 API를 쓴다. 그래서 Docker가 이를 수동 중지로 기록한 것으로 보인다. dockerd 로그 14:55 UTC 부근의 `hasBeenManuallyStopped`로 확인할 수 있다. |
 | attach는 22:35인데 왜 장애는 23:02부터인가 | attach만으로는 문제가 없다. **attach 클라이언트가 읽기를 멈춘 시점**(22:53 무렵)부터 버퍼가 차기 시작했고, 약 10분 뒤 버퍼가 다 찬 23:02:44에 응답이 멈췄다. 세션 종료(SIGHUP)는 그보다 11분 뒤인 23:14였다. 브라우저 연결이 먼저 끊기고 SSM 세션이 나중에 종료된 것으로 추정하며, SSM 세션 이력으로 확인할 수 있다(아래 명령). |

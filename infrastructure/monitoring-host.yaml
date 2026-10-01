@@ -223,23 +223,10 @@ Resources:
       AlarmActions: [!Ref AlertsTopicArn]
       OKActions: [!Ref AlertsTopicArn]
 
-  # grafana 도메인의 A 레코드가 가리킬 고정 IP. 기존 자동 공인 IP를 대체하므로 추가 요금은 없다.
-  GrafanaAddress:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-      Tags: [{Key: Name, Value: keepgo-v1-monitoring}]
-
-  GrafanaAddressAssociation:
-    Type: AWS::EC2::EIPAssociation
-    Properties:
-      AllocationId: !GetAtt GrafanaAddress.AllocationId
-      InstanceId: !Ref MonitoringInstance
+  # Grafana 도메인이 가리키는 Elastic IP(3.34.14.66, 이름 "for grafana")는 콘솔에서 할당·연결했다.
+  # 스택 밖 자원이므로 인스턴스를 교체하면 EIP를 새 인스턴스에 다시 연결해야 한다(TD-025).
 
 Outputs:
-  GrafanaPublicIp:
-    Description: grafana 도메인 A 레코드 값
-    Value: !Ref GrafanaAddress
   MonitoringInstanceId:
     Description: SSM 포트 포워딩 대상
     Value: !Ref MonitoringInstance

@@ -2,7 +2,7 @@
 
 ## 개요
 
-KeepGo V1은 앱 EC2 한 대에서 Docker Compose로 네 개의 컨테이너(web=Nginx, frontend=Next.js, backend=Spring Boot, ai-api=FastAPI)를 운영한다. 배포는 GitHub Actions가 자동으로 실행하고, 실패하면 배포 스크립트가 직전 버전으로 자동 롤백한다. Prometheus·Grafana는 별도 모니터링 EC2에서 돌린다([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리), AWS 적용 대기).
+KeepGo V1은 앱 EC2 한 대에서 Docker Compose로 네 개의 컨테이너(web=Nginx, frontend=Next.js, backend=Spring Boot, ai-api=FastAPI)를 운영한다. 배포는 GitHub Actions가 자동으로 실행하고, 실패하면 배포 스크립트가 직전 버전으로 자동 롤백한다. Prometheus·Grafana는 별도 모니터링 EC2에서 돌린다([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리)).
 
 알림 시스템의 원칙은 하나다.
 
@@ -15,8 +15,8 @@ KeepGo V1은 앱 EC2 한 대에서 Docker Compose로 네 개의 컨테이너(web
 | 경로 | 보내는 곳 | 채널 | 상태 |
 | --- | --- | --- | --- |
 | GitHub Actions (`notify-discord.sh`) | 배포·릴리스 실패, 외부 감시(Health check) | Discord | 운영 중 |
-| Grafana (모니터링 EC2) | 내부 서비스 비정상, 수집 불가, 앱 경고 | Discord | 설정 준비, AWS 적용 대기 |
-| CloudWatch 알람 → SNS | 앱·모니터링 EC2, RDS, 주기 실행 토큰 | 이메일 | 설정 준비, AWS 적용 대기 |
+| Grafana (모니터링 EC2) | 내부 서비스 비정상, 수집 불가, 앱 경고 | Discord | 모니터링 EC2 운영 중, Discord 수신 시험 기록 없음 |
+| CloudWatch 알람 → SNS | 앱·모니터링 EC2, RDS, 주기 실행 토큰 | 이메일 | 스택 존재, 알람·구독 승인 미확인. 앱 로그 전송은 2026-10-01 적용 |
 | Sentry | AI 앱 예외, (예정) 외부 감시 | Sentry 알림 규칙 | 에러 수집 운영 중, Uptime 설정 전 |
 
 설치·적용 상태는 [모니터링 운영 구성](v1-monitoring.md), Sentry는 [Sentry 사용 정리](v1-sentry.md)를 따른다.

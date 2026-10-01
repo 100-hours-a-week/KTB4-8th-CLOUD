@@ -61,12 +61,24 @@
 - 공식 Prometheus 3.13.3 Windows 배포물의 SHA256을 확인하고 native promtool로 16개 규칙 문법, 무트래픽·저트래픽·counter reset·장애/복구·계측 누락·취소 제외 등을 포함한 **19개 시나리오**를 통과했다. 이 안에서 **대시보드/전달 PromQL 27개**의 미등록 상태 평가도 확인했다.
 - CI에 생성 JSON 일치 검사와 promtool 동작 시험을 추가했다. 적용/회신/알림별 대응은 [운영 절차](monitoring-alert-runbook.md)에 기록했다. 실제 BE·AI 코드 구현과 Grafana 컨테이너 provisioning·운영 알림 수신 검증은 별도로 남아 있다.
 
+## 2026-10-01 운영 확인 (앱 EC2·CloudWatch 로그)
+
+"CloudWatch 로그가 안 보인다"는 문의로 앱 EC2를 확인했다.
+
+- **원인:** 스위치 파일 `/opt/keepgo/runtime/cloudwatch-logs.enabled`가 없어 앱 컨테이너 4개가 모두 로컬 `json-file` 로그만 쓰고 있었다. CloudWatch로는 처음부터 보낸 적이 없었다.
+- **전송 시험:** 앱 EC2에서 awslogs 드라이버로 임시 컨테이너를 실행해 `/keepgo/v1/application`에 쓰기가 성공했다. 로그 그룹 존재와 EC2 역할(`keepgoEC2logRole`)의 쓰기 권한을 함께 확인한 것이다.
+- **적용:** 스위치를 만들고 재배포한 뒤 `keepgo-v1-web·frontend·backend·ai-api`가 모두 `awslogs`로 바뀐 것을 확인했다. exporter 2개는 설계대로 `json-file`이다.
+- **함께 확인된 것:** 앱 EC2에 `keepgo-exporters` 프로젝트(node-exporter·blackbox)가 실행 중이고, 모니터링 EC2와 그 IAM 역할(`keepgo-v1-monitoring-host` 스택)이 존재한다. TD-024의 호스트 분리는 AWS에 적용된 상태다. `keepgo-v1-monitoring` 스택도 존재한다.
+- **참고:** CloudWatch에 `ai/logs`·`backend/logs`·`web/logs` 로그 그룹(보존 2주)이 따로 있다. 이 레포 코드가 만든 이름이 아니며 현재 컨테이너는 이 그룹에 쓰지 않는다. 앞으로 앱 로그는 `/keepgo/v1/application` 한 그룹에 서비스별 스트림으로 쌓인다. 옛 그룹 정리 여부는 팀이 정한다.
+- **아직 확인하지 않은 것:** CloudWatch Agent 지표, 알람 상태, SNS 구독 승인, Grafana Discord 수신 시험.
+
 ## 남은 검증과 적용
 
 - [ ] TD-016의 Secret 자동 조회·실패 시 교체 중단과 env/JWT 변경 감지를 EC2에서 확인한다. 첫 적용에서는 기록이 없는 BE·AI를 한 번 재생성한다.
 
 - [ ] GitHub 변수·Secret·PR 생성 권한·production 승인 정책·main 보호 정책을 운영 설정과 대조한다.
-- [ ] 모니터링 CI 검사 후 CloudWatch 스택·Agent를 설치하고 SNS 구독·로그 smoke를 확인한다.
+- [x] CloudWatch 로그 smoke 확인과 앱 로그 전송 활성화 (2026-10-01, 위 절).
+- [ ] CloudWatch Agent 지표·알람 상태·SNS 구독 승인을 확인한다.
 - [ ] PG 용량·런타임 비밀값 준비 후 설치하고 Grafana 대시보드·Discord·NoData/Error·복구 알림을 시험한다.
 - [ ] BE·AI 계측과 Nginx 공개 차단을 확인하고 앱 Prometheus 타깃을 활성화한다.
 - [ ] main 반영 후 실제 Actions dry_run에서 후보 조회·무변경·실패 알림 생략을 확인한다.

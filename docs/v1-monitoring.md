@@ -87,6 +87,8 @@ Agent는 메트릭만 수집한다. 앱 로그는 Docker daemon이 인스턴스 
 
 ## 4. 앱 로그 전송 활성화
 
+> 2026-10-01 운영 앱 EC2에 적용했다. smoke 성공 후 marker를 만들고 재배포해 앱 컨테이너 4개가 `awslogs`로 바뀐 것을 확인했다([구현 현황](v1-implementation-status.md)).
+
 기본 앱 Compose는 기존 json-file이다. **로그 그룹·IAM·실제 전송 확인 후** 호스트 marker를 만들면 deploy.sh가 `compose.cloudwatch.yaml`을 추가한다. IAM 준비 전 main 반영만으로 앱 로그 드라이버가 바뀌지 않는다.
 
 1. EC2에서 아래 임시 컨테이너로 Docker daemon의 실제 전송을 확인한다. AWS 키를 컨테이너에 넣지 않는다.

@@ -2,7 +2,7 @@
 
 이 문서 하나로 현재 V1의 배포 흐름, 각 파일의 역할, 선택 이유와 한계를 이해할 수 있도록 정리했다. 기준은 2026-09-29 작업 트리의 코드이며, 파일 역할(9절)과 검사 위치(10절)는 2026-10-01에 갱신했다. 알림 구축의 상세는 [장애 알림 시스템](./v1-alerting.md), 성공 판정과 복구 상세는 [배포 검증 및 롤백](./v1-deployment-verification-and-rollback.md)에 둔다. 최초 연결·호스트 조회는 [운영 절차](v1-operations.md), 실제 시험 결과는 [구현 현황](v1-implementation-status.md), 대안 비교는 [기술 결정](technical-decisions.md)을 따른다.
 
-2026-09-30 모니터링 확장: [CloudWatch + Prometheus + Grafana](v1-monitoring.md)를 추가했다. 앱 자동 CD는 네 서비스만 관리하고 PG는 별도 checkout·Compose 프로젝트로 운영한다. 호스트의 `cloudwatch-logs.enabled`가 있으면 deploy.sh가 `compose.cloudwatch.yaml`을 병합해 앱 로그를 CloudWatch로 전송한다. marker 활성화·해제도 설정 변경이므로 앱 재생성이 필요하다. 2026-10-01에는 Prometheus·Grafana를 별도 모니터링 EC2로 분리하기로 했다([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리), AWS 적용 대기). 앱 EC2에는 exporter와 수집 포트만 남는다.
+2026-09-30 모니터링 확장: [CloudWatch + Prometheus + Grafana](v1-monitoring.md)를 추가했다. 앱 자동 CD는 네 서비스만 관리하고 PG는 별도 checkout·Compose 프로젝트로 운영한다. 호스트의 `cloudwatch-logs.enabled`가 있으면 deploy.sh가 `compose.cloudwatch.yaml`을 병합해 앱 로그를 CloudWatch로 전송한다. marker 활성화·해제도 설정 변경이므로 앱 재생성이 필요하다. 2026-10-01에는 Prometheus·Grafana를 별도 모니터링 EC2로 분리하기로 했다([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리), 2026-10-01 운영 확인). 앱 EC2에는 exporter와 수집 포트만 남는다.
 
 ## 1. 무엇을 자동화하는가
 

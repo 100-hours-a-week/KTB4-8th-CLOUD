@@ -18,7 +18,7 @@
 | TD-012 | 2026-09-29 | 설정 해시로 바뀐 서비스만 교체, 실패 시 이미지 롤백·실패 이미지 차단 | 채택 |
 | TD-013 | 2026-09-29 | 자동 복구되지 않은 장애만 Discord로 알림 | 채택 |
 | TD-014 | 2026-09-29 | Backend healthcheck를 `/actuator/health`로 강화 | 채택 |
-| TD-015 | 2026-09-30 | CloudWatch 로그·인프라 알람 + Prometheus·Grafana 상세 관측 | 채택 (운영 적용 전, 호스트 배치는 TD-024로 대체) |
+| TD-015 | 2026-09-30 | CloudWatch 로그·인프라 알람 + Prometheus·Grafana 상세 관측 | 채택 (앱 로그 전송 운영 적용 2026-10-01, 알람·Agent 미확인. 호스트 배치는 TD-024로 대체) |
 | TD-016 | 2026-09-30 | 배포 시 Secret 자동 조회 유지, 실패 시 교체 중단, env·JWT 적용 상태 추적 | 채택 (운영 적용 전) |
 | TD-017 | 2026-09-30 | main 보호 규칙 없이 GITHUB_TOKEN으로 자동 병합, 형식 검사는 release.sh에서 수행 | 채택 |
 | TD-018 | 2026-09-30 | main의 배포 사전 검사 복원(TLS·ACME·uploads, NAVER 키 필수), 배포는 main에서만 | 채택 (운영 적용 전) |
@@ -27,7 +27,7 @@
 | TD-021 | 2026-09-30 | 변경 감지를 Compose 라벨 대신 마지막 배포의 적용 기록으로 판단 (TD-012 보완) | 채택 (운영 적용 전) |
 | TD-022 | 2026-09-30 | GitHub schedule 대신 EventBridge 예약 규칙 + API destination으로 Auto release·Health check 실행 (TD-009 실행 수단 변경) | 채택 (운영 적용) |
 | TD-023 | 2026-10-01 | 외부 감시는 유지하되 Actions Health check를 Sentry Uptime Monitoring으로 이전 (같은 날 Route 53 안에서 변경) | 결정 (적용 대기) |
-| TD-024 | 2026-10-01 | Prometheus·Grafana를 별도 t4g.small로 분리, 앱 EC2는 수집 전용 포트만 게시 (TD-015 호스트 배치 대체) | 결정 (저장소 반영, AWS 적용 대기) |
+| TD-024 | 2026-10-01 | Prometheus·Grafana를 별도 t4g.small로 분리, 앱 EC2는 수집 전용 포트만 게시 (TD-015 호스트 배치 대체) | 채택 (모니터링 EC2·앱 exporter 운영 확인 2026-10-01, 알림 수신 시험 대기) |
 | TD-025 | 2026-10-01 | Grafana를 Caddy·Let's Encrypt로 `grafana.keepgo.kr` HTTPS 공개, Prometheus는 비공개 유지 | 결정 (저장소 반영, AWS 적용 대기) |
 
 ## TD-001 — 버전 Manifest 형식
@@ -498,7 +498,7 @@ GitHub 밖에서 workflow를 실행하려면 어떤 방식이든 Cloud 레포의
 
 ## TD-024 — 모니터링 전용 인스턴스 분리
 
-**상태:** 결정 (2026-10-01), 저장소 반영 완료·AWS 적용 대기. [TD-015](#td-015--cloudwatch--prometheus--grafana)의 "같은 EC2에서 시작" 부분을 대체한다. 구성·설치 절차는 [모니터링 운영 구성](v1-monitoring.md) 2·5절, 앱 포트 계약은 [상세 메트릭 계약](monitoring-metrics-contract.md)에 둔다. 저장소에서는 `compose.monitoring.yaml`(모니터링 EC2)과 `compose.exporters.yaml`(앱 EC2)로 나누고, `infrastructure/monitoring-host.yaml`로 EC2·보안 그룹을 만든다.
+**상태:** 결정 (2026-10-01), 저장소 반영 완료. 2026-10-01 모니터링 EC2와 앱 EC2의 exporter 실행을 확인했다(알림 수신 시험은 대기). [TD-015](#td-015--cloudwatch--prometheus--grafana)의 "같은 EC2에서 시작" 부분을 대체한다. 구성·설치 절차는 [모니터링 운영 구성](v1-monitoring.md) 2·5절, 앱 포트 계약은 [상세 메트릭 계약](monitoring-metrics-contract.md)에 둔다. 저장소에서는 `compose.monitoring.yaml`(모니터링 EC2)과 `compose.exporters.yaml`(앱 EC2)로 나누고, `infrastructure/monitoring-host.yaml`로 EC2·보안 그룹을 만든다.
 
 **맥락:** 앱 4개가 EC2 하나에 있고, 저장소 설정은 Prometheus·Grafana도 같은 EC2에 둔다. 컨테이너 메모리 상한 합계가 앱 2,432 MiB + 모니터링 960 MiB로, 4 GiB 호스트라면 OS·Docker·Agent에 남는 여유가 600 MiB 정도다. V2에서 앱 호스트가 여러 대가 되면 중앙 Prometheus가 어차피 필요하다.
 

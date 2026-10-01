@@ -16,7 +16,6 @@
 | 날짜 | 문제 | 영향 | 상태 |
 | --- | --- | --- | --- |
 | 2026-10-01 | [Grafana 접속 중 "Failed to fetch" (메모리 상한 256 MiB 근접)](2026-10-01-grafana-memory-limit.md) | 대시보드 접속이 끊김. 알림 평가도 재시작 동안 멈춤 | 수정 (512 MiB), EC2 반영·확인 대기 |
-| 2026-10-01 | [Grafana가 10초마다 재시작 (Discord Webhook 환경변수 누락)](2026-10-01-grafana-webhook-env-missing.md) | 모니터링 최초 설치 지연. Webhook URL 노출 | 해결 (형식 수정, 웹훅 교체 권장) |
 | 2026-10-01 | [release PR의 Validate가 매번 실패로 표시됨 (승인 만료)](2026-10-01-release-pr-validate-expired.md) | 배포 영향 없음. 릴리스마다 빨간 X가 쌓여 진짜 실패를 가림 | 수정 (`[skip ci]`), 다음 릴리스에서 확인 대기 |
 | 2026-09-30 | [SENTRY_DSN 형식 오류로 AI 배포 자동 롤백](2026-09-30-ai-sentry-dsn-rollback.md) | 새 AI 버전·설정이 약 1시간 반 미반영, 알림 없음 | 복구됨, 재발 방지 TODO |
 | 2026-09-30 | [GitHub Actions schedule이 한 번도 실행되지 않음](2026-09-30-actions-schedule-not-running.md) | 자동 배포·외부 감시가 돌지 않음 | 우회 해결 (EventBridge), 조직 원인 문의 중 |
@@ -38,7 +37,6 @@
 | CI의 `docker compose config`가 로컬에서는 되는데 러너에서 실패 | [Validate 실패](2026-09-30-validate-env-file-not-found.md) |
 | 배포 결과 코드(`rolled_back`, `pull_failed` 등)의 뜻과 조치 | [배포 검증 및 롤백](../v1-deployment-verification-and-rollback.md) |
 | Discord 알림이 오거나 안 옴 | [장애 알림 시스템](../v1-alerting.md) |
-| Grafana가 `Restarting` 반복, 로그에 `could not find webhook url property` | [Webhook 환경변수 누락](2026-10-01-grafana-webhook-env-missing.md) |
 | Grafana 터널에서 "Failed to fetch" 또는 `Connection to destination port failed` | [Grafana 메모리 상한](2026-10-01-grafana-memory-limit.md) — 먼저 `docker ps`로 Grafana 재시작 여부 확인 |
 | EC2에서 직접 상태를 확인하는 방법 | [운영 절차](../v1-operations.md) 5절 「직접 확인」, 10절 「증상별 빠른 확인」 |
 

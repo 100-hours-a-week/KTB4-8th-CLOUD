@@ -425,7 +425,7 @@ GitHub 밖에서 workflow를 실행하려면 어떤 방식이든 Cloud 레포의
 
 ## TD-023 — 외부 감시: 유지, Sentry Uptime으로 이전
 
-**상태:** 결정 (2026-10-01), 적용 대기. 같은 날 처음에는 Route 53 헬스 체크로 정했다가 **Sentry Uptime Monitoring으로 변경**했다(변경 이유는 아래). 팀이 Sentry 계정 하나를 함께 쓰기로 한 것이 전제다. Actions Health check(TD-022의 EventBridge 실행)는 아래 "적용 순서"를 마칠 때까지 유지한다.
+**상태:** 결정 (2026-10-01), 적용 대기. 설정값·적용 순서·확인 항목은 [Sentry 사용 정리](v1-sentry.md)에서 관리한다. 같은 날 처음에는 Route 53 헬스 체크로 정했다가 **Sentry Uptime Monitoring으로 변경**했다(변경 이유는 아래). 팀이 Sentry 계정 하나를 함께 쓰기로 한 것이 전제다. Actions Health check(TD-022의 EventBridge 실행)는 아래 "적용 순서"를 마칠 때까지 유지한다.
 
 **맥락:** CloudWatch·PG를 붙이면서 Actions Health check가 따로 필요한지 다시 검토했다. Health check는 schedule 장애 때문에 EventBridge와 개인 PAT로 돌고 있고, 하루 288건의 실행 기록이 쌓인다. 중복 알림은 직전 실행 결과를 비교하는 방식으로 막고 있어 알림이 누락될 수 있다([장애 알림](v1-alerting.md) 8-3).
 

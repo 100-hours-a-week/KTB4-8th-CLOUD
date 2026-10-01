@@ -11,6 +11,7 @@
 | BE·AI·FE 전달용 상세 메트릭·bucket·초기 임계치 | [메트릭 계약 v1](docs/monitoring-metrics-contract.md) |
 | 앱 대시보드 적용·검증·장애별 대응 | [앱 알림 운영 절차](docs/monitoring-alert-runbook.md) |
 | 장애 알림 구축, 감지 기준, Discord 연결·수신 시험 | [장애 알림 시스템](docs/v1-alerting.md) |
+| Sentry: AI 에러 수집(SENTRY_DSN), 외부 감시(Uptime) 이전, 인증서, 계정 관리 | [Sentry 사용 정리](docs/v1-sentry.md) |
 | 배포 성공 판정, 자동·수동 롤백, 차단·재배포·인수 시험 | [배포 검증 및 롤백](docs/v1-deployment-verification-and-rollback.md) |
 | 최초 연결, dry_run, 호스트 조회, Secret 변경 | [운영 절차](docs/v1-operations.md) |
 | 대안 비교, 결정 변경 이력, 재검토 조건 | [기술 결정](docs/technical-decisions.md) |

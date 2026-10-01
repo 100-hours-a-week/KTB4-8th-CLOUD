@@ -39,7 +39,7 @@ AWS 역할·인스턴스 변수는 `production` Environment에 두어도 된다.
 1. workflow·스크립트를 main에 반영하되 `AUTO_DEPLOY_ENABLED`는 비워 두거나 `false`로 둔다. `PUBLIC_ORIGIN`이 이미 있으면 Health check는 이 스위치와 별개로 실행된다.
 2. 아래 dry_run으로 현재 후보를 확인한다. 문서에 적힌 과거 SHA 대신 실행 로그와 Manifest를 기준으로 판단한다.
 3. Manifest 목표 SHA와 실제 EC2 버전, 초기 교체 대상을 확인한 뒤 **Deploy production → Run workflow → main**으로 수동 배포한다. Backend healthcheck 변경이 아직 적용되지 않았다면 같은 이미지라도 Backend가 재생성될 수 있다. 다른 대상이 나오면 이미지·env·설정·Compose 버전 차이를 확인한다.
-4. [장애 알림 시스템](./v1-alerting.md) 3절에 따라 PUBLIC_ORIGIN·Webhook을 연결하고 정상 검사와 실제 수신을 확인한다.
+4. [장애 알림 시스템](./v1-alerting.md) 6절에 따라 PUBLIC_ORIGIN·Webhook을 연결하고 정상 검사와 실제 수신을 확인한다.
 5. `AUTO_DEPLOY_ENABLED=true`로 켠다. 다음 정상 조회에서 당시 최신 SHA의 CI·게시 job이 성공한 서비스가 후보가 된다. 배포 완료까지 걸리는 시간은 고정돼 있지 않다.
 6. 9절 인수 시험 결과를 구현 현황에 기록한다.
 
@@ -84,7 +84,7 @@ actionlint
 
 ## 4. Discord 알림별 대응
 
-메시지의 Actions 링크에서 실패 단계를 확인한다. 알림 종류별 확인 순서는 [장애 알림 시스템](./v1-alerting.md) 6절, SSM/deploy.sh 결과별 복구 조치는 [배포 검증 및 롤백 프로세스](./v1-deployment-verification-and-rollback.md) 6절에 모았다.
+메시지의 Actions 링크에서 실패 단계를 확인한다. 알림 종류별 확인 순서는 [장애 알림 시스템](./v1-alerting.md) 5절, SSM/deploy.sh 결과별 복구 조치는 [배포 검증 및 롤백 프로세스](./v1-deployment-verification-and-rollback.md) 6절에 모았다.
 
 workflow 요약의 needs_action은 공통 분류다. 세부 원인은 SSM 출력의 deploy.sh 결과와 history.log에서 확인하고, 호스트 조회에는 다음 절을 사용한다.
 

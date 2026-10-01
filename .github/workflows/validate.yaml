@@ -43,19 +43,21 @@ jobs:
           # env 값은 해석하지 않고 구조만 검사한다.
           AWS_ACCOUNT_ID=000000000000 docker compose -f compose.yaml config --no-env-resolution --quiet
           AWS_ACCOUNT_ID=000000000000 docker compose -f compose.yaml -f compose.cloudwatch.yaml config --no-env-resolution --quiet
-          docker compose -f compose.monitoring.yaml config --no-env-resolution --quiet
+          APP_HOST_PRIVATE_IP=10.0.0.10 docker compose -f compose.monitoring.yaml config --no-env-resolution --quiet
+          docker compose -f compose.exporters.yaml config --no-env-resolution --quiet
 
       - name: Check monitoring configuration
         run: |
           python3 scripts/render-app-monitoring.py --check
-          monitoring="$(docker compose -f compose.monitoring.yaml config --no-env-resolution --format json)"
+          monitoring="$(APP_HOST_PRIVATE_IP=10.0.0.10 docker compose -f compose.monitoring.yaml config --no-env-resolution --format json)"
+          exporters="$(docker compose -f compose.exporters.yaml config --no-env-resolution --format json)"
           docker run --rm -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
             --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" check config /etc/prometheus/prometheus.yml
           # 등록 전 무트래픽·계측 누락·오류/지연·counter reset을 실제 PromQL 엔진으로 검사한다.
           docker run --rm -v "${PWD}:/repo:ro" -w /repo \
             --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" test rules tests/prometheus/application.test.yml
           docker run --rm -v "${PWD}/monitoring/blackbox:/etc/blackbox:ro" \
-            "$(jq -r '.services["blackbox-exporter"].image' <<<"${monitoring}")" --config.file=/etc/blackbox/blackbox.yml --config.check
+            "$(jq -r '.services["blackbox-exporter"].image' <<<"${exporters}")" --config.file=/etc/blackbox/blackbox.yml --config.check
           python3 -m unittest discover -s tests -p 'test_monitoring.py'
 
       - name: Check scripts and workflows

@@ -1,6 +1,6 @@
 [
   {
-    "targets": ["backend:8080"],
+    "targets": ["app-host:8081"],
     "labels": {
       "service": "backend",
       "metrics_contract": "v1",
@@ -8,7 +8,7 @@
     }
   },
   {
-    "targets": ["ai-api:8000"],
+    "targets": ["app-host:9464"],
     "labels": {
       "service": "ai-api",
       "metrics_contract": "v1",

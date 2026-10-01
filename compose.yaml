@@ -74,6 +74,9 @@ services:
     image: "${AWS_ACCOUNT_ID:?set AWS_ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend:${BACKEND_IMAGE_TAG:?set BACKEND_IMAGE_TAG}"
     networks: [web, service]
     expose: ["8080"]
+    # 관리 포트(Actuator만). 모니터링 EC2의 Prometheus가 수집한다(TD-024).
+    # 앱 SG에서 모니터링 SG만 허용한다. 8080(API)은 게시하지 않는다.
+    ports: ["8081:8081"]
     env_file:
       - path: /opt/keepgo/runtime/backend.env
         format: raw
@@ -119,15 +122,19 @@ services:
     mem_limit: 1024m
     stop_grace_period: 30s
     # Spring Actuator /actuator/health가 UP이어야 한다(DB 연결 포함). 이미지에 curl이 없어 bash로 요청한다.
+    # 관리 포트 전환 기간: 8081(새 이미지)을 먼저 보고 실패하면 8080(기존 이미지)을 본다.
+    # 8081 이미지가 정착하면 8080을 지운다. 각 시도를 subshell로 감싸 연결 실패가 다음 시도를 막지 않게 한다.
     healthcheck:
       test:
         - CMD
         - bash
         - -c
         - >-
-          exec 3<>/dev/tcp/127.0.0.1/8080
+          for port in 8081 8080; do
+          ( exec 3<>/dev/tcp/127.0.0.1/$$port
           && printf 'GET /actuator/health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3
-          && grep -q '"status":"UP"' <&3
+          && grep -q '"status":"UP"' <&3 ) 2>/dev/null && exit 0;
+          done; exit 1
       interval: 15s
       timeout: 3s
       retries: 5
@@ -140,6 +147,8 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     networks: [service]
     expose: ["8000"]
+    # metrics 전용 포트. AI API(8000)는 인증이 없어 게시하지 않는다(TD-024).
+    ports: ["9464:9464"]
     env_file:
       - path: /opt/keepgo/runtime/ai.env
         format: raw

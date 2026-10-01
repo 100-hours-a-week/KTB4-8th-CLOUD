@@ -98,6 +98,9 @@ services:
       AI_SERVER_API_ADDRESS: http://ai-api:8000
       FRONTEND_SERVER_ADDRESS: https://keepgo.kr
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
+      # BE application.yaml의 root 기본값이 TRACE다. 출력이 막히면 앱 전체가 멈춘다
+      # (troubleshooting/2026-10-01-backend-attach-sighup-hang.md). 패키지별 상향은 BE 설정에서 한다
+      LOGGING_LEVEL_ROOT: INFO
       # TLS가 nginx에서 끝나므로 X-Forwarded-* 로 원래 https 주소를 복원
       SERVER_FORWARD_HEADERS_STRATEGY: native
       # nginx client_max_body_size와 맞춘다 (Spring 기본 1MB)
@@ -125,7 +128,9 @@ services:
     stop_grace_period: 30s
     # Spring Actuator /actuator/health가 UP이어야 한다(DB 연결 포함). 이미지에 curl이 없어 bash로 요청한다.
     # 관리 포트 전환 기간: 8081(새 이미지)을 먼저 보고 실패하면 8080(기존 이미지)을 본다.
-    # 8081 이미지가 정착하면 8080을 지운다. 각 시도를 subshell로 감싸 연결 실패가 다음 시도를 막지 않게 한다.
+    # 8081 이미지가 정착하면 8080을 지운다. 각 시도를 timeout으로 감싼다. 앱이 연결만 받고 응답하지 않으면
+    # grep이 끝나지 않는데, Docker는 시간 초과 때 하위 프로세스를 정리하지 않아 프로세스가 계속 쌓였다.
+    # timeout은 자기 프로세스 그룹 전체(bash·grep)를 종료한다. 포트 번호는 $0으로 넘긴다.
     healthcheck:
       test:
         - CMD
@@ -133,12 +138,12 @@ services:
         - -c
         - >-
           for port in 8081 8080; do
-          ( exec 3<>/dev/tcp/127.0.0.1/$$port
-          && printf 'GET /actuator/health HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3
-          && grep -q '"status":"UP"' <&3 ) 2>/dev/null && exit 0;
+          timeout -k 1 2 bash -c 'exec 3<>/dev/tcp/127.0.0.1/$$0
+          && printf "GET /actuator/health HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3
+          && grep -q "\"status\":\"UP\"" <&3' $$port 2>/dev/null && exit 0;
           done; exit 1
       interval: 15s
-      timeout: 3s
+      timeout: 5s
       retries: 5
       start_period: 90s
     logging: *logging

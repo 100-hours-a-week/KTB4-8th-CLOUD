@@ -166,6 +166,14 @@ sudo install -d -m 0700 /opt/keepgo/runtime
 
 Compose 파일 기반 secret은 호스트 파일 권한을 그대로 사용한다. GitHub Secret을 EC2가 자동으로 읽지는 않으므로 같은 Discord 채널용 값을 별도로 배치해야 한다. contact point는 파일 provisioning으로 주입하고, Grafana는 Webhook을 런타임 환경변수로 받는다. 관리자 권한의 `docker inspect`에서는 보일 수 있다. 비밀번호와 Webhook 없이 운영 모니터링을 시작하지 않는다.
 
+비밀값 파일은 값을 출력하지 않고 형식만 확인한다. 첫 줄이 `1`이어야 한다. `DISCORD_WEBHOOK_URL=` 접두사가 빠지면 Grafana가 provisioning에 실패해 재시작을 반복한다([사례](troubleshooting/2026-10-01-grafana-webhook-env-missing.md)).
+
+```sh
+sudo grep -c '^DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/' /opt/keepgo/runtime/monitoring.env
+sudo grep -c '^APP_HOST_PRIVATE_IP=[0-9.]*$' /opt/keepgo/runtime/monitoring-host.env
+sudo ls -l /opt/keepgo/runtime/   # env 0600 root, 비밀번호 0400 472
+```
+
 먼저 수집 경로가 열렸는지 확인한다. 9100·9115가 응답하지 않으면 앱 SG 규칙과 5-2절 exporter 상태를 본다.
 
 ```sh

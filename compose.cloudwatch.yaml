@@ -6,7 +6,9 @@ x-cloudwatch-logging: &cloudwatch-logging !override
     awslogs-region: ap-northeast-2
     awslogs-group: /keepgo/v1/application
     awslogs-create-group: "false"
-    tag: "{{.Name}}/{{.ID}}"
+    # 스트림 이름 = 컨테이너 이름(keepgo-v1-backend-1 등). 서비스당 하나로 고정돼
+    # 각 파트가 배포 횟수와 상관없이 같은 스트림만 보면 된다. ID를 넣으면 재생성마다 스트림이 는다.
+    tag: "{{.Name}}"
     mode: non-blocking
     max-buffer-size: "4m"
     cache-disabled: "false"

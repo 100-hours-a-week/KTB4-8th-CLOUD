@@ -17,7 +17,7 @@ export STATE_DIR
 FAILED_LIST="${STATE_DIR}/failed-images"  # 검증에 실패한 "서비스 SHA". 같은 이미지는 다시 배포하지 않는다
 HISTORY="${STATE_DIR}/history.log"
 ORDER=(ai-api backend frontend web)         # 의존 관계 순서. 복구는 역순
-# scripts/release.py의 TAG_VARS와 같아야 한다.
+# compose.yaml의 이미지 태그 변수다. 아래 Manifest 변환(names)과 validate.yaml의 Check compose도 같아야 한다.
 declare -A TAG_VAR=([web]=NGINX_IMAGE_TAG [frontend]=WEB_IMAGE_TAG [backend]=BACKEND_IMAGE_TAG [ai-api]=AI_IMAGE_TAG)
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-300}"      # 새 컨테이너가 healthy가 될 때까지 기다리는 시간(초)
 BAKE_SECONDS="${BAKE_SECONDS:-60}"           # 교체 후 재시작 없이 버티는지 지켜보는 시간(초)

@@ -53,7 +53,7 @@ node-exporter는 측정할 호스트에, blackbox-exporter는 `backend`·`ai-api
 
 ### 2-1. BE 관리 포트 전환
 
-BE가 관리 포트 8081을 쓰면 `/actuator/health`도 8081로 옮겨 간다. `compose.yaml`의 backend healthcheck는 **8081을 먼저 보고 실패하면 8080을 본다.** 그래서 지금 이미지와 8081 이미지 모두 통과한다. BE 8081 이미지가 정착하면 다음을 한 PR로 바꾼다.
+BE가 관리 포트 8081을 쓰면 `/actuator/health`도 8081로 옮겨 간다. `compose.yaml`의 backend healthcheck는 **8081을 먼저 보고 실패하면 8080을 본다.** 그래서 지금 이미지와 8081 이미지 모두 통과한다. 각 시도는 `timeout -k 1 2`로 감싸 응답이 없어도 프로세스가 남지 않는다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). BE 8081 이미지가 정착하면 다음을 한 PR로 바꾼다.
 
 1. `compose.yaml` healthcheck의 `for port in 8081 8080`에서 8080을 지운다.
 2. `prometheus.yml` service-health의 backend 대상을 `http://backend:8081/actuator/health`로 바꾼다.

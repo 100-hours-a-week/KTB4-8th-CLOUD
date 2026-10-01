@@ -175,6 +175,7 @@ Secret 변경 절차:
 monitoring/prometheus/targets/application.json은 현재 []다. 앱의 요청률·오류율·p95·JVM·DB pool 지표는 아직 연결되지 않았다.
 
 - [ ] BE 팀: /actuator/prometheus 계측·접근 설정 확인. 현재 SecurityConfig는 health 외 actuator를 denyAll로 막는다. 관리 포트 `management.server.port: 8081` 분리 포함(TD-024).
+- [ ] BE 팀: `application.yaml`의 `logging.level.root` 기본값 TRACE → INFO, 실제 값이 들어간 Google OAuth client secret 교체·삭제([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). Cloud는 `LOGGING_LEVEL_ROOT: INFO`로 덮어쓰는 중.
 - [ ] AI 팀: 요청 수·오류·지연 지표를 별도 포트 9464의 /metrics로 노출(TD-024).
 - [ ] Nginx 공개 경로에서 metrics가 노출되지 않는지 확인.
 - [ ] Cloud: BE 8081 이미지가 정착하면 compose.yaml healthcheck의 8080 재시도 제거, prometheus.yml backend probe를 8081로 변경([구성](v1-monitoring.md) 2-1절). 전환용 8081 우선 + 8080 재시도는 저장소에 반영됨.

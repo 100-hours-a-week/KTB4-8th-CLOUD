@@ -261,6 +261,8 @@ PR 생성 방식이었다면 앱 저장소의 push로 시작하므로 **이 장�
 
 **감수하는 단점:** 이 변경으로 Backend 설정 해시가 바뀐다. 기존 healthcheck가 남아 있는 호스트에는 적용 시 이미지가 같아도 Backend 재생성이 필요하다. Nginx는 `/actuator`를 Backend로 넘기지 않으므로 외부 감시는 계속 `/api`를 쓴다.
 
+**보완(2026-10-02):** 앱이 연결만 받고 응답하지 않으면 `grep`이 끝나지 않는다. Docker는 시간 초과 때 하위 프로세스를 정리하지 않아 15초마다 프로세스가 쌓였다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). 시도마다 GNU `timeout -k 1 2`로 감싸고 Docker `timeout`을 3s에서 5s로 늘렸다. curl 설치 대신 이 방식을 고른 이유는 BE 이미지 변경 없이 Cloud만으로 적용할 수 있기 때문이다. 같은 장애를 키운 root 로그 레벨 TRACE는 `LOGGING_LEVEL_ROOT: INFO`로 고정했다. 두 변경 모두 처음 배포될 때 backend를 한 번 재생성한다.
+
 ## TD-015 — CloudWatch + Prometheus + Grafana
 
 **맥락:** 사용자가 CloudWatch와 PG(Prometheus·Grafana)를 도입하고 Loki는 제외하도록 지정했다. 기존 CloudWatch 알람·Agent 초안을 확장한다.

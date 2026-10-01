@@ -107,6 +107,8 @@ sudo docker inspect --format '{{.Config.Image}} {{.State.Status}} {{if .State.He
 sudo docker logs --tail 100 "$CONTAINER_ID"
 ```
 
+**운영 컨테이너에 `docker attach`나 `-d` 없는 `docker compose up`을 쓰지 않는다.** 로그는 `docker logs -f`로 본다. attach는 세션이 끊길 때 SIGHUP을 앱에 전달하고, 출력을 읽지 않으면 앱의 stdout을 막아 서비스 전체가 멈춘다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). 이미 붙어 있는 attach를 끊을 때는 `kill -9 <docker attach PID>`만 쓴다. Ctrl+C나 일반 `kill`은 컨테이너로 전달된다.
+
 로그가 민감한 값을 포함할 수 있으므로 공유 전 확인한다. 조사 기록에는 시간, Cloud 커밋, 실제 서비스별 이미지, Actions/SSM 실행 ID, 배포 결과를 남긴다. history.log만으로 중단된 프로세스가 끝났다고 단정하지 않는다.
 
 수동 Compose 명령에는 AWS 계정과 네 이미지 태그 환경변수가 필요하다. 전체 설정을 출력해 비밀값을 공유하지 않는다. 8절의 직접 재생성도 현재 운영 이미지를 유지하도록 변수를 먼저 준비해야 한다.
@@ -157,7 +159,7 @@ EC2에서 `sudo python3 /opt/keepgo/cloud/scripts/prepare-runtime.py`를 직접 
 | Manifest는 최신인데 운영 버전이 다름 | 배포 호출 누락·실제 배포 실패·차단 목록. 3·4·7절 |
 | 예상보다 많은 서비스가 대상 | 실제 이미지, Compose 설정·env 값, Compose 버전과 해시 차이 |
 | 다른 배포가 진행 중이라는 로그 | 이전 SSM 명령·호스트 프로세스 확인. 강제로 잠금 파일을 지우지 않는다 |
-| Backend unhealthy | Actuator 응답과 앱 로그, DB 연결·env·JWT 확인 |
+| Backend unhealthy | Actuator 응답과 앱 로그, DB 연결·env·JWT 확인. `Up`인데 CPU 0%·로그 끊김이면 [attach·SIGHUP 사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)의 스레드 상태 확인부터 |
 | 사이트는 열리지만 외부 검사 실패 | 세 URL의 개별 응답 코드 확인 |
 | 로컬 DRY_RUN에서 repos/null 오류 | Windows jq와 Git Bash의 CRLF 차이를 확인한다. WSL·Linux 또는 Actions dry_run을 사용한다 |
 | 로컬 API rate limit 오류 | gh 인증 상태와 API 응답의 한도·초기화 시각을 확인한다. 반복 호출을 멈추고 Actions dry_run 사용 여부를 판단한다 |

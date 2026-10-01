@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  KeepGo V1 모니터링 전용 EC2(Prometheus·Grafana, TD-024). 인바운드 없음, SSM으로만 접근한다.
+  앱 EC2 보안 그룹에는 수집 포트 4개를 이 인스턴스의 보안 그룹에서만 허용하는 규칙을 추가한다.
+  알림 SNS 토픽은 infrastructure/monitoring.yaml 스택의 AlertsTopicArn 출력값을 쓴다.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: 앱 EC2와 같은 VPC
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: >-
+      인터넷 게이트웨이로 나가는 퍼블릭 서브넷. 공인 IPv4는 Discord·SSM·이미지 pull 아웃바운드용이며
+      인바운드 규칙은 두지 않는다
+  AppSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: 운영 앱 EC2의 보안 그룹. 수집 포트 인바운드 규칙이 여기에 추가된다
+  AlertsTopicArn:
+    Type: String
+    AllowedPattern: 'arn:aws:sns:.+'
+    Description: monitoring.yaml 스택 출력 AlertsTopicArn (keepgo-v1-alerts)
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.small, t4g.medium]
+    Description: arm64 전용. Compose 이미지 platform이 linux/arm64로 고정돼 있다
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: Amazon Linux 2023 arm64. 스택 갱신 때 최신 AMI로 바뀌면 인스턴스가 교체되므로 갱신 전 확인한다
+  DiskUsedPercent:
+    Type: Number
+    Default: 80
+    Description: 루트 디스크 사용률 경고 기준(%)
+
+Resources:
+  MonitoringSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: KeepGo V1 monitoring host. No inbound; SSM only.
+      VpcId: !Ref VpcId
+      # 인라인으로 적어야 기본 전체 허용 egress가 사라진다. 별도 Egress 리소스와 섞지 않는다.
+      SecurityGroupEgress:
+        - Description: Discord webhook, SSM, image registries, GitHub, dnf
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        # 실제 허용 포트(8081·9100·9115·9464)는 앱 SG 인바운드가 정한다.
+        - Description: scrape app host
+          IpProtocol: tcp
+          FromPort: 8081
+          ToPort: 9464
+          DestinationSecurityGroupId: !Ref AppSecurityGroupId
+      Tags: [{Key: Name, Value: keepgo-v1-monitoring}]
+
+  AppIngressNodeExporter:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 9100
+      ToPort: 9100
+      SourceSecurityGroupId: !Ref MonitoringSecurityGroup
+      Description: keepgo monitoring - node-exporter
+
+  AppIngressBlackbox:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 9115
+      ToPort: 9115
+      SourceSecurityGroupId: !Ref MonitoringSecurityGroup
+      Description: keepgo monitoring - blackbox-exporter
+
+  AppIngressBackendManagement:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 8081
+      ToPort: 8081
+      SourceSecurityGroupId: !Ref MonitoringSecurityGroup
+      Description: keepgo monitoring - backend actuator management port
+
+  AppIngressAiMetrics:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 9464
+      ToPort: 9464
+      SourceSecurityGroupId: !Ref MonitoringSecurityGroup
+      Description: keepgo monitoring - ai metrics port
+
+  MonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: cloudwatch-agent-metrics
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: CWAgent
+
+  MonitoringInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref MonitoringRole]
+
+  MonitoringLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeType: gp3
+              VolumeSize: 20
+              Encrypted: true
+              DeleteOnTermination: true
+        # Docker·git·CloudWatch Agent와 Compose plugin(2.30+ 필요)을 설치한다.
+        # 저장소 checkout·Secret 파일·Agent 설정 적용은 v1-monitoring.md 2-1절 절차로 수동 진행한다.
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            set -euo pipefail
+            dnf install -y docker git amazon-cloudwatch-agent
+            systemctl enable --now docker
+            version=v2.39.1
+            name=docker-compose-linux-aarch64
+            install -d /usr/local/lib/docker/cli-plugins
+            cd /tmp
+            curl -fsSLo "${name}" "https://github.com/docker/compose/releases/download/${version}/${name}"
+            curl -fsSL "https://github.com/docker/compose/releases/download/${version}/${name}.sha256" | sha256sum -c -
+            install -m 0755 "${name}" /usr/local/lib/docker/cli-plugins/docker-compose
+            rm -f "${name}"
+
+  MonitoringInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref MonitoringInstanceProfile
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MonitoringLaunchTemplate
+        Version: !GetAtt MonitoringLaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet: [!Ref MonitoringSecurityGroup]
+      Tags: [{Key: Name, Value: keepgo-v1-monitoring}]
+
+  # 이 인스턴스가 멈추면 Discord 알림도 멈추므로 상태 이상은 SNS 이메일로 알린다.
+  MonitoringStatusCheck:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-v1-monitoring-status-check
+      AlarmDescription: >-
+        모니터링 EC2 상태 검사 실패. 이 동안 Grafana Discord 알림이 오지 않는다.
+        인스턴스 검사 실패는 재부팅, 시스템 검사 실패는 중지 후 시작한다.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions: [{Name: InstanceId, Value: !Ref MonitoringInstance}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlertsTopicArn]
+      OKActions: [!Ref AlertsTopicArn]
+
+  MonitoringDisk:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-v1-monitoring-disk
+      AlarmDescription: >-
+        모니터링 EC2 루트 디스크 사용률 높음. Prometheus 보관 한도(7일/2GB)와 WAL, docker system df를 확인한다.
+      Namespace: CWAgent
+      MetricName: disk_used_percent
+      Dimensions: [{Name: InstanceId, Value: !Ref MonitoringInstance}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: !Ref DiskUsedPercent
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: missing
+      AlarmActions: [!Ref AlertsTopicArn]
+      OKActions: [!Ref AlertsTopicArn]
+
+Outputs:
+  MonitoringInstanceId:
+    Description: SSM 포트 포워딩 대상
+    Value: !Ref MonitoringInstance
+  MonitoringSecurityGroupId:
+    Value: !Ref MonitoringSecurityGroup

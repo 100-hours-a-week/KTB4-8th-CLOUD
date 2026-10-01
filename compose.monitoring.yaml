@@ -1,6 +1,7 @@
 # 모니터링 전용 EC2(t4g.small, arm64)에서 실행한다(TD-024).
 # 앱 EC2의 exporter·수집 포트는 compose.exporters.yaml과 compose.yaml이 게시한다.
 # APP_HOST_PRIVATE_IP: 앱 EC2 private IP. prometheus.yml은 IP 대신 app-host 이름만 쓴다.
+# GRAFANA_DOMAIN: Grafana 공개 주소(예: grafana.keepgo.kr). Caddy가 HTTPS 인증서를 받는다(TD-025).
 #   docker compose --env-file /opt/keepgo/runtime/monitoring-host.env -f compose.monitoring.yaml up -d
 name: keepgo-monitoring
 
@@ -43,10 +44,15 @@ services:
 
   grafana:
     <<: *common
-    image: grafana/grafana:13.2.2
+    # 인터넷에 공개하므로 패치 버전을 바로 따라간다(TD-025).
+    image: grafana/grafana:13.2.3
+    # SSM 터널용. 공개 접속은 caddy(443)만 통한다.
     ports: ["127.0.0.1:3001:3000"]
     networks: [monitoring]
     environment:
+      GF_SERVER_ROOT_URL: "https://${GRAFANA_DOMAIN:?set GRAFANA_DOMAIN}/"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -73,6 +79,34 @@ services:
       retries: 3
       start_period: 60s
 
+  # Grafana 앞의 HTTPS 종단. 인증서는 443의 TLS-ALPN 검증으로 받아 80을 열지 않는다.
+  caddy:
+    <<: *common
+    image: caddy:2.11.4-alpine
+    # cap_drop ALL과 no-new-privileges에서는 파일 capability가 무시되므로 443 바인딩 권한만 다시 준다.
+    cap_add: [NET_BIND_SERVICE]
+    ports: ["443:443"]
+    networks: [monitoring]
+    environment:
+      GRAFANA_DOMAIN: "${GRAFANA_DOMAIN:?set GRAFANA_DOMAIN}"
+    volumes:
+      - ./monitoring/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 128m
+    cpus: 0.25
+    depends_on:
+      grafana:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
 secrets:
   grafana_admin_password:
     file: /opt/keepgo/runtime/grafana_admin_password
@@ -80,6 +114,9 @@ secrets:
 volumes:
   prometheus-data: {}
   grafana-data: {}
+  # 발급받은 인증서·ACME 계정. 지우면 재발급 요청이 늘어 Let's Encrypt 한도에 걸릴 수 있다.
+  caddy-data: {}
+  caddy-config: {}
 
 networks:
   monitoring: {}

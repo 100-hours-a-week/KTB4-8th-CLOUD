@@ -1,0 +1,17 @@
+# Grafana 공개 HTTPS(TD-025). 도메인은 compose의 GRAFANA_DOMAIN에서 받는다.
+{
+	# 80을 열지 않으므로 HTTP→HTTPS 리다이렉트용 리스너를 만들지 않는다.
+	auto_https disable_redirects
+	admin 127.0.0.1:2019
+}
+
+{$GRAFANA_DOMAIN} {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+	encode gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy grafana:3000
+}

@@ -10,16 +10,18 @@ global:
 rule_files:
   - /etc/prometheus/rules/*.yml
 
+# Prometheus는 모니터링 EC2, exporter와 앱 수집 포트는 앱 EC2에 있다(TD-024).
+# app-host는 compose.monitoring.yaml의 extra_hosts가 앱 EC2 private IP로 연결한다.
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: [prometheus:9090]
   - job_name: node
     static_configs:
-      - targets: [node-exporter:9100]
+      - targets: [app-host:9100]
   - job_name: blackbox
     static_configs:
-      - targets: [blackbox-exporter:9115]
+      - targets: [app-host:9115]
   - job_name: service-health
     metrics_path: /probe
     params:
@@ -29,6 +31,8 @@ scrape_configs:
         labels: {service: web}
       - targets: ["http://frontend:3000/"]
         labels: {service: frontend}
+      # service-health 대상은 모두 앱 EC2의 blackbox가 Docker 내부 이름으로 호출한다.
+      # BE 관리 포트(8081) 이미지가 배포되면 http://backend:8081/actuator/health로 바꾼다.
       - targets: ["http://backend:8080/actuator/health"]
         labels: {service: backend}
       - targets: ["http://ai-api:8000/health"]
@@ -39,7 +43,7 @@ scrape_configs:
       - source_labels: [__param_target]
         target_label: instance
       - target_label: __address__
-        replacement: blackbox-exporter:9115
+        replacement: app-host:9115
   # 계약·기본 대시보드·알림은 미리 준비한다. 앱 구현 확인 후 아래 타깃만 활성화한다.
   # docs/monitoring-metrics-contract.md, monitoring/examples/application-targets.json 참고.
   - job_name: application

@@ -1,7 +1,11 @@
+# 모니터링 전용 EC2(t4g.small, arm64)에서 실행한다(TD-024).
+# 앱 EC2의 exporter·수집 포트는 compose.exporters.yaml과 compose.yaml이 게시한다.
+# APP_HOST_PRIVATE_IP: 앱 EC2 private IP. prometheus.yml은 IP 대신 app-host 이름만 쓴다.
+#   docker compose --env-file /opt/keepgo/runtime/monitoring-host.env -f compose.monitoring.yaml up -d
 name: keepgo-monitoring
 
 x-common: &common
-  platform: linux/amd64
+  platform: linux/arm64
   restart: unless-stopped
   security_opt: [no-new-privileges:true]
   cap_drop: [ALL]
@@ -21,7 +25,9 @@ services:
       - --storage.tsdb.retention.time=7d
       - --storage.tsdb.retention.size=2GB
     ports: ["127.0.0.1:9090:9090"]
-    networks: [monitoring, app-service]
+    networks: [monitoring]
+    extra_hosts:
+      - "app-host:${APP_HOST_PRIVATE_IP:?set APP_HOST_PRIVATE_IP}"
     volumes:
       - ./monitoring/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
@@ -66,39 +72,6 @@ services:
       retries: 3
       start_period: 60s
 
-  node-exporter:
-    <<: *common
-    image: prom/node-exporter:v1.12.1
-    # 컨테이너 자체가 아닌 Linux 호스트의 CPU·메모리·루트 디스크를 읽는다.
-    pid: host
-    command:
-      - --path.rootfs=/host
-      - --path.procfs=/host/proc
-      - --path.sysfs=/host/sys
-      - --collector.disable-defaults
-      - --collector.cpu
-      - --collector.meminfo
-      - --collector.filesystem
-      - --collector.loadavg
-      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker)($$|/)
-    volumes:
-      - /:/host:ro,rslave
-    networks: [monitoring]
-    read_only: true
-    mem_limit: 128m
-    cpus: 0.25
-
-  blackbox-exporter:
-    <<: *common
-    image: prom/blackbox-exporter:v0.28.0
-    command: [--config.file=/etc/blackbox/blackbox.yml]
-    volumes:
-      - ./monitoring/blackbox:/etc/blackbox:ro
-    networks: [monitoring, app-web, app-service]
-    read_only: true
-    mem_limit: 64m
-    cpus: 0.25
-
 secrets:
   grafana_admin_password:
     file: /opt/keepgo/runtime/grafana_admin_password
@@ -109,9 +82,3 @@ volumes:
 
 networks:
   monitoring: {}
-  app-web:
-    external: true
-    name: keepgo-v1_web
-  app-service:
-    external: true
-    name: keepgo-v1_service

@@ -1,0 +1,62 @@
+# 앱 EC2에서 실행한다(TD-024). Prometheus는 모니터링 EC2에서 이 포트들을 수집한다.
+# 포트는 모든 인터페이스에 게시하지만 EC2 ENI에는 private IP만 있다. 접근 경계는 보안 그룹이며,
+# 앱 SG는 9100·9115를 모니터링 SG에서만 허용해야 한다. 0.0.0.0/0이나 VPC 전체로 열지 않는다.
+name: keepgo-exporters
+
+x-common: &common
+  platform: linux/amd64
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  node-exporter:
+    <<: *common
+    image: prom/node-exporter:v1.12.1
+    # 컨테이너 자체가 아닌 Linux 호스트의 CPU·메모리·루트 디스크를 읽는다.
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.filesystem
+      - --collector.loadavg
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker)($$|/)
+    ports: ["9100:9100"]
+    volumes:
+      - /:/host:ro,rslave
+    networks: [exporters]
+    read_only: true
+    mem_limit: 128m
+    cpus: 0.25
+
+  # 앱 컨테이너를 Docker 내부 이름(backend, ai-api …)으로 확인하려고 앱 네트워크에 붙는다.
+  # /probe는 요청받은 URL을 대신 호출하므로 9115를 모니터링 SG 밖으로 열지 않는다.
+  blackbox-exporter:
+    <<: *common
+    image: prom/blackbox-exporter:v0.28.0
+    command: [--config.file=/etc/blackbox/blackbox.yml]
+    ports: ["9115:9115"]
+    volumes:
+      - ./monitoring/blackbox:/etc/blackbox:ro
+    networks: [exporters, app-web, app-service]
+    read_only: true
+    mem_limit: 64m
+    cpus: 0.25
+
+networks:
+  exporters: {}
+  app-web:
+    external: true
+    name: keepgo-v1_web
+  app-service:
+    external: true
+    name: keepgo-v1_service

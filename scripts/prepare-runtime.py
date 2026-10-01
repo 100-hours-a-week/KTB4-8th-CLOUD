@@ -30,7 +30,7 @@ BACKEND_OPTIONAL = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "VWORLD_API_KEY"
 # NAVER 키가 없으면 AI는 뜨지만 지도·주소 요청이 모두 실패한다. main의 deploy.sh도 필수로 검사했다(TD-018)
 AI_REQUIRED = ["GOOGLE_API_KEY", "NAVER_MAP_CLIENT_ID", "NAVER_MAP_CLIENT_SECRET"]
 # AI main(8bd3c32~)은 SENTRY_DSN이 있을 때만 Sentry를 켜고, 운영 값은 인프라가 주입하기로 했다(TD-019)
-AI_OPTIONAL = ["SENTRY_DSN"]
+AI_OPTIONAL = ["SENTRY_DSN", "LANGSMITH_API_KEY"]
 # BE는 RSA 키 쌍을 읽는다. JWT_SECRET(HMAC 문자열)은 코드에서 쓰지 않는다
 JWT_FILES = {
     "JWT_PUBLIC_KEY": ("public_key.pem", "-----BEGIN PUBLIC KEY-----"),

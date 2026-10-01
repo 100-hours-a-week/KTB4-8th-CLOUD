@@ -83,6 +83,9 @@ services:
         required: true
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
+      SPRING_FLYWAY_BASELINE_VERSION: "1"
       DB_VENDOR: mysql
       # RDS (퍼블릭 액세스 없음, EC2 SG에서만 3306 허용). 엔드포인트는 비밀값이 아니다
       DB_HOST: keepgo-db-v1.c9c2syg08nfm.ap-northeast-2.rds.amazonaws.com
@@ -93,6 +96,7 @@ services:
       DB_DRIVER: com.mysql.cj.jdbc.Driver
       DB_DIALECT: MySQL
       AI_SERVER_API_ADDRESS: http://ai-api:8000
+      FRONTEND_SERVER_ADDRESS: https://keepgo.kr
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
       # TLS가 nginx에서 끝나므로 X-Forwarded-* 로 원래 https 주소를 복원
       SERVER_FORWARD_HEADERS_STRATEGY: native
@@ -156,6 +160,8 @@ services:
       GOOGLE_MODEL: gemini-3.8-flash
       EMBEDDING_PROVIDER: google
       CHROMA_PATH: /app/chroma
+      LANGSMITH_TRACING: "true"
+      LANGSMITH_PROJECT: keepgo
     mem_limit: 768m
     stop_grace_period: 30s
     healthcheck:

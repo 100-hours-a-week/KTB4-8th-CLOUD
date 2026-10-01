@@ -25,7 +25,7 @@ Grafana는 Prometheus를 기본 데이터 소스로 쓴다. 로그·RDS 조회�
 
 | 호스트 | Compose | 서비스 | 메모리 상한 |
 | --- | --- | --- | --- |
-| 모니터링 EC2 (t4g.small, arm64, 2 vCPU / 2 GiB, gp3 20 GiB) | `compose.monitoring.yaml` (`keepgo-monitoring`) | Prometheus, Grafana | 768 MiB |
+| 모니터링 EC2 (t4g.small, arm64, 2 vCPU / 2 GiB, gp3 20 GiB) | `compose.monitoring.yaml` (`keepgo-monitoring`) | Prometheus, Grafana | 1,024 MiB (Grafana는 256 MiB에서 메모리 부족으로 재시작해 512 MiB로 올림) |
 | 앱 EC2 (기존) | `compose.exporters.yaml` (`keepgo-exporters`) | node-exporter, blackbox-exporter | 192 MiB |
 | 앱 EC2 (기존) | `compose.yaml` (`keepgo-v1`) | 앱 4개 | 2,432 MiB |
 

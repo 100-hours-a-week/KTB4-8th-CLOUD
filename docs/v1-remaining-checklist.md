@@ -134,7 +134,7 @@ Secret 변경 절차:
 - [ ] Grafana Discord 및 CloudWatch SNS 이메일 실제 수신 확인.
 - [ ] 앱 재배포 후에도 모니터링과 로그 수집 유지 확인.
 
-모니터링 EC2(t4g.small, 2 GiB)의 Prometheus·Grafana 상한은 768 MiB, 앱 EC2의 exporter 상한은 192 MiB다. 앱 자동 CD는 두 EC2의 observability checkout을 갱신하지 않는다. compose.yaml의 수집 포트·healthcheck 변경이 처음 배포될 때 backend·ai-api가 재생성되므로 점검 시간에 배포한다.
+모니터링 EC2(t4g.small, 2 GiB)의 Prometheus·Grafana 상한은 1,024 MiB, 앱 EC2의 exporter 상한은 192 MiB다. 앱 자동 CD는 두 EC2의 observability checkout을 갱신하지 않는다. compose.yaml의 수집 포트·healthcheck 변경이 처음 배포될 때 backend·ai-api가 재생성되므로 점검 시간에 배포한다.
 
 ## 7. 실제로 빈 설정: 앱 상세 메트릭
 

@@ -130,6 +130,7 @@ Secret 변경 절차:
 - [ ] 모니터링 EC2: monitoring-host.env(APP_HOST_PRIVATE_IP) 준비, 9100·9115 curl 확인 후 compose.monitoring.yaml 실행(5-3절). CloudWatch Agent 설정 적용.
 - [ ] 모니터링 EC2로 SSM 터널을 열어 Grafana 3001, Prometheus 9090 접근. 관리 포트는 외부 공개하지 않음.
 - [ ] 모니터링 SG가 아닌 곳에서 앱 EC2 8081·9464·9100·9115가 막혀 있는지 확인.
+- [ ] **Grafana HTTPS 공개(TD-025, [구성](v1-monitoring.md) 5-5절):** 스택 갱신(변경 세트에서 인스턴스 교체 없음 확인) → `grafana` A 레코드를 EIP로 → DNS 반영 확인 후 Caddy 실행 → `https://grafana.keepgo.kr` 접속, admin 비밀번호 변경, 팀원별 계정 생성. 외부에서 9090·3001이 열리지 않는지 확인.
 - [ ] 기본 scrape target 7개 UP, 서비스 probe_success 4개 정상 확인.
 - [ ] Grafana Discord 및 CloudWatch SNS 이메일 실제 수신 확인.
 - [ ] 앱 재배포 후에도 모니터링과 로그 수집 유지 확인.

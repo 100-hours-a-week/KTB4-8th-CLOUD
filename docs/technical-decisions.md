@@ -28,6 +28,7 @@
 | TD-022 | 2026-09-30 | GitHub schedule 대신 EventBridge 예약 규칙 + API destination으로 Auto release·Health check 실행 (TD-009 실행 수단 변경) | 채택 (운영 적용) |
 | TD-023 | 2026-10-01 | 외부 감시는 유지하되 Actions Health check를 Sentry Uptime Monitoring으로 이전 (같은 날 Route 53 안에서 변경) | 결정 (적용 대기) |
 | TD-024 | 2026-10-01 | Prometheus·Grafana를 별도 t4g.small로 분리, 앱 EC2는 수집 전용 포트만 게시 (TD-015 호스트 배치 대체) | 결정 (저장소 반영, AWS 적용 대기) |
+| TD-025 | 2026-10-01 | Grafana를 Caddy·Let's Encrypt로 `grafana.keepgo.kr` HTTPS 공개, Prometheus는 비공개 유지 | 결정 (저장소 반영, AWS 적용 대기) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -537,6 +538,37 @@ t4g.small 요금은 2026-10-01 공개 요금 집계([Vantage](https://instances.
 - **호스트 간 수집은 평문 HTTP다.** VPC 내부 통신이고 보안 그룹으로 출발지를 제한하지만 TLS·인증은 없다. 수집 대상이 VPC 밖으로 나가거나 같은 SG를 다른 용도로 쓰게 되면 TLS·basic auth를 다시 검토한다.
 
 **재검토:** V2에서 ECS·ASG로 앱 호스트가 동적으로 바뀌면 고정 IP 대신 EC2/ECS 서비스 디스커버리나 Amazon Managed Prometheus를 비교한다. 수집 대상이 늘어 t4g.small 메모리가 부족하면 t4g.medium으로 올린다.
+
+## TD-025 — Grafana를 HTTPS 서브도메인으로 공개
+
+**상태:** 결정 (2026-10-01), 저장소 반영·AWS 적용 대기. 적용 절차는 [모니터링 운영 구성](v1-monitoring.md) 5-5절에 있다.
+
+**맥락:** [TD-024](#td-024--모니터링-전용-인스턴스-분리)에서 Grafana는 인바운드 없이 SSM 포트 포워딩으로만 접속하게 했다. 실제로 써 보니 보는 사람마다 IAM 사용자·액세스 키·Session Manager plugin이 필요하고, 터널이 20분 유휴 시간에 끊긴다. 팀은 집 등 여러 곳에서 브라우저만으로 대시보드를 보길 원한다.
+
+| 대안 | 장점 | 단점 | 판단 |
+| --- | --- | --- | --- |
+| SSM 터널만 유지 | 인터넷에 아무것도 열지 않음 | 사람마다 AWS 자격 증명·plugin 필요, 터널이 자주 끊김 | 대체 (예비 경로로는 유지) |
+| 443을 팀 IP로만 허용 | 노출 범위가 가장 좁음 | 집·이동 중 접속 불가. 사용자 요구와 맞지 않음 | 기각 |
+| HTTP(3000)로 공개 | 설정이 가장 단순 | 로그인 비밀번호와 세션 쿠키가 평문으로 오감 | 기각 |
+| **Caddy + Let's Encrypt로 `grafana.keepgo.kr` HTTPS 공개** — 채택 | 브라우저만으로 접속. 인증서 발급·갱신 자동. 기존 도메인의 서브도메인이라 추가 구매 없음 | 로그인 화면이 인터넷에 노출됨. Grafana 패치 관리 책임이 생김 | 채택 |
+| Amazon Managed Grafana | AWS가 패치·가용성 관리, IAM Identity Center 로그인 | 사용자당 월 요금, 데이터 소스·네트워크 연결을 다시 구성 | 기각 (규모 대비 과함) |
+
+**선택:**
+
+- 모니터링 EC2의 Compose에 Caddy를 추가해 443에서 TLS를 끝내고 `grafana:3000`으로 넘긴다. 인증서는 443의 TLS-ALPN 검증으로 받으므로 **80은 열지 않는다.**
+- 모니터링 SG에 443 인바운드를 연다. 기본값은 `0.0.0.0/0`이며 `GrafanaIngressCidr` 파라미터로 좁힐 수 있다.
+- A 레코드가 가리킬 고정 IP로 Elastic IP를 붙인다. 기존 자동 공인 IPv4를 대체하므로 요금이 늘지 않는다.
+- Grafana는 `GF_SERVER_ROOT_URL=https://grafana.keepgo.kr/`, 보안 쿠키(`Secure`, `SameSite=Strict`)로 바꾼다. 회원가입·익명 접근은 기존대로 끈다. 로그인 실패 잠금은 Grafana 기본값(켜짐)을 쓴다.
+- **Prometheus는 공개하지 않는다.** 인증 기능이 없어 주소를 아는 누구나 모든 지표를 조회할 수 있다. 쿼리는 Grafana Explore로 한다. SSM 터널(3001·9090)은 예비 경로로 남긴다.
+
+**감수하는 단점:**
+
+- **로그인 전 취약점에 노출된다.** 비밀번호로 막을 수 없는 취약점이 Grafana에 실제로 있었다(CVE-2021-43798, 인증 없이 서버 파일 읽기). 그래서 Grafana 패치 버전을 바로 따라간다(이번에 13.2.2 → 13.2.3). 보안 공지가 나오면 이미지 태그를 올리고 재생성한다.
+- **계정 관리가 중요해진다.** admin 초기 비밀번호를 바꾸고 팀원별 계정을 만든다. admin 계정은 같이 쓰지 않는다.
+- **인증서 발급이 DNS에 의존한다.** A 레코드가 EIP를 가리키기 전에 Caddy를 띄우면 검증이 실패한다. 실패가 반복되면 Let's Encrypt가 1시간 동안 같은 도메인의 발급을 막는다. DNS 확인 후 띄운다.
+- **AMI 갱신으로 인스턴스가 교체될 수 있었다.** 기존 템플릿은 `ImageId` 기본값을 SSM 공개 파라미터(최신 AL2023)로 두어, 스택을 갱신할 때 최신 AMI가 나와 있으면 인스턴스가 교체될 수 있었다. 이번 갱신부터 AMI ID를 직접 받고, 갱신 때는 현재 인스턴스의 AMI를 넘긴다. 변경 세트에서 `MonitoringInstance`가 Replacement가 아닌지 확인한 뒤 실행한다.
+
+**재검토:** 팀 밖 사용자에게 공유하거나 로그인 시도가 반복되면 SSO(GitHub OAuth 등)나 IP 제한을 검토한다. Grafana 운영 부담이 커지면 Amazon Managed Grafana를 다시 비교한다.
 
 ## 이후 기록 양식
 

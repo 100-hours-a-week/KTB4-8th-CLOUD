@@ -42,7 +42,7 @@ node-exporter는 측정할 호스트에, blackbox-exporter는 `backend`·`ai-api
 
 - **보안 그룹이 경계다.** 포트는 모든 인터페이스에 게시하지만 EC2 ENI에는 private IP만 있다. 앱 SG에 위 4개 포트를 **모니터링 SG만 소스로** 허용한다(`infrastructure/monitoring-host.yaml`이 추가). 적용 전에 앱 SG에 `0.0.0.0/0`이나 VPC 전체를 허용하는 넓은 규칙이 없는지 확인한다. BE 8080, AI 8000은 게시하지 않는다.
 - **blackbox 9115는 요청받은 URL을 대신 호출한다.** 소스를 모니터링 SG보다 넓히지 않는다.
-- **모니터링 EC2:** 인바운드 규칙이 없다. 아웃바운드는 HTTPS(Discord·SSM·이미지 pull·GitHub·dnf)와 앱 SG 수집 포트만 허용한다. 공인 IPv4는 아웃바운드용이다. Grafana `127.0.0.1:3001`, Prometheus `127.0.0.1:9090`은 SSM 포트 포워딩으로 접근한다.
+- **모니터링 EC2:** 인바운드는 Grafana HTTPS(443, Caddy) 하나다(TD-025, 5-5절). 아웃바운드는 HTTPS(Discord·SSM·이미지 pull·GitHub·dnf·ACME)와 앱 SG 수집 포트만 허용한다. 공인 IP는 Elastic IP로 고정한다. Prometheus `127.0.0.1:9090`과 Grafana `127.0.0.1:3001`은 공개하지 않고 SSM 포트 포워딩으로만 접근한다.
 - **앱 주소:** `prometheus.yml`과 앱 수집 대상은 IP 대신 `app-host` 이름을 쓴다. `compose.monitoring.yaml`이 `APP_HOST_PRIVATE_IP`로 이 이름을 앱 EC2 private IP에 연결한다. 앱 EC2를 교체하면 모니터링 EC2의 `/opt/keepgo/runtime/monitoring-host.env`만 바꾸고 Prometheus를 재생성한다.
 - **checkout:** 두 EC2 모두 별도 checkout `/opt/keepgo/observability`를 쓴다. 앱 CD의 checkout 변경이 모니터링 마운트 파일까지 바꾸지 않게 한다. 같은 파일을 앱 Compose와 `-f`로 합치지 않는다.
 - **앱 네트워크:** blackbox가 `keepgo-v1_web`, `keepgo-v1_service`에 붙으므로 앱 EC2에서는 앱이 먼저 떠 있어야 한다. 운영 중 앱 `compose down`은 이 외부 네트워크 사용 때문에 실패할 수 있으므로 서비스별 재배포 절차를 사용한다. Prometheus는 더 이상 앱 네트워크에 붙지 않는다.
@@ -121,15 +121,17 @@ sudo rm /opt/keepgo/runtime/cloudwatch-logs.enabled
 `monitoring.yaml` 스택(3절)을 먼저 만들고 출력값 `AlertsTopicArn`을 확인한다. 앱 EC2의 VPC, 같은 VPC의 퍼블릭 서브넷, 앱 EC2 보안 그룹 ID를 준비한다.
 
 ```sh
+N=/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+AMI=$(aws ssm get-parameter --name $N --query Parameter.Value --output text)
 aws cloudformation deploy --region ap-northeast-2 \
   --stack-name keepgo-v1-monitoring-host \
   --template-file infrastructure/monitoring-host.yaml \
   --capabilities CAPABILITY_IAM \
-  --parameter-overrides VpcId=vpc-REPLACE SubnetId=subnet-REPLACE \
+  --parameter-overrides VpcId=vpc-REPLACE SubnetId=subnet-REPLACE ImageId=$AMI \
     AppSecurityGroupId=sg-REPLACE AlertsTopicArn=REPLACE_TOPIC_ARN
 ```
 
-스택은 인바운드 없는 보안 그룹, SSM용 역할, 앱 SG의 수집 포트 인바운드 규칙 4개, 모니터링 EC2 상태·디스크 알람을 만든다. UserData가 Docker·git·CloudWatch Agent·Compose plugin을 설치한다. 출력값 `MonitoringInstanceId`로 SSM 접속이 되는지 확인한다.
+`ImageId`는 최초 생성 때만 최신 AMI를 넣는다. 갱신 때는 5-5절처럼 현재 인스턴스의 AMI를 넘겨 인스턴스 교체를 막는다. 스택은 Grafana용 443만 여는 보안 그룹, Elastic IP, SSM용 역할, 앱 SG의 수집 포트 인바운드 규칙 4개, 모니터링 EC2 상태·디스크 알람을 만든다. UserData가 Docker·git·CloudWatch Agent·Compose plugin을 설치한다. 출력값 `MonitoringInstanceId`로 SSM 접속이 되는지 확인한다.
 
 ### 5-2. 앱 EC2: exporter 실행
 
@@ -212,6 +214,64 @@ aws ssm start-session --region ap-northeast-2 --target MONITORING_INSTANCE_ID \
 브라우저에서 `http://localhost:3001` → admin으로 로그인한다. Prometheus Targets 화면은 별도 터미널에서 동일 명령의 두 포트를 9090으로 바꿔 터널링한다. SSM의 대상 인스턴스 및 port forwarding document 사용 권한이 필요하며 SSH 인바운드는 필요 없다.
 
 기본 대시보드는 `KeepGo / KeepGo V1 - Infrastructure and Health`다. 7개 기본 scrape target(prometheus, node, blackbox, 서비스 probe 4개)이 UP인지 확인한다. node·blackbox의 instance는 `app-host:9100`, `app-host:9115`로 보인다. **probe의 `up=1`은 exporter 호출 성공일 뿐**이므로 `probe_success=1`도 서비스 4개 각각 확인한다. HTTP 프로브는 2xx 기준이며 Backend의 `/actuator/health`가 DB 장애 때 503을 내는 계약을 따른다. AI health 응답이 실제 외부 AI 제공자까지 검사하는지는 앱 구현에 달려 있다.
+
+### 5-5. Grafana HTTPS 공개 (TD-025)
+
+`https://grafana.keepgo.kr`로 브라우저에서 바로 접속하게 한다. Caddy가 443에서 Let's Encrypt 인증서를 받아 Grafana로 넘긴다. Prometheus는 공개하지 않는다. 순서가 중요하다. **DNS가 EIP를 가리킨 뒤에 Caddy를 띄운다.** 먼저 띄우면 인증서 검증이 실패하고, 실패가 반복되면 Let's Encrypt가 1시간 동안 발급을 막는다.
+
+CloudShell에서 긴 줄은 복사할 때 자동 줄바꿈으로 끊길 수 있어 값을 변수로 나눴다.
+
+**① 스택 갱신 (CloudShell):** 443 인바운드와 EIP가 추가된다. 현재 인스턴스의 AMI를 그대로 넘겨 인스턴스 교체를 막고, 변경 세트를 먼저 확인한다.
+
+```sh
+cd ~/keepgo-cloud && git pull -q
+export AWS_REGION=ap-northeast-2
+cf() { aws cloudformation "$@"; }
+S=keepgo-v1-monitoring-host
+Q='Reservations[0].Instances[0].ImageId'
+AMI=$(aws ec2 describe-instances --instance-ids MONITORING_INSTANCE_ID --query "$Q" --output text)
+echo "AMI=$AMI"
+P="VpcId=vpc-REPLACE SubnetId=subnet-REPLACE"
+P="$P AppSecurityGroupId=sg-REPLACE ImageId=$AMI"
+P="$P AlertsTopicArn=REPLACE_TOPIC_ARN"
+T=infrastructure/monitoring-host.yaml
+cf deploy --stack-name $S --template-file $T --capabilities CAPABILITY_IAM --parameter-overrides $P --no-execute-changeset
+```
+
+출력의 `describe-change-set` 명령을 실행해 바뀌는 리소스를 본다. `MonitoringSecurityGroup`은 Modify, `GrafanaAddress`·`GrafanaAddressAssociation`은 Add여야 하고, **`MonitoringInstance`·`MonitoringLaunchTemplate`은 목록에 없어야 한다.** 확인되면 실행한다.
+
+```sh
+cf execute-change-set --change-set-name CHANGE_SET_ARN
+cf wait stack-update-complete --stack-name $S
+cf describe-stacks --stack-name $S --query 'Stacks[0].Outputs' --output table
+```
+
+`GrafanaPublicIp`가 A 레코드 값이다. EIP가 붙으면 기존 자동 공인 IP는 사라지지만, SSM·Discord 아웃바운드는 EIP로 그대로 나간다.
+
+**② DNS:** `keepgo.kr`을 관리하는 곳에 `grafana` A 레코드 → `GrafanaPublicIp`를 추가한다(TTL 300). 반영을 확인한다.
+
+```sh
+nslookup grafana.keepgo.kr 8.8.8.8
+```
+
+**③ 모니터링 EC2:** 도메인을 env 파일에 넣고 새 커밋으로 올린다.
+
+```sh
+echo "GRAFANA_DOMAIN=grafana.keepgo.kr" | sudo tee -a /opt/keepgo/runtime/monitoring-host.env
+cd /opt/keepgo/observability
+sudo git fetch -q origin && sudo git checkout -q --detach COMMIT
+E=/opt/keepgo/runtime/monitoring-host.env
+DC="sudo docker compose --env-file $E -f compose.monitoring.yaml"
+$DC config --quiet && $DC up -d --wait --wait-timeout 180
+$DC ps
+sudo docker logs keepgo-monitoring-caddy-1 2>&1 | grep -iE 'certificate obtained|error' | tail -5
+```
+
+`certificate obtained successfully`가 보이면 브라우저에서 `https://grafana.keepgo.kr`을 연다.
+
+**④ 계정:** admin 비밀번호를 바꾸고(프로필 → Change password), Administration → Users에서 팀원별 계정을 만든다. admin은 같이 쓰지 않는다.
+
+**운영:** Grafana 보안 공지가 나오면 `compose.monitoring.yaml`의 이미지 태그를 올리고 재생성한다. `caddy-data` 볼륨에 인증서가 있으므로 지우지 않는다. 인증서는 Caddy가 만료 전에 자동 갱신한다.
 
 ## 6. BE·AI 지표를 연결할 때
 

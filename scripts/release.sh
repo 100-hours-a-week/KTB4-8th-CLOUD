@@ -42,7 +42,8 @@ merge_release() {
   # main 보호 규칙 없이 병합하므로 Validate와 같은 검사를 여기서 한다(TD-017).
   jq -e -f scripts/check-manifest.jq "${MANIFEST}" >/dev/null \
     || { echo "${name}: 바뀐 Manifest가 형식 검사를 통과하지 못했다" >&2; return 1; }
-  git commit --quiet -am "release: ${name} ${sha:0:12}"
+  # GITHUB_TOKEN PR의 Validate는 승인 대기 후 만료돼 실패로만 남으므로 run을 만들지 않는다(TD-017).
+  git commit --quiet -am "release: ${name} ${sha:0:12}" -m "[skip ci]"
   git push --quiet --force origin "${branch}"
   # 이전 실행이 병합 전에 멈췄다면 열려 있는 PR을 그대로 쓴다.
   gh pr view "${branch}" >/dev/null 2>&1 || gh pr create --base main --head "${branch}" \

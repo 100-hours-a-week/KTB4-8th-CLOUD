@@ -25,10 +25,18 @@ Parameters:
     Default: t4g.small
     AllowedValues: [t4g.small, t4g.medium]
     Description: arm64 전용. Compose 이미지 platform이 linux/arm64로 고정돼 있다
+  # SSM 공개 파라미터를 기본값으로 두면 갱신할 때마다 최신 AMI로 다시 풀려 인스턴스가 교체될 수 있다.
+  # 그래서 AMI ID를 직접 받는다. 갱신 때는 현재 인스턴스의 AMI를 그대로 넘긴다.
   ImageId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
-    Description: Amazon Linux 2023 arm64. 스택 갱신 때 최신 AMI로 바뀌면 인스턴스가 교체되므로 갱신 전 확인한다
+    Type: AWS::EC2::Image::Id
+    Description: >-
+      Amazon Linux 2023 arm64 AMI. 최초 생성은
+      /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 값,
+      갱신은 현재 인스턴스의 ImageId
+  GrafanaIngressCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Grafana HTTPS(443) 접속 허용 범위. 집 등 여러 곳에서 접속하므로 기본은 전체(TD-025)
   DiskUsedPercent:
     Type: Number
     Default: 80
@@ -41,8 +49,15 @@ Resources:
       GroupDescription: KeepGo V1 monitoring host. No inbound; SSM only.
       VpcId: !Ref VpcId
       # 인라인으로 적어야 기본 전체 허용 egress가 사라진다. 별도 Egress 리소스와 섞지 않는다.
+      # GroupDescription을 바꾸면 SG가 교체되므로 문구는 그대로 둔다. 443 인바운드는 TD-025에서 추가.
+      SecurityGroupIngress:
+        - Description: Grafana HTTPS via Caddy
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref GrafanaIngressCidr
       SecurityGroupEgress:
-        - Description: Discord webhook, SSM, image registries, GitHub, dnf
+        - Description: Discord webhook, SSM, image registries, GitHub, dnf, ACME
           IpProtocol: tcp
           FromPort: 443
           ToPort: 443
@@ -208,7 +223,23 @@ Resources:
       AlarmActions: [!Ref AlertsTopicArn]
       OKActions: [!Ref AlertsTopicArn]
 
+  # grafana 도메인의 A 레코드가 가리킬 고정 IP. 기존 자동 공인 IP를 대체하므로 추가 요금은 없다.
+  GrafanaAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags: [{Key: Name, Value: keepgo-v1-monitoring}]
+
+  GrafanaAddressAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt GrafanaAddress.AllocationId
+      InstanceId: !Ref MonitoringInstance
+
 Outputs:
+  GrafanaPublicIp:
+    Description: grafana 도메인 A 레코드 값
+    Value: !Ref GrafanaAddress
   MonitoringInstanceId:
     Description: SSM 포트 포워딩 대상
     Value: !Ref MonitoringInstance

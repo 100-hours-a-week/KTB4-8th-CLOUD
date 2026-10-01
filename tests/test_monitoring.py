@@ -9,7 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def compose(*files):
-    env = dict(os.environ, AWS_ACCOUNT_ID="000000000000", APP_HOST_PRIVATE_IP="10.0.0.10")
+    env = dict(os.environ, AWS_ACCOUNT_ID="000000000000", APP_HOST_PRIVATE_IP="10.0.0.10",
+               GRAFANA_DOMAIN="grafana.example.com")
     env.update({key: "a" * 40 for key in (
         "NGINX_IMAGE_TAG", "WEB_IMAGE_TAG", "BACKEND_IMAGE_TAG", "AI_IMAGE_TAG")})
     command = ["docker", "compose"]
@@ -42,11 +43,18 @@ class MonitoringContractTest(unittest.TestCase):
         monitoring = compose("compose.monitoring.yaml")
         exporters = compose("compose.exporters.yaml")
         self.assertEqual(len({app["name"], monitoring["name"], exporters["name"]}), 3)
-        self.assertEqual(set(monitoring["services"]), {"prometheus", "grafana"})
+        self.assertEqual(set(monitoring["services"]), {"prometheus", "grafana", "caddy"})
         for name, service in monitoring["services"].items():
             self.assertEqual(service["platform"], "linux/arm64", name)
+            # 공개 포트는 Caddy의 443 하나뿐이다(TD-025). Prometheus·Grafana는 터널용 loopback만.
             for port in service.get("ports", []):
-                self.assertEqual(port["host_ip"], "127.0.0.1", name)
+                if name == "caddy":
+                    self.assertEqual((port.get("host_ip", ""), port["target"]), ("", 443))
+                else:
+                    self.assertEqual(port["host_ip"], "127.0.0.1", name)
+        grafana_env = monitoring["services"]["grafana"]["environment"]
+        self.assertEqual(grafana_env["GF_SERVER_ROOT_URL"], "https://grafana.example.com/")
+        self.assertEqual(grafana_env["GF_SECURITY_COOKIE_SECURE"], "true")
         # 모니터링 EC2에는 앱 Docker 네트워크가 없다. 앱은 app-host 이름으로만 찾는다.
         self.assertEqual(set(monitoring["networks"]), {"monitoring"})
         # Compose 버전에 따라 "host=ip" 또는 "host:ip"로 출력한다.

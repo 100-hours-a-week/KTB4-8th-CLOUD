@@ -26,7 +26,7 @@
 | TD-020 | 2026-09-30 | production Environment의 필수 승인자 제거, 배포 승인 없이 자동 배포 | 채택 |
 | TD-021 | 2026-09-30 | 변경 감지를 Compose 라벨 대신 마지막 배포의 적용 기록으로 판단 (TD-012 보완) | 채택 (운영 적용 전) |
 | TD-022 | 2026-09-30 | GitHub schedule 대신 EventBridge 예약 규칙 + API destination으로 Auto release·Health check 실행 (TD-009 실행 수단 변경) | 채택 (운영 적용) |
-| TD-023 | 2026-10-01 | 외부 감시는 유지하되 Actions Health check를 Route 53 헬스 체크 + CloudWatch 알람으로 이전, 인증서 만료는 blackbox로 보완 | 결정 (모니터링 설치 후 적용) |
+| TD-023 | 2026-10-01 | 외부 감시는 유지하되 Actions Health check를 Sentry Uptime Monitoring으로 이전 (같은 날 Route 53 안에서 변경) | 결정 (적용 대기) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -249,7 +249,7 @@ PR 생성 방식이었다면 앱 저장소의 push로 시작하므로 **이 장�
 
 **감수하는 단점:** 감지 시간 상한을 보장하지 않는다. 외부 검사는 HTTP 코드만 보므로 AI·DB·업무 오류를 놓칠 수 있다. 직전 workflow 결과가 검사·API·알림 오류로 실패한 경우 장애 상태 비교도 영향을 받는다. 호스트 지표와 로그 수집은 포함하지 않는다.
 
-**재검토:** 감지 시간·알림 전달 보장이나 호스트 지표가 필요하면 별도 모니터링을 추가한다. 외부 감시를 Route 53 헬스 체크로 옮기는 결정은 [TD-023](#td-023--외부-감시-유지-route-53-헬스-체크로-이전)에 있다. 옮기면 외부 장애 알림은 Discord가 아니라 SNS 이메일로 받는다.
+**재검토:** 감지 시간·알림 전달 보장이나 호스트 지표가 필요하면 별도 모니터링을 추가한다. 외부 감시를 Sentry Uptime으로 옮기는 결정은 [TD-023](#td-023--외부-감시-유지-sentry-uptime으로-이전)에 있다. 옮기면 외부 장애 알림은 Sentry의 Discord 연동으로 받고, 직전 실행 비교로 인한 누락 문제는 사라진다.
 
 ## TD-014 — Backend healthcheck를 `/actuator/health`로 강화
 
@@ -263,7 +263,7 @@ PR 생성 방식이었다면 앱 저장소의 push로 시작하므로 **이 장�
 
 **맥락:** 사용자가 CloudWatch와 PG(Prometheus·Grafana)를 도입하고 Loki는 제외하도록 지정했다. 기존 CloudWatch 알람·Agent 초안을 확장한다.
 
-**선택:** CloudWatch에 앱 로그·EC2/RDS 알람을 두고, PG는 내부 health·상세 호스트 지표·앱 계측 지표를 담당한다. Grafana의 서비스/수집 장애는 Discord로, CloudWatch 알람은 SNS 이메일로 보낸다. 기존 Actions 외부 감시는 유지한다. 내부 프로브·CloudWatch로 대체되지 않는 범위와 이후 Route 53으로 옮기는 계획은 [TD-023](#td-023--외부-감시-유지-route-53-헬스-체크로-이전)에 있다. 로그는 Docker awslogs를 사용하며, IAM·그룹 준비 후 호스트 marker로 활성화한다. PG는 같은 EC2의 별도 checkout·Compose 프로젝트에서 수동 갱신한다.
+**선택:** CloudWatch에 앱 로그·EC2/RDS 알람을 두고, PG는 내부 health·상세 호스트 지표·앱 계측 지표를 담당한다. Grafana의 서비스/수집 장애는 Discord로, CloudWatch 알람은 SNS 이메일로 보낸다. 기존 Actions 외부 감시는 유지한다. 내부 프로브·CloudWatch로 대체되지 않는 범위와 이후 Sentry Uptime으로 옮기는 계획은 [TD-023](#td-023--외부-감시-유지-sentry-uptime으로-이전)에 있다. 로그는 Docker awslogs를 사용하며, IAM·그룹 준비 후 호스트 marker로 활성화한다. PG는 같은 EC2의 별도 checkout·Compose 프로젝트에서 수동 갱신한다.
 
 **대안·이유:** CloudWatch만으로 통일하면 PromQL 기반 앱 지표·부하 관측 요구를 충족하기 어렵다. Loki 추가는 요구 범위를 벗어나며 별도 로그 저장소를 늘린다. Agent로 Docker 로그 glob을 읽는 대신 awslogs를 써 컨테이너별 스트림을 만들고, Agent에는 호스트 메트릭만 맡긴다. 초기부터 별도 감시 호스트를 추가하는 대신 기존 EC2 용량을 확인해 시작한다. 상세 설정·적용 순서는 [모니터링 운영 구성](v1-monitoring.md)에 둔다.
 
@@ -414,7 +414,7 @@ GitHub 밖에서 workflow를 실행하려면 어떤 방식이든 Cloud 레포의
 - **실행 기록이 쌓인다.** Health check 하루 288건, Auto release 하루 144건. schedule이 동작했어도 같았을 조회 방식 자체의 특성이다. 배포·릴리스·장애는 Deploy production 목록, release PR, Discord, EC2 `history.log`에서 따로 확인한다.
 - **"Manually run by (토큰 소유자)"로 표시된다.** 사람이 누른 실행과 목록에서 구분되지 않는다. 주기(5·10분 간격)나 EventBridge 규칙의 모니터링 지표로 구분한다.
 - **최대 10분 반영 지연.** push 방식보다 느리다.
-- 외부 감시(Health check)를 CI 도구로 돌리는 구조가 그대로 남는다. 감시 전용 서비스가 더 적합하다. 교체 판단과 제약은 [TD-023](#td-023--외부-감시-유지-route-53-헬스-체크로-이전).
+- 외부 감시(Health check)를 CI 도구로 돌리는 구조가 그대로 남는다. 감시 전용 서비스가 더 적합하다. 교체 판단과 제약은 [TD-023](#td-023--외부-감시-유지-sentry-uptime으로-이전).
 
 **재검토:**
 
@@ -423,11 +423,21 @@ GitHub 밖에서 workflow를 실행하려면 어떤 방식이든 Cloud 레포의
 - TD-023을 적용하면 Health check 규칙을 스택에서 빼고 EventBridge는 Auto release만 실행한다.
 - 토큰 만료 전(발급 시 정한 만료일)에 새 토큰으로 스택을 다시 배포한다. 절차는 [운영 절차](v1-operations.md) 11절.
 
-## TD-023 — 외부 감시: 유지, Route 53 헬스 체크로 이전
+## TD-023 — 외부 감시: 유지, Sentry Uptime으로 이전
 
-**상태:** 결정 (2026-10-01), 적용 대기. 모니터링 스택([TD-015](#td-015--cloudwatch--prometheus--grafana))을 설치하고 알림을 시험한 뒤 적용한다. 그 전까지는 현재 외부 장애를 잡는 유일한 수단인 Actions Health check(TD-022의 EventBridge 실행)를 유지한다.
+**상태:** 결정 (2026-10-01), 적용 대기. 같은 날 처음에는 Route 53 헬스 체크로 정했다가 **Sentry Uptime Monitoring으로 변경**했다(변경 이유는 아래). 팀이 Sentry 계정 하나를 함께 쓰기로 한 것이 전제다. Actions Health check(TD-022의 EventBridge 실행)는 아래 "적용 순서"를 마칠 때까지 유지한다.
 
 **맥락:** CloudWatch·PG를 붙이면서 Actions Health check가 따로 필요한지 다시 검토했다. Health check는 schedule 장애 때문에 EventBridge와 개인 PAT로 돌고 있고, 하루 288건의 실행 기록이 쌓인다. 중복 알림은 직전 실행 결과를 비교하는 방식으로 막고 있어 알림이 누락될 수 있다([장애 알림](v1-alerting.md) 8-3).
+
+**일반적인 구성과 비교:** 보통 감시를 세 층으로 나눈다.
+
+| 층 | 하는 일 | 우리 구성 |
+| --- | --- | --- |
+| 배포 시 health 확인 | 새 버전이 **그 순간** 떴는지 확인하고 실패하면 롤백 | deploy.sh |
+| 내부 모니터링 (white-box) | 서버·앱 안의 지표로 **원인**을 찾음 | CloudWatch + Prometheus·Grafana |
+| 외부 감시 (black-box) | 사용자 입장에서 밖에서 접속해 **증상**을 잡음 | Actions Health check |
+
+배포 시 확인은 배포가 끝난 뒤의 인증서 만료·보안 그룹 변경·EC2 정지를 보지 못한다. 외부 감시는 보통 가동 감시 서비스(UptimeRobot·Better Stack·Sentry 등)나 클라우드 기능(Route 53·Synthetics)으로 두며, CI 도구의 cron으로 돌리는 경우는 드물다. 우리는 "추가 서버·비용 없이"를 우선해 Actions를 골랐고, schedule 장애로 그 단점이 드러났다.
 
 **관측 범위 비교:**
 
@@ -437,32 +447,52 @@ GitHub 밖에서 workflow를 실행하려면 어떤 방식이든 Cloud 레포의
 | CloudWatch | EC2 상태 검사, 디스크·메모리, Agent 지표 누락, RDS | HTTP 응답. EC2는 살아 있는데 Nginx·인증서·보안 그룹이 잘못된 경우 |
 | Actions Health check | 사용자와 같은 경로: DNS → TLS(curl이 인증서 검증) → 보안 그룹 → Nginx → Frontend·Backend | 서비스별 내부 상태 |
 
-공개 경로의 장애는 다른 감시로 대체되지 않는다. 외부 감시는 유지하고 **실행 수단만 바꾼다.**
+공개 경로의 장애는 다른 감시로 대체되지 않는다. 인증서를 EC2에서 ACME로 직접 갱신하므로 갱신 실패도 밖에서만 보인다. 외부 감시는 유지하고 **실행 수단만 바꾼다.**
 
 | 대안 | 장점 | 단점 | 판단 |
 | --- | --- | --- | --- |
-| 외부 감시 제거, CloudWatch·PG만 사용 | 구성이 단순해지고 EventBridge 규칙이 하나 준다 | DNS·인증서·보안 그룹·Nginx 공개 설정 장애를 못 잡는다 | 기각 |
-| Actions + EventBridge 유지 — 현재 | 이미 동작한다. 인증서까지 검증하고 구간별 응답 코드로 원인 구간을 보여 준다. Discord로 알린다 | 개인 PAT에 의존하고 기록이 쌓인다. 상태 비교 방식이라 알림이 누락될 수 있다. GitHub 장애 때 함께 멈춘다 | 모니터링 적용 전까지 유지 |
-| **Route 53 헬스 체크 + CloudWatch 알람** — 채택 | AWS가 여러 지역에서 직접 확인한다(10초 또는 30초 간격). 정상↔장애 상태를 알람이 관리해 중복 방지 로직이 필요 없다. 토큰·runner가 필요 없고 CloudFormation으로 관리한다 | 아래 "감수하는 단점" | 채택 |
+| 외부 감시 제거, CloudWatch·PG만 사용 | 구성이 단순해지고 EventBridge 규칙이 하나 준다 | DNS·인증서·보안 그룹·Nginx 공개 설정 장애와 Grafana 자체 장애를 못 잡는다 | 기각 |
+| Actions + EventBridge 유지 — 현재 | 이미 동작한다. 인증서까지 검증하고 구간별 응답 코드로 원인 구간을 보여 준다. Discord로 알린다 | 개인 PAT에 의존하고 기록이 쌓인다. 상태 비교 방식이라 알림이 누락될 수 있다. GitHub 장애 때 함께 멈춘다 | 적용 순서를 마칠 때까지 유지 |
+| Route 53 헬스 체크 + CloudWatch 알람 | AWS가 여러 지역에서 확인한다. 알람이 상태를 관리한다. CloudFormation으로 관리한다 | 인증서를 검증하지 않는다([AWS 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-determining-health-of-endpoints.html)). 지표가 us-east-1에만 생겨 알람·SNS를 별도 리전 스택으로 만들어야 한다([AWS 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/monitoring-health-checks.html)). SNS는 Discord를 직접 호출하지 못해 알림이 이메일로 바뀐다. 헬스 체크마다 월 요금이 있다 | 처음 채택했다가 변경 |
+| **Sentry Uptime Monitoring** — 채택 | Sentry 서버가 여러 지역에서 확인한다. 모든 요금제에 1개 포함이라 `/healthz` 하나는 무료다. 기존 Sentry의 Discord 연동으로 알린다. AWS·GitHub·EC2와 독립이다. 이미 AI가 쓰는 도구라 새 서비스가 늘지 않는다 | 아래 "감수하는 단점" | 채택 |
 | CloudWatch Synthetics canary | 스크립트로 여러 경로·응답 본문·인증서를 검사할 수 있다 | 실행마다 과금되고 canary 런타임을 관리해야 한다 | 로그인 같은 업무 흐름 검사가 필요해지면 검토 |
-| 외부 가동 감시 SaaS | 무료 요금제와 Discord 연동이 있다 | 팀 밖의 계정을 관리해야 하고 인프라 코드로 남지 않는다 | 기각 |
+| 다른 가동 감시 SaaS | 무료 요금제와 Discord 연동이 있다 | 팀이 쓰지 않는 계정이 하나 더 생긴다 | 기각 (Sentry로 같은 효과) |
 
-**선택:** Route 53 HTTPS 헬스 체크로 공개 주소의 `/healthz`를 확인해 입구(DNS·TLS 연결·보안 그룹·Nginx)를 본다. 서비스별 상태는 blackbox 내부 프로브가 맡는다. Route 53 알람을 적용·시험한 뒤 `health-check.yaml`과 EventBridge의 Health check 규칙을 제거한다. 그러면 EventBridge는 Auto release만 실행한다.
+**변경 이유 (Route 53 → Sentry):** 둘 다 공개 경로를 밖에서 확인한다는 핵심은 같다. Route 53은 us-east-1 별도 스택, 이메일 알림, 월 요금, 인증서 보완을 모두 더 해야 했다. Sentry는 팀이 계정을 함께 쓰기로 하면서 이 부담 없이 Discord 알림까지 받을 수 있다. 처음 "외부 SaaS"를 기각한 이유는 팀 밖 계정 관리였는데, Sentry는 이미 팀이 쓰는 계정이라 해당하지 않는다. 인프라 코드로 남지 않는 점은 감수한다.
 
-**감수하는 단점 (AWS 문서로 확인한 제약):**
+**Sentry Uptime 동작 (2026-10-01 공식 문서·요금표 확인):**
 
-- **인증서를 검증하지 않는다.** HTTPS 헬스 체크는 SSL/TLS 인증서를 검증하지 않아서, 인증서가 만료되거나 무효여도 실패하지 않는다([AWS 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-determining-health-of-endpoints.html)). 지금 curl 검사가 잡던 인증서 만료를 잃는다. 그래서 blackbox에 공개 주소 HTTPS 프로브를 추가하고 `probe_ssl_earliest_cert_expiry` 기준으로 만료 임박 알림을 둔다. 같은 EC2에서 나가는 검사지만, 인증서 만료는 EC2가 살아 있을 때 생기는 문제라 충분하다. **이 보완 없이는 교체하지 않는다.**
-- **지표가 us-east-1에만 생긴다.** Route 53 지표는 CloudWatch의 US East (N. Virginia)에서만 보인다([AWS 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/monitoring-health-checks.html)). 알람과 SNS 토픽을 us-east-1에 따로 만들어야 해서 서울 리전 `monitoring.yaml`에 넣을 수 없고 별도 스택이 필요하다.
-- **알림 채널이 이메일로 바뀐다.** SNS는 Discord Webhook을 직접 호출하지 못한다. 우선 기존 CloudWatch 알람처럼 SNS 이메일로 받는다. Discord로 유지하려면 SNS → Lambda → Webhook을 추가해야 한다.
-- **2xx·3xx를 2초 안에 응답해야만 정상이다.** `/api`는 401을 돌려줘 장애로 판정되고, Frontend SSR이 느리면 오탐할 수 있다. 그래서 외부에서는 `/healthz`만 보고 Frontend·Backend는 내부 프로브에 맡긴다. 그 결과 Nginx → Backend 공개 라우팅(rewrite) 오류는 외부에서 직접 잡지 못한다.
-- **구간별 응답 코드가 사라진다.** 지금 알림은 `nginx=… frontend=… backend=…`로 원인 구간을 보여 준다. Route 53 알림은 정상·장애만 알려 주므로 Grafana의 서비스별 알림과 함께 봐야 한다.
-- **비용이 생긴다.** 헬스 체크마다 월 요금이 붙고 HTTPS 같은 선택 기능은 추가 요금이다. Actions는 public 레포라 무료였다. 금액은 적용할 때 요금표로 확인한다.
+- 확인 주기: 1분·5분·10분·20분·30분·1시간 중 선택
+- 정상 기준: 2xx만 정상. 3xx는 따라가서 최종 응답이 2xx여야 한다. 10초 안에 응답이 없거나 DNS 오류면 실패
+- 장애 판정: 기본 3번 연속 실패 시 이슈 생성(조정 가능). 알림 규칙에서 이메일·Slack·Discord 등 연동으로 보낸다
+- 비용: 모든 요금제에 1개 포함, 추가는 1개당 월 $1. 무료 Developer 요금제는 사용자 1명
+- SDK가 필요 없고 URL만 등록한다
+
+출처: [Sentry Uptime Monitoring 문서](https://docs.sentry.io/product/monitors-and-alerts/monitors/uptime-monitoring/), [Sentry 요금표](https://sentry.io/pricing/)
+
+**선택:** Sentry Uptime에 공개 주소 `/healthz`를 **1분 주기**로 등록해 입구(DNS·TLS 연결·보안 그룹·Nginx)를 본다. 기본 3번 연속 실패 기준이면 약 3분 안에 감지한다(5분 주기면 약 15분). 알림은 기존 Discord 채널로 보낸다. 서비스별 상태는 blackbox 내부 프로브(Grafana)가 맡는다.
+
+**적용 순서:**
+
+1. Sentry Uptime에 `/healthz`를 등록하고 Discord 알림을 연결한다. Actions Health check와 겹쳐도 문제없으므로 바로 해도 된다.
+2. 인증서 검증 여부를 시험한다. `https://expired.badssl.com/`을 잠깐 등록해 실패로 잡히는지 보고 지운다. 잡히지 않으면 blackbox에 공개 주소 HTTPS 프로브와 `probe_ssl_earliest_cert_expiry` 기준 만료 임박 알림을 추가한다.
+3. 모니터링 스택(TD-015)을 설치하고 Grafana의 서비스별 알림을 시험한다.
+4. `health-check.yaml`과 EventBridge의 Health check 규칙을 삭제한다. EventBridge는 Auto release만 실행한다.
+
+**감수하는 단점:**
+
+- **Backend는 외부에서 직접 보지 못한다.** Sentry는 2xx만 정상으로 보므로 401을 돌려주는 `/api`를 감시 대상으로 쓸 수 없다. Backend 장애는 Grafana 내부 알림에 맡긴다. 그래서 **3단계 전에 Actions Health check를 지우면 Backend가 죽어도 Nginx가 응답해 알림이 오지 않는다.** Nginx → Backend 공개 라우팅(rewrite) 오류는 외부에서 직접 잡지 못한다.
+- **인증서 검증 여부가 문서에 없다.** 2단계 시험 결과에 따라 blackbox 보완이 필요할 수 있다.
+- **구간별 응답 코드가 사라진다.** 지금 알림은 `nginx=… frontend=… backend=…`로 원인 구간을 보여 준다. Sentry 알림은 `/healthz`의 정상·장애만 알려 주므로 Grafana의 서비스별 알림과 함께 본다.
+- **설정이 인프라 코드에 남지 않는다.** 등록한 URL·주기·실패 기준·알림 대상을 [운영 절차](v1-operations.md)나 이 문서에 기록하고, 바꿀 때 팀에 공유한다.
+- **계정을 공유한다.** 무료 요금제는 사용자 1명이라 로그인 정보를 함께 쓴다. 비밀번호·2단계 인증 관리자를 정하고, 계정 담당이 바뀌면 감시도 함께 넘긴다. 계정 접근을 잃으면 외부 감시도 함께 잃는다.
+- **Sentry 장애 때 외부 감시가 멈춘다.** GitHub에 의존하던 것이 Sentry로 옮겨 갈 뿐이다. CloudWatch(EC2 상태)·Grafana(서비스별)는 계속 동작한다.
 
 **재검토:**
 
-- 모니터링 스택 설치·알림 시험이 끝나면 적용한다. 순서는 blackbox 인증서 프로브 → Route 53 스택(us-east-1) → 장애 시험 → Actions Health check와 EventBridge 규칙 제거다.
+- 팀이 Sentry 계정을 함께 쓰지 않게 되거나 무료 한도가 바뀌면 Route 53 안(위 표)을 다시 검토한다.
 - 로그인 같은 업무 흐름 검사가 필요해지면 Synthetics를 검토한다.
-- 외부 장애 알림을 Discord 한 채널로 받아야 하면 SNS → Lambda 연결을 추가한다.
+- V2(ECS)에서 ALB를 쓰면 대상 그룹 health check와 정상 호스트 수·5xx 알람, ACM 인증서 자동 갱신으로 범위가 바뀌므로 외부 감시 구성을 다시 정한다.
 
 ## 이후 기록 양식
 

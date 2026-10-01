@@ -557,7 +557,7 @@ t4g.small 요금은 2026-10-01 공개 요금 집계([Vantage](https://instances.
 
 - 모니터링 EC2의 Compose에 Caddy를 추가해 443에서 TLS를 끝내고 `grafana:3000`으로 넘긴다. 인증서는 443의 TLS-ALPN 검증으로 받으므로 **80은 열지 않는다.**
 - 모니터링 SG에 443 인바운드를 연다. 기본값은 `0.0.0.0/0`이며 `GrafanaIngressCidr` 파라미터로 좁힐 수 있다.
-- A 레코드가 가리킬 고정 IP로 Elastic IP를 붙인다. 기존 자동 공인 IPv4를 대체하므로 요금이 늘지 않는다.
+- A 레코드가 가리킬 고정 IP로 Elastic IP를 붙인다. 기존 자동 공인 IPv4를 대체하므로 요금이 늘지 않는다. 처음에는 스택이 EIP를 만들게 했지만, 적용 전에 콘솔에서 EIP `3.34.14.66`(이름 "for grafana")을 할당·연결하고 DNS가 그 IP를 가리키게 됐다. 스택이 EIP를 또 만들면 IP가 바뀌어 DNS가 어긋나므로 **EIP는 스택 밖 자원으로 두고** 템플릿에서 뺐다. 인스턴스를 교체하면 이 EIP를 새 인스턴스에 다시 연결한다.
 - Grafana는 `GF_SERVER_ROOT_URL=https://grafana.keepgo.kr/`, 보안 쿠키(`Secure`, `SameSite=Strict`)로 바꾼다. 회원가입·익명 접근은 기존대로 끈다. 로그인 실패 잠금은 Grafana 기본값(켜짐)을 쓴다.
 - **Prometheus는 공개하지 않는다.** 인증 기능이 없어 주소를 아는 누구나 모든 지표를 조회할 수 있다. 쿼리는 Grafana Explore로 한다. SSM 터널(3001·9090)은 예비 경로로 남긴다.
 

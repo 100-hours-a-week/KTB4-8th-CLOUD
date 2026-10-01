@@ -133,7 +133,7 @@ aws cloudformation deploy --region ap-northeast-2 \
     AppSecurityGroupId=sg-REPLACE AlertsTopicArn=REPLACE_TOPIC_ARN
 ```
 
-`ImageId`는 최초 생성 때만 최신 AMI를 넣는다. 갱신 때는 5-5절처럼 현재 인스턴스의 AMI를 넘겨 인스턴스 교체를 막는다. 스택은 Grafana용 443만 여는 보안 그룹, Elastic IP, SSM용 역할, 앱 SG의 수집 포트 인바운드 규칙 4개, 모니터링 EC2 상태·디스크 알람을 만든다. UserData가 Docker·git·CloudWatch Agent·Compose plugin을 설치한다. 출력값 `MonitoringInstanceId`로 SSM 접속이 되는지 확인한다.
+`ImageId`는 최초 생성 때만 최신 AMI를 넣는다. 갱신 때는 5-5절처럼 현재 인스턴스의 AMI를 넘겨 인스턴스 교체를 막는다. 스택은 Grafana용 443만 여는 보안 그룹, SSM용 역할, 앱 SG의 수집 포트 인바운드 규칙 4개, 모니터링 EC2 상태·디스크 알람을 만든다. UserData가 Docker·git·CloudWatch Agent·Compose plugin을 설치한다. 출력값 `MonitoringInstanceId`로 SSM 접속이 되는지 확인한다.
 
 ### 5-2. 앱 EC2: exporter 실행
 
@@ -223,7 +223,7 @@ aws ssm start-session --region ap-northeast-2 --target MONITORING_INSTANCE_ID \
 
 CloudShell에서 긴 줄은 복사할 때 자동 줄바꿈으로 끊길 수 있어 값을 변수로 나눴다.
 
-**① 스택 갱신 (CloudShell):** 443 인바운드와 EIP가 추가된다. 현재 인스턴스의 AMI를 그대로 넘겨 인스턴스 교체를 막고, 변경 세트를 먼저 확인한다.
+**① EIP와 스택 갱신 (CloudShell):** Elastic IP는 콘솔에서 할당해 모니터링 EC2에 연결한다(현재 `3.34.14.66`, 이름 "for grafana"). 스택 밖 자원이다. 스택 갱신은 443 인바운드만 추가한다. 현재 인스턴스의 AMI를 그대로 넘겨 인스턴스 교체를 막고, 변경 세트를 먼저 확인한다.
 
 ```sh
 cd ~/keepgo-cloud && git pull -q
@@ -248,12 +248,12 @@ cf wait stack-update-complete --stack-name $S
 cf describe-stacks --stack-name $S --query 'Stacks[0].Outputs' --output table
 ```
 
-`GrafanaPublicIp`가 A 레코드 값이다. EIP가 붙으면 기존 자동 공인 IP는 사라지지만, SSM·Discord 아웃바운드는 EIP로 그대로 나간다.
+변경 세트에는 `MonitoringSecurityGroup` Modify 한 줄만 있어야 한다. **`deploy --no-execute-changeset`은 변경 세트만 만들고 적용하지 않는다.** `execute-change-set`까지 실행하고 스택 상태가 `UPDATE_COMPLETE`인지 확인한다. EIP가 붙으면 기존 자동 공인 IP는 사라지지만, SSM·Discord 아웃바운드는 EIP로 그대로 나간다.
 
-**② DNS:** `keepgo.kr`을 관리하는 곳에 `grafana` A 레코드 → `GrafanaPublicIp`를 추가한다(TTL 300). 반영을 확인한다.
+**② DNS:** `keepgo.kr`은 가비아 DNS다. `grafana` A 레코드 → EIP(`3.34.14.66`)를 추가한다(TTL 300). 모니터링 EC2는 보안 그룹이 UDP 53 아웃바운드를 막아 `dig @8.8.8.8`이 timeout이므로, `@` 없이 VPC DNS로 확인한다.
 
 ```sh
-nslookup grafana.keepgo.kr 8.8.8.8
+dig +short grafana.keepgo.kr
 ```
 
 **③ 모니터링 EC2:** 도메인을 env 파일에 넣고 새 커밋으로 올린다.

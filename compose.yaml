@@ -163,6 +163,7 @@ services:
       EMBEDDING_PROVIDER: google
       CHROMA_PATH: /app/chroma
       LANGSMITH_TRACING: "true"
+      LANGSMITH_WORKSPACE_ID: 3839065b-21f0-4891-857e-e81695ab40e5
       LANGSMITH_PROJECT: keepgo
     mem_limit: 768m
     stop_grace_period: 30s

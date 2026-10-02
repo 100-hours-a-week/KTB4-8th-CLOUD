@@ -53,10 +53,10 @@ node-exporter는 측정할 호스트에, blackbox-exporter는 `backend`·`ai-api
 
 ### 2-1. BE 관리 포트 전환
 
-BE가 관리 포트 8081을 쓰면 `/actuator/health`도 8081로 옮겨 간다. `compose.yaml`의 backend healthcheck는 **8081을 먼저 보고 실패하면 8080을 본다.** 그래서 지금 이미지와 8081 이미지 모두 통과한다. 각 시도는 `timeout -k 1 2`로 감싸 응답이 없어도 프로세스가 남지 않는다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). BE 8081 이미지가 정착하면 다음을 한 PR로 바꾼다.
+BE가 관리 포트 8081을 쓰면 `/actuator/health`도 8081로 옮겨 간다. `compose.yaml`의 backend healthcheck는 **8081을 먼저 보고 실패하면 8080을 본다.** 그래서 지금 이미지와 8081 이미지 모두 통과한다. 각 시도는 `timeout -k 1 2`로 감싸 응답이 없어도 프로세스가 남지 않는다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). BE 8081 이미지(BE PR #64, release `d88350649240`)는 2026-10-02 15:10(KST)에 배포됐다. 같은 날 다음을 한 PR로 바꿨다.
 
-1. `compose.yaml` healthcheck의 `for port in 8081 8080`에서 8080을 지운다.
-2. `prometheus.yml` service-health의 backend 대상을 `http://backend:8081/actuator/health`로 바꾼다.
+1. `compose.yaml` healthcheck에서 8080 재시도를 지우고 8081만 본다.
+2. `prometheus.yml` service-health의 backend 대상을 `http://backend:8081/actuator/health`로 바꾼다. 8080 대상을 그대로 둔 채 BE가 배포되어 `KeepGo internal service unhealthy` 알림이 오탐으로 울렸다.
 
 `ports` 추가와 healthcheck 변경은 backend·ai-api 설정을 바꾸므로 이 변경이 처음 배포될 때 두 컨테이너가 재생성된다(TD-021). 점검 시간에 배포한다.
 

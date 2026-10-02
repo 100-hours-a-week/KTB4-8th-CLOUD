@@ -17,6 +17,7 @@ from pathlib import Path
 REGION = os.environ.get("AWS_REGION", "ap-northeast-2")
 BE_SECRET_ID = os.environ.get("BE_SECRET_ID", "Secret-v1-BE")
 AI_SECRET_ID = os.environ.get("AI_SECRET_ID", "Secret-v1-AI")
+FE_SECRET_ID = os.environ.get("FE_SECRET_ID", "Secret-v1-FE")
 
 RUNTIME_DIR = Path("/opt/keepgo/runtime")
 JWT_DIR = RUNTIME_DIR / "jwt"
@@ -31,6 +32,9 @@ BACKEND_OPTIONAL = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "VWORLD_API_KEY"
 AI_REQUIRED = ["GOOGLE_API_KEY", "NAVER_MAP_CLIENT_ID", "NAVER_MAP_CLIENT_SECRET"]
 # AI main(8bd3c32~)은 SENTRY_DSN이 있을 때만 Sentry를 켜고, 운영 값은 인프라가 주입하기로 했다(TD-019)
 AI_OPTIONAL = ["SENTRY_DSN", "LANGSMITH_API_KEY"]
+# FE Next 서버(BFF)가 요청 때 읽는다. 없으면 FE는 뜨지만 지하철역 검색이 실패한다
+FRONTEND_REQUIRED = []
+FRONTEND_OPTIONAL = ["KAKAO_REST_API_KEY"]
 # BE는 RSA 키 쌍을 읽는다. JWT_SECRET(HMAC 문자열)은 코드에서 쓰지 않는다
 JWT_FILES = {
     "JWT_PUBLIC_KEY": ("public_key.pem", "-----BEGIN PUBLIC KEY-----"),
@@ -39,6 +43,7 @@ JWT_FILES = {
 RUNTIME_FILES = {
     "backend": ("backend.env", "jwt/public_key.pem", "jwt/private_key.pem"),
     "ai-api": ("ai.env",),
+    "frontend": ("frontend.env",),
 }
 
 
@@ -110,9 +115,11 @@ def prepare():
     warnings = []
     be = read_secret(BE_SECRET_ID)
     ai = read_secret(AI_SECRET_ID)
+    fe = read_secret(FE_SECRET_ID)
 
     backend_env = env_lines(BE_SECRET_ID, be, BACKEND_REQUIRED, BACKEND_OPTIONAL, warnings)
     ai_env = env_lines(AI_SECRET_ID, ai, AI_REQUIRED, AI_OPTIONAL, warnings)
+    frontend_env = env_lines(FE_SECRET_ID, fe, FRONTEND_REQUIRED, FRONTEND_OPTIONAL, warnings)
 
     pems = {}
     for key, (filename, header) in JWT_FILES.items():
@@ -134,6 +141,7 @@ def prepare():
     # env 파일은 compose(root)만 읽는다
     write_file(RUNTIME_DIR / "backend.env", backend_env, 0o600)
     write_file(RUNTIME_DIR / "ai.env", ai_env, 0o600)
+    write_file(RUNTIME_DIR / "frontend.env", frontend_env, 0o600)
     # pem은 compose secrets로 bind되어 컨테이너의 uid 10001이 직접 읽는다
     for filename, content in pems.items():
         write_file(JWT_DIR / filename, content, 0o440, 0, BACKEND_UID)
@@ -141,6 +149,7 @@ def prepare():
     print("런타임 파일 준비 완료 (값은 출력하지 않음)")
     print(f"  backend.env: {', '.join(l.split('=', 1)[0] for l in backend_env.splitlines())}")
     print(f"  ai.env: {', '.join(l.split('=', 1)[0] for l in ai_env.splitlines())}")
+    print(f"  frontend.env: {', '.join(l.split('=', 1)[0] for l in frontend_env.splitlines() if l)}") 
     print(f"  jwt: {', '.join(pems)}")
     for w in warnings:
         print(f"  경고: {w}")

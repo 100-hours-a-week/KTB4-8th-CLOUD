@@ -34,7 +34,7 @@ jobs:
       - name: Create placeholder runtime files
         run: |
           sudo install -d /opt/keepgo/runtime/jwt
-          sudo touch /opt/keepgo/runtime/{backend,ai,monitoring}.env \
+          sudo touch /opt/keepgo/runtime/{backend,ai,frontend,monitoring}.env \
             /opt/keepgo/runtime/jwt/{public,private}_key.pem /opt/keepgo/runtime/grafana_admin_password
 
       - name: Check compose

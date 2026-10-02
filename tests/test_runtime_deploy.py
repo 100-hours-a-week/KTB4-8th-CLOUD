@@ -163,7 +163,7 @@ class RuntimeDeployTest(unittest.TestCase):
     def test_first_run_establishes_runtime_then_no_change_is_noop(self):
         result = self.run_deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["ai-api", "backend"])
+        self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["ai-api", "backend", "frontend"])
         self.clear_calls()
         result = self.run_deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -271,6 +271,14 @@ class RuntimeDeployTest(unittest.TestCase):
         result = self.run_deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["ai-api"])
+    def test_frontend_env_change_recreates_only_frontend(self):
+        self.establish()
+        self.config["secrets"]["Secret-v1-FE"]["KAKAO_REST_API_KEY"] = "changed-kakao-key"
+        self.save()
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["frontend"])
+        self.assertNotIn("changed-kakao-key", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

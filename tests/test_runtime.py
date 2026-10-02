@@ -26,6 +26,7 @@ def secrets():
         },
         "Secret-v1-AI": {"GOOGLE_API_KEY": "test-only-api-key",
                          "NAVER_MAP_CLIENT_ID": "test-only-map-id", "NAVER_MAP_CLIENT_SECRET": "test-only-map-secret"},
+                         "Secret-v1-FE": {"KAKAO_REST_API_KEY": "test-only-kakao-key"},
     }
 
 

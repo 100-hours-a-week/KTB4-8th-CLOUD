@@ -32,8 +32,8 @@ scrape_configs:
       - targets: ["http://frontend:3000/"]
         labels: {service: frontend}
       # service-health 대상은 모두 앱 EC2의 blackbox가 Docker 내부 이름으로 호출한다.
-      # BE 관리 포트(8081) 이미지가 배포되면 http://backend:8081/actuator/health로 바꾼다.
-      - targets: ["http://backend:8080/actuator/health"]
+      # BE Actuator는 관리 포트 8081에만 있다. 8080에서는 health가 응답하지 않는다.
+      - targets: ["http://backend:8081/actuator/health"]
         labels: {service: backend}
       - targets: ["http://ai-api:8000/health"]
         labels: {service: ai-api}

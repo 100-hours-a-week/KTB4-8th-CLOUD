@@ -53,7 +53,7 @@ node-exporter는 측정할 호스트에, blackbox-exporter는 `backend`·`ai-api
 
 ### 2-1. BE 관리 포트 전환
 
-BE가 관리 포트 8081을 쓰면 `/actuator/health`도 8081로 옮겨 간다. `compose.yaml`의 backend healthcheck는 **8081을 먼저 보고 실패하면 8080을 본다.** 그래서 지금 이미지와 8081 이미지 모두 통과한다. 각 시도는 `timeout -k 1 2`로 감싸 응답이 없어도 프로세스가 남지 않는다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). BE 8081 이미지(BE PR #64, release `d88350649240`)는 2026-10-02 15:10(KST)에 배포됐다. 같은 날 다음을 한 PR로 바꿨다.
+BE가 관리 포트 8081을 쓰면 `/actuator/health`도 8081로 옮겨 간다. `compose.yaml`의 backend healthcheck는 **8081을 먼저 보고 실패하면 8080을 본다.** 그래서 지금 이미지와 8081 이미지 모두 통과한다. 각 시도는 `timeout -k 1 2`로 감싸 응답이 없어도 프로세스가 남지 않는다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). BE 8081 이미지(BE PR #64, release `d88350649240`)는 2026-10-02 15:10(KST)에 배포됐다. 같은 날 다음을 한 PR(Cloud #58, `1b5731a`)로 바꿨다. 모니터링 EC2는 checkout을 옮기고 Prometheus를 재시작해 반영했다([사례](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)).
 
 1. `compose.yaml` healthcheck에서 8080 재시도를 지우고 8081만 본다.
 2. `prometheus.yml` service-health의 backend 대상을 `http://backend:8081/actuator/health`로 바꾼다. 8080 대상을 그대로 둔 채 BE가 배포되어 `KeepGo internal service unhealthy` 알림이 오탐으로 울렸다.
@@ -287,7 +287,67 @@ sudo docker logs keepgo-monitoring-caddy-1 2>&1 | grep -iE 'certificate obtained
 
 ## 6. BE·AI 지표를 연결할 때
 
-Cloud가 [상세 메트릭 계약 v1](monitoring-metrics-contract.md), HTTP/BE/AI 대시보드와 초기 알림 규칙을 먼저 준비했다. 앱 코드는 이 저장소에 없으므로 endpoint 구현 완료로 간주하지 않는다. 기본 `monitoring/prometheus/targets/application.json`은 빈 배열이며 구현·공개 차단 검증을 통과한 항목만 등록한다. 아래 예시의 `metrics_contract=v1`은 상세 집계·알림 적용 조건이다.
+Cloud가 [상세 메트릭 계약 v1](monitoring-metrics-contract.md), HTTP/BE/AI 대시보드와 초기 알림 규칙을 먼저 준비했다. 구현·공개 차단 검증을 통과한 항목만 `monitoring/prometheus/targets/application.json`에 등록한다. 아래의 `metrics_contract=v1`은 상세 집계·알림 적용 조건이다.
+
+### 6-1. 현재 구성 (2026-10-02 등록)
+
+backend·ai-api 둘 다 등록했고 모니터링 EC2에서 `up{job="application"}=1`, `lastError` 없음을 확인했다(Cloud #67, `77a7e44`).
+
+| | backend | ai-api |
+| --- | --- | --- |
+| 앱 변경 | BE #64(`d883506`). Actuator를 관리 포트 8081로 분리, `traffic_class` tag, `keepgo_observability_info` | AI #37(`9edfd29`), #38(`b37154c`). ASGI 미들웨어로 HTTP 지표, 지표 전용 포트 9464 |
+| 수집 주소 | `app-host:8081/actuator/prometheus` | `app-host:9464/metrics` |
+| capability | `http`, `jvm`, `db_pool` | `http` |
+| route→class | BE 표는 [계약](monitoring-metrics-contract.md) 0절 | generation: `analyze-video`, `extract`, `verify-place`, `recommend-courses`. interactive: `embed-places`, cancel |
+| 보이는 대시보드 | application-http, backend-runtime | application-http. AI Providers and Streaming은 No data(아래) |
+
+**AI 구현 방식.** `app/core/metrics.py`의 ASGI 미들웨어가 응답이 끝난 뒤 요청 하나를 한 번 기록한다. route는 매칭된 템플릿이라 cancel 경로의 요청 ID가 label에 들어가지 않는다. 미매칭은 `unmatched`, `/health`는 제외한다. 처리되지 않은 예외는 바깥 `ServerErrorMiddleware`가 500으로 바꾸므로 미들웨어에서 500으로 기록하고 다시 raise한다. 지표 서버는 FastAPI lifespan에서 `prometheus_client.start_http_server(9464)`로 띄운다(`METRICS_PORT`, 0이면 끔). `*_created` 시계열은 끈다. worker는 1개라 기본 registry를 쓴다.
+
+**AI Providers and Streaming 대시보드가 비어 있는 이유.** 이 대시보드는 계약 4절의 확장 지표(`keepgo_ai_provider_*`, `keepgo_ai_retries_total`, `keepgo_ai_requests_in_flight`, `keepgo_ai_tokens_total`, `keepgo_ai_first_token_seconds`)만 본다. 이번에는 기본 HTTP 지표만 구현했다. 제공자 시도별 지표는 SDK 내부 재시도(`max_retries`)를 시도마다 셀 방법을 먼저 확인해야 하고, TTFT는 AI에 스트리밍 기능이 없어 계속 비어 있다. AI 요청량·오류율·지연은 application-http에서 `service=ai-api`로 본다.
+
+**알려진 제약.**
+
+- AI가 재배포되면 counter가 0부터 시작한다. 10분 안에 실제 요청이 없으면 `KeepGoHttpMetricsMissing` 경고가 온다. 배포 후 앱 EC2에서 cancel을 한 번 호출하면 지표가 생긴다(6-2).
+- 지연 알림은 서비스·class 단위 p95다. generation에 15초(recommend)·30초(extract)·120초(analyze-video) 한도 경로가 섞여 있어, 트래픽이 늘면 analyze-video 때문에 30초 기준을 계속 넘을 수 있다. 지금은 5분 요청 100건 조건 때문에 사실상 평가되지 않는다. route별 기준으로 나누는 작업은 [남은 작업](v1-remaining-checklist.md) 9절.
+- AI는 제공자·지도 API 실패를 502/504/500으로 응답해 5xx 비율에 잡힌다. 제공자 429는 AI도 429로 응답하므로 5xx 알림에 잡히지 않는다.
+
+### 6-2. 등록·확인 절차
+
+1. 앱 EC2에서 수집 포트가 응답하고 계약 지표가 나오는지 본다. AI는 실제 route를 한 번 호출해 지표를 만든다. `sudo -i` 뒤 실행한다.
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' localhost:9464/metrics;
+C=$(docker ps -qf name=ai-api);
+U=http://127.0.0.1:8000/v1/recommend-courses/check/cancel;
+P="import urllib.request as u,sys;";
+P="$P u.urlopen(u.Request(sys.argv[1],method='POST'))";
+docker exec $C python -c "$P" $U;
+curl -s localhost:9464/metrics | grep '^keepgo_http_requests';
+curl -s localhost:8081/actuator/prometheus | grep -m2 traffic_class;
+```
+
+2. `application.json`을 PR로 바꾸고 병합한다. 모니터링 EC2의 checkout을 직접 고치지 않는다.
+3. 모니터링 EC2에서 checkout만 옮긴다. 대상 목록은 file discovery가 30초 안에 다시 읽으므로 재시작하지 않는다. `prometheus.yml`·규칙이 바뀐 경우는 7절대로 재시작한다.
+
+```sh
+cd /opt/keepgo/observability;
+git fetch -q origin;
+git checkout -q --detach origin/main;
+git log --oneline -1;
+```
+
+4. 1분 뒤 수집 상태를 본다. `health`가 모두 `up`, `lastError`가 비어 있어야 한다.
+
+```sh
+T='localhost:9090/api/v1/targets?scrapePool=application';
+curl -s "$T" | grep -o '"health":"[a-z]*"';
+curl -s "$T" | grep -o '"lastError":"[^"]*"';
+Q='up{job="application"}';
+U=localhost:9090/api/v1/query;
+curl -s $U --data-urlencode "query=$Q";
+```
+
+### 6-3. 등록 형식
 
 ```json
 [
@@ -296,13 +356,30 @@ Cloud가 [상세 메트릭 계약 v1](monitoring-metrics-contract.md), HTTP/BE/A
 ]
 ```
 
-BE는 Micrometer Prometheus registry, Actuator 노출·접근 설정, 관리 포트 8081이 필요하다. AI는 별도 포트 9464에 Prometheus 형식의 요청 수·오류·지연 histogram을 노출한다. 두 포트는 `compose.yaml`이 이미 게시한다. 사용자 ID·요청 원문·토큰·전체 URL을 label로 쓰지 않고 정규화된 route·method·status로 제한한다. Nginx의 모든 공개 우회 경로에서 metrics가 차단되는지 앱 팀과 확인한 뒤 등록한다. 공개 `/api` rewrite로 actuator가 노출되지 않는지도 점검한다. BE 8081 이미지가 정착하면 2-1절 정리를 함께 한다.
+BE는 Micrometer Prometheus registry, Actuator 노출·접근 설정, 관리 포트 8081이 필요하다. AI는 별도 포트 9464에 Prometheus 형식의 요청 수·오류·지연 histogram을 노출한다. 두 포트는 `compose.yaml`이 이미 게시한다. 사용자 ID·요청 원문·토큰·전체 URL을 label로 쓰지 않고 정규화된 route·method·status로 제한한다. Nginx의 모든 공개 우회 경로에서 metrics가 차단되는지 앱 팀과 확인한 뒤 등록한다. 공개 `/api` rewrite로 actuator가 노출되지 않는지도 점검한다(이 공개 경로 점검은 2026-10-02 등록 때 수행하지 않았다).
 
 file discovery는 약 30초 주기로 반영된다. `up{job="application"}=1`, 계약의 capability·class·count·bucket을 확인한 뒤 이미 준비된 대시보드와 초기 임계치를 실측으로 조정한다. 적용·검증·알림별 대응은 [앱 알림 운영 절차](monitoring-alert-runbook.md)를 따른다. 내부 health 지연 그래프는 실제 사용자 요청의 p95가 아니며, 없는 메트릭은 0으로 표현하지 않는다.
 
 ## 7. 변경·복구·인수 시험
 
 PG 변경은 별도 checkout의 검토한 커밋으로 이동한 후 설정 검사 → `up -d --wait` → Prometheus·Grafana `restart` 순서로 반영한다. 파일 내용만 변경되면 Compose가 자동 재생성하지 않기 때문에 재시작으로 Prometheus 설정과 Grafana provisioning을 다시 읽는다. 두 EC2의 observability checkout을 같은 커밋으로 맞춘다. blackbox 설정 변경 시 앱 EC2의 blackbox-exporter도 재시작한다. 앱 자동 배포는 PG와 exporter를 갱신하지 않는다.
+
+| 바뀐 파일 | 모니터링 EC2에서 할 일 |
+| --- | --- |
+| `monitoring/prometheus/targets/*.json` | checkout만. file discovery가 30초 안에 다시 읽는다 |
+| `prometheus.yml`, `rules/*.yml` | checkout 후 `$DC restart prometheus` |
+| Grafana 대시보드·provisioning | checkout 후 `$DC restart grafana` |
+| `compose.monitoring.yaml` | checkout 후 `$DC up -d --wait` |
+
+checkout과 env 파일은 root 소유다. SSM 세션에서 `sudo -i`로 root 셸에 들어간 뒤 `cd /opt/keepgo/observability`부터 실행한다(`sudo -i`는 `/root`에서 시작한다). `ssm-user`로 실행하면 git은 `dubious ownership`, compose는 env 파일 `permission denied`로 멈춘다. `safe.directory`를 추가하지 않는다. 재시작 명령은 아래처럼 env 파일을 지정한다.
+
+```sh
+E=/opt/keepgo/runtime/monitoring-host.env;
+DC="docker compose --env-file $E -f compose.monitoring.yaml";
+$DC config --quiet && $DC restart prometheus;
+```
+
+checkout의 파일을 직접 고치지 않는다. 2026-10-02 `application.json`에 backend가 수동으로 추가돼 있어 checkout이 `Your local changes … would be overwritten`으로 멈췄다. `git status --short`로 바뀐 파일을 확인하고 `git stash push -m <이름>`으로 보관한 뒤 checkout했다. 같은 내용이 Git에 들어간 것을 확인한 뒤 `git stash drop`으로 지웠다.
 
 PG 복구는 같은 checkout을 이전 검토 커밋으로 돌리고 동일 과정을 수행한다. Grafana 메이저 버전 업그레이드는 SQLite DB migration을 수반할 수 있어 사전에 볼륨 백업이 필요하고, 바이너리 downgrade만으로 복구를 보장하지 않는다. `down -v`는 데이터를 삭제하므로 일반 재배포에 사용하지 않는다.
 

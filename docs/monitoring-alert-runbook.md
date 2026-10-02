@@ -1,6 +1,6 @@
 # 앱 메트릭 적용·알림 대응 절차
 
-이 문서는 [메트릭 계약 v1](monitoring-metrics-contract.md)의 운영 절차다. AWS/PG 최초 설치·SSM 접근·Secret·로그 활성화는 [기본 모니터링 구성](v1-monitoring.md)을 따른다. 계약을 코드로 준비한 상태이며 **앱 계측·AWS 적용·Discord 실제 수신을 완료한 기록은 아니다.**
+이 문서는 [메트릭 계약 v1](monitoring-metrics-contract.md)의 운영 절차다. AWS/PG 최초 설치·SSM 접근·Secret·로그 활성화는 [기본 모니터링 구성](v1-monitoring.md)을 따른다. 2026-10-02 BE·AI 계측과 수집 대상 등록을 마쳤다([구성](v1-monitoring.md) 6절). **앱 알림의 Discord firing→resolved 전달은 아직 시험하지 않았다.**
 
 ## 적용 순서
 
@@ -57,9 +57,9 @@ Grafana 예약 label인 alertname은 전달 rule의 이름이 되므로 원래 �
 
 | signal | 먼저 확인할 것 | 조치 |
 | --- | --- | --- |
-| `http_metrics_missing` | UP인데 capability/count/bucket/class가 빠졌는지, 실제 앱 registry 버전, business route 초기 요청 | 잘못된 계측·target label을 수정. 실제 트래픽 0을 서버 장애로 오인하지 않음 |
+| `http_metrics_missing` | UP인데 capability/count/bucket/class가 빠졌는지, 실제 앱 registry 버전, business route 초기 요청. AI는 재배포 직후 요청이 없으면 이 경고가 난다 | 잘못된 계측·target label을 수정. 실제 트래픽 0을 서버 장애로 오인하지 않음. AI 재배포 후에는 앱 EC2에서 cancel을 한 번 호출([구성](v1-monitoring.md) 6-2) |
 | `http_5xx` | 오류 route·최근 배포·BE→AI/DB 연결·CloudWatch 오류 로그 | 원인 파트와 새 이미지 수정/기존 복구 절차 검토. 4xx나 업무 실패를 무조건 5xx로 재분류하지 않음 |
-| `http_latency` | traffic_class, 요청량, route별 지연, DB pool/AI 제공자 응답 | 먼저 class 오분류 여부 확인 후 병목 조사. 단순 임계치 상향으로 해소하지 않음 |
+| `http_latency` | traffic_class, 요청량, route별 지연, DB pool/AI 제공자 응답. generation은 한도 15~120초 경로가 한 p95에 섞여 있어 analyze-video만 느려도 넘을 수 있다 | 먼저 class 오분류와 route별 분포 확인 후 병목 조사. 단순 임계치 상향으로 해소하지 않음 |
 | `jvm_heap` | heap max/GC 종류·pause·최근 배포·컨테이너 메모리 | heap 누수·메모리 부하 조사. JVM heap을 무작정 늘려 컨테이너 OOM을 만들지 않음 |
 | `db_pool` | pending·active·DB CPU/연결·slow query·긴 transaction | 쿼리/transaction 및 DB 한도를 확인한 뒤 pool 변경 판단 |
 | `db_timeout` | 획득 timeout·pool 대기·RDS 연결성·배포 시간 | timeout 값을 늘리기 전에 자원/쿼리 문제 조사 |

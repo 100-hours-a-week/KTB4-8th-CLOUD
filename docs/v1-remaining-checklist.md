@@ -168,19 +168,19 @@ Secret 변경 절차:
 
 - [ ] 연결되지 않은 EIP `3.34.10.134`의 주인 확인. 쓰지 않으면 해제한다(미연결 EIP도 월 약 $3.6).
 
-모니터링 EC2(t4g.small, 2 GiB)의 Prometheus·Grafana 상한은 1,024 MiB, 앱 EC2의 exporter 상한은 192 MiB다. 앱 자동 CD는 두 EC2의 observability checkout을 갱신하지 않는다. compose.yaml의 수집 포트·healthcheck 변경이 처음 배포될 때 backend·ai-api가 재생성되므로 점검 시간에 배포한다.
+모니터링 EC2(t4g.small, 2 GiB)의 Prometheus·Grafana 상한은 1,024 MiB, 앱 EC2의 exporter 상한은 192 MiB다. 앱 자동 CD는 두 EC2의 observability checkout을 갱신하지 않는다. 바뀐 파일별 반영 방법은 [구성](v1-monitoring.md) 7절.
 
-## 7. 실제로 빈 설정: 앱 상세 메트릭
+## 7. 앱 상세 메트릭
 
-monitoring/prometheus/targets/application.json은 현재 []다. 앱의 요청률·오류율·p95·JVM·DB pool 지표는 아직 연결되지 않았다.
+2026-10-02 backend·ai-api를 `application.json`에 등록했고 수집을 확인했다. 구성과 절차는 [구성](v1-monitoring.md) 6절.
 
-- [ ] BE 팀: /actuator/prometheus 계측·접근 설정 확인. 현재 SecurityConfig는 health 외 actuator를 denyAll로 막는다. 관리 포트 `management.server.port: 8081` 분리 포함(TD-024).
+- [x] BE 팀: /actuator/prometheus 계측·접근 설정, 관리 포트 8081 분리(BE #64, 2026-10-02).
 - [ ] BE 팀: `application.yaml`의 `logging.level.root` 기본값 TRACE → INFO, 실제 값이 들어간 Google OAuth client secret 교체·삭제([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). Cloud는 `LOGGING_LEVEL_ROOT: INFO`로 덮어쓰는 중.
-- [ ] AI 팀: 요청 수·오류·지연 지표를 별도 포트 9464의 /metrics로 노출(TD-024).
-- [ ] Nginx 공개 경로에서 metrics가 노출되지 않는지 확인.
-- [ ] Cloud: BE 8081 이미지가 정착하면 compose.yaml healthcheck의 8080 재시도 제거, prometheus.yml backend probe를 8081로 변경([구성](v1-monitoring.md) 2-1절). 전환용 8081 우선 + 8080 재시도는 저장소에 반영됨.
-- [ ] 준비 후 application.json에 `app-host:8081`(/actuator/prometheus), `app-host:9464`(/metrics) 등록.
-- [ ] 실제 지표 수집을 확인하고 앱 대시보드·임계치 확정.
+- [x] AI: 요청 수·오류·지연 지표를 별도 포트 9464의 /metrics로 노출(AI #37·#38, 2026-10-02). route→class는 AI 팀원 확인.
+- [ ] Nginx 공개 경로에서 metrics가 노출되지 않는지 확인. 등록 때 수행하지 않았다.
+- [x] Cloud: compose healthcheck 8080 재시도 제거, backend probe 8081로 변경(Cloud #58, [사례](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)).
+- [x] application.json에 `app-host:8081`, `app-host:9464` 등록(Cloud #67). 모니터링 EC2에서 둘 다 `up=1` 확인.
+- [ ] 3~7일 실측으로 앱 대시보드·임계치 확정. 지연 기준 분리는 9절.
 
 ## 8. 새 배포 흐름 적용 순서와 검증
 
@@ -211,6 +211,12 @@ dry_run은 후보 조회 시험이다. 실제 PR 생성·병합 권한, ECR pull
 | **Secret 값 형식 검사 — SENTRY_DSN** (TODO) | 2026-09-30 17:13 KST 배포(#15)에서 Secret-v1-AI의 SENTRY_DSN이 공개 키 없는 값이라 AI `4bd2efc`가 `sentry_sdk.utils.BadDsn: Missing public key`로 기동 실패 → 자동 롤백·차단. 이전에는 전달하지 않던 키라 드러나지 않았고, TD-019에서 전달을 시작하며 처음 사용됨. prepare-runtime.py는 키 존재만 확인 | prepare-runtime.py에서 `https://<공개키>@<호스트>/<프로젝트번호>` 형식을 검사해 틀리면 전달하지 않고 경고만 남김(AI는 Sentry 없이 기동). 새 선택 키를 전달 목록에 추가할 때 운영 Secret 값의 형식을 먼저 확인 |
 | **차단된 서비스가 있어도 결과가 `unchanged`** (TODO) | 2026-09-30 17:21 KST 배포(#17)에서 ai-api가 차단돼 LangSmith 설정이 반영되지 않았는데 `result=unchanged`, 알림 없음. 약 1시간 20분 미반영 | 차단 때문에 건너뛴 서비스가 있으면 `result=blocked`(종료 코드 2)로 기록하고 Discord 알림. `history.log`에 건너뛴 서비스도 남김 |
 | **Backend 무응답 사례 후속** (TODO, [사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)) | 2026-10-01 23:02~23:58 KST 무응답, 복구 완료. 재발 방지 코드는 prep `4a20e13`, main #52로 2026-10-02 00:35 KST 병합 | 배포 결과(healthcheck·로그 양) 확인. 증거 파일 PC 보관 후 `be-all.txt` 삭제. BE 팀에 attach 금지·로그 레벨·OAuth secret 교체 공유. 세부 목록은 사례 문서의 「남은 할 일」 |
+| **generation 지연 기준** (TODO) | 서비스·class 단위 p95 > 30초. recommend(15초)·extract(30초)·analyze-video(120초) 한도가 한 분포에 섞임. AI 팀원도 "자주 울릴 것"이라고 지적. 5분 100건 조건 때문에 지금은 사실상 평가 안 됨 | AI에서 route별 평소 p95를 받아 route별(또는 route 묶음별) 기준으로 recording·alert rule 분리 |
+| **AI 제공자 429** (TODO) | Gemini 429를 AI가 429로 응답해 5xx 알림에 안 잡힘 | AI가 503으로 바꾸거나 Cloud에 429 비율 알림 추가 중 결정 |
+| **AI 재배포 후 지표 누락 경고** (TODO) | 재배포 후 10분 안에 실제 요청이 없으면 `KeepGoHttpMetricsMissing` | 배포 후 cancel 호출을 절차로 유지하거나, 경고 조건(요청 0건 허용)을 조정 |
+| AI 확장 지표 | AI Providers and Streaming 대시보드 No data | in-flight(쉬움)·토큰·제공자 시도별 순으로 검토. 스트리밍 패널은 기능 도입 전까지 정리 |
+| 모니터링 EC2 설정 반영 | 수동(checkout·restart). 앱 배포와 시점이 어긋나 오탐 발생 | 반복되면 SSM Run Command workflow로 자동화 |
+| blackbox의 앱 네트워크 접근 | blackbox가 `app-service` 네트워크에 붙어 있어 `/probe`로 backend:8080 GET이 가능 | backend health를 8081 직접 수집으로 옮기면 backend용 접근은 불필요. ai-api health까지 정리하면 네트워크 분리 |
 | Manifest 병합 후 배포 실패 | 다음 조회만으로 재배포 안 됨 | 수동 재배포 절차 유지 또는 자동 재처리 추가 |
 | Grafana 단독 장애 | 별도 외부 감시 없음 | 필요 시 추가 |
 | **외부 감시 이전** (TD-023, [Sentry 정리](v1-sentry.md)) | Actions Health check를 EventBridge가 5분마다 실행. 개인 PAT 의존, 하루 288건 기록 | Sentry Uptime으로 이전. ① Sentry Uptime에 `/healthz` 1분 주기 등록, Discord 알림 연결(바로 가능) ② `https://expired.badssl.com/` 등록으로 인증서 검증 여부 시험, 안 잡히면 blackbox 인증서 만료 알림 추가 ③ 모니터링 스택 설치, Grafana 서비스별 알림 시험 ④ `health-check.yaml`과 EventBridge의 Health check 규칙 제거. ③ 전에 ④를 하면 Backend 장애가 알림 없이 지나간다. 등록 설정(URL·주기·실패 기준·알림 대상)과 계정 관리자를 기록 |

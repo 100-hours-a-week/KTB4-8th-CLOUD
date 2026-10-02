@@ -223,6 +223,8 @@ Cloud에는 8개 규칙을 준비했지만 마지막 두 AI 확장 규칙은 해
 | FE | 외부 `/metrics`, `/actuator`, `/actuator/prometheus` 및 관련 `/api` 우회 경로에서 metrics 내용이 노출되지 않음. 기존 `/api`, 로그인·정적 파일·health 정상 | 적용 이미지 SHA와 외부 요청 경로별 검사 결과 |
 | Cloud | 검증된 서비스에 한해 target에 `service`, `metrics_contract=v1`, metrics path 등록. UP뿐 아니라 계약 지표·집계값·기본 대시보드·실제 알림 경로 확인 | 적용 Cloud SHA, 정상 수집·알림/복구 확인 기록 |
 
+**적용 현황 (2026-10-02).** BE(#64)와 AI(#37·#38)의 기본 구현을 받아 Cloud #67로 등록했다. AI capability는 `http`만이다. 등록 상태와 남은 확인은 [모니터링 구성](v1-monitoring.md) 6절.
+
 200만 확인하고 완료 처리하지 않는다. 건강 검사 전용 요청이 아닌 실제 business route로 meter를 초기화하고, 요청 수와 오류 수·단위가 기대값과 맞는지 확인한다. 예상하지 못한 404·인증 응답·HTML 페이지는 정상 metrics 응답이 아니다. AI 부분 실패의 업무적 판정은 팀이 확인할 때까지 HTTP 상태 지표와 별개로 남긴다.
 
 파트가 계측 코드를 작성하는 동안 Cloud의 기본 로그·서버 지표·health 모니터링은 먼저 설치할 수 있다. 준비된 파트부터 상세 수집을 연결하며, 실제 운영 타깃 등록과 Webhook 수신 시험은 Cloud가 수행한다.

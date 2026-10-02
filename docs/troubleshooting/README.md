@@ -15,6 +15,7 @@
 
 | 날짜 | 문제 | 영향 | 상태 |
 | --- | --- | --- | --- |
+| 2026-10-02 | [BE 관리 포트 전환 후 Backend health 오탐](2026-10-02-backend-8081-health-false-alert.md) | 서비스 영향 없음. 배포부터 모니터링 EC2 반영까지 `internal service unhealthy` 경고 | 해결 (Cloud #58, 모니터링 EC2 반영) |
 | 2026-10-01 | [Backend 무응답 — `docker attach`가 보낸 SIGHUP과 막힌 stdout](2026-10-01-backend-attach-sighup-hang.md) | Backend 약 55분 무응답(컨테이너는 `Up`, CPU 0%) | 복구됨, 재발 방지 main 병합(#52, 배포 확인 대기)·BE 요청 |
 | 2026-10-01 | [Grafana 접속 중 "Failed to fetch" (메모리 상한 256 MiB 근접)](2026-10-01-grafana-memory-limit.md) | 대시보드 접속이 끊김. 알림 평가도 재시작 동안 멈춤 | 수정 (512 MiB), EC2 반영·확인 대기 |
 | 2026-10-01 | [release PR의 Validate가 매번 실패로 표시됨 (승인 만료)](2026-10-01-release-pr-validate-expired.md) | 배포 영향 없음. 릴리스마다 빨간 X가 쌓여 진짜 실패를 가림 | 수정 (`[skip ci]`), 다음 릴리스에서 확인 대기 |

@@ -72,6 +72,15 @@
 - **참고:** CloudWatch에 `ai/logs`·`backend/logs`·`web/logs` 로그 그룹(보존 2주)이 따로 있다. 이 레포 코드가 만든 이름이 아니며 현재 컨테이너는 이 그룹에 쓰지 않는다. 앞으로 앱 로그는 `/keepgo/v1/application` 한 그룹에 서비스별 스트림으로 쌓인다. 옛 그룹 정리 여부는 팀이 정한다.
 - **아직 확인하지 않은 것:** CloudWatch Agent 지표, 알람 상태, SNS 구독 승인, Grafana Discord 수신 시험.
 
+## 2026-10-02 앱 상세 메트릭 연결 (BE·AI)
+
+계약 v1의 BE·AI 기본 구현을 연결하고 수집을 시작했다. 구성은 [모니터링 구성](v1-monitoring.md) 6절.
+
+- **BE:** BE #64(`d883506`)가 Actuator를 관리 포트 8081로 옮기고 `traffic_class` tag와 `keepgo_observability_info`를 추가했다. 15:10 KST 배포 직후 blackbox가 8080 health를 계속 호출해 오탐 경고가 왔다. Cloud #58(`1b5731a`)로 probe를 8081로 바꾸고 compose healthcheck의 8080 재시도를 지웠다([사례](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)).
+- **AI:** AI #37(`9edfd29`)에서 `prometheus-client` 0.26.0, ASGI 미들웨어(`app/core/metrics.py`), 지표 포트 9464를 추가했다. 테스트 7개(`tests/test_metrics.py`)가 통과했고, 로컬 uvicorn에서 9464 응답·템플릿 route·422/404 기록·8000 `/metrics` 404를 확인했다. AI 팀원 확인에 따라 AI #38(`b37154c`)에서 `embed-places`를 interactive로 옮겼다.
+- **등록:** Cloud #67(`77a7e44`)로 `application.json`에 backend·ai-api를 등록했다. 앱 EC2에서 9464·8081 응답과 cancel 호출 후 AI 요청 지표 생성을, 모니터링 EC2에서 두 대상 `health=up`·`lastError` 없음·`up=1`을 확인했다.
+- **확인하지 않은 것:** Nginx 공개 경로의 metrics 차단, 앱 알림의 firing→resolved Discord 전달, 실측 기반 임계치. AI Providers and Streaming 대시보드는 확장 지표 미구현으로 No data다.
+
 ## 남은 검증과 적용
 
 - [ ] TD-016의 Secret 자동 조회·실패 시 교체 중단과 env/JWT 변경 감지를 EC2에서 확인한다. 첫 적용에서는 기록이 없는 BE·AI를 한 번 재생성한다.

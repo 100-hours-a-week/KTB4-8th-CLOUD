@@ -56,6 +56,18 @@ AWS 역할·인스턴스 변수는 `production` Environment에 두어도 된다.
 
 dry_run은 PR·병합·배포를 하지 않고 실패 Discord도 보내지 않는다. Actions 실행 로그와 상태를 직접 확인한다. checkout이 `main`으로 고정돼 있어 다른 실행 브랜치를 선택해도 release.sh·sources·Manifest는 main의 파일을 사용한다.
 
+### Auto release와 Deploy production 중 무엇을 실행하나
+
+Auto release는 **무엇을 배포할지** 정하고(앱 레포의 새 이미지를 찾아 Manifest를 고침), Deploy production은 **정한 것을 앱 EC2에 반영**한다. Deploy production은 앱 레포를 보지 않고 main의 Manifest·Compose·서버 env만 본다.
+
+| 하고 싶은 것 | 실행할 것 | 동작 |
+| --- | --- | --- |
+| 앱 PR 병합 후 10분 주기를 기다리지 않고 배포 | Auto release | 새 이미지가 있으면 Manifest PR 병합 → Deploy production 자동 호출. 없으면 아무것도 하지 않음. 앱 CI 이미지 게시가 끝나기 전이면 그 커밋은 다음 조회로 넘어감 |
+| 무엇이 배포될지 미리 보기 | Auto release + `dry_run` | 조회만 |
+| 서버 env·Secret을 바꾼 뒤 반영, 배포 재시도 | Deploy production(main) | 달라진 서비스만 교체. 달라진 게 없으면 교체 없음. Manifest가 그대로면 새 앱 버전은 들어오지 않음 |
+
+사람이 Manifest·`compose.yaml` 등을 병합하면 Deploy production만 push로 실행된다(예: Cloud #58 healthcheck 변경). 두 workflow 모두 모니터링 EC2는 갱신하지 않는다([모니터링 구성](v1-monitoring.md) 7절).
+
 ### 로컬 확인
 
 WSL·Linux에서 Bash, GitHub CLI, jq를 준비하고 `gh auth login`으로 인증한다. 저장소 루트에서:

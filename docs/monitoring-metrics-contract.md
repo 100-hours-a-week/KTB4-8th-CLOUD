@@ -60,7 +60,7 @@ BE route→class 초안 (BE 확인 필요):
 - Sentry(`sentry-sdk[fastapi]`)가 추가됐다. 오류 상세는 Sentry, 요청량·오류율·지연은 Prometheus가 맡는다. 둘 다 요청 경로에 붙으므로 오류 요청에서 status 기록이 어긋나지 않는지 함께 시험한다.
 - `app/models/factory.py`가 SDK 한 층에서 재시도한다(`max_retries`). 시도별 hook을 검증하기 전에는 `ainvoke` 1회를 제공자 시도 1회로 보고하지 않는다.
 
-AI route→class 초안 (AI 확인 필요): `/v1/analyze-video`, `/v1/analyze-videos`, `/v1/extract`, `/v1/verify-place`, `/v1/recommend-courses`, `/v1/embed-places`는 `generation`, `/v1/recommend-courses/{request_id}/cancel`은 `interactive`. 스트리밍 경로는 없다.
+AI route→class (2026-10-02 AI 확인): `/v1/analyze-video`, `/v1/extract`, `/v1/verify-place`, `/v1/recommend-courses`는 `generation`, `/v1/embed-places`(임베딩 저장 후 결과만 알리는 짧은 호출)와 `/v1/recommend-courses/{request_id}/cancel`은 `interactive`. 초안의 `/v1/analyze-videos`는 코드에 없다. 스트리밍 경로는 없다. 제공자·지도 API 실패는 502/504/500으로 응답하므로 5xx 비율에 잡힌다. 단 제공자 429는 AI도 429로 돌려주므로 5xx 알림에 잡히지 않는다.
 
 #### FE 추가 항목
 

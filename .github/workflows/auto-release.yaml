@@ -8,6 +8,8 @@ name: Auto release
 #   - ECR push 이벤트마다 바로 (앱 CI가 이미지를 올린 직후)
 #   - 안전망으로 10분마다 (이벤트 유실·호출 실패 대비)
 on:
+  # 예비용: 이 조직에서는 schedule 이벤트가 발생하지 않는다(TD-022). 실제 주기 실행은 위 EventBridge가 한다.
+  # schedule이 복구되면 EventBridge 주기 규칙을 끄고 이쪽으로 되돌린다. 겹쳐도 concurrency로 직렬 실행된다.
   schedule:
     - cron: '7-59/10 * * * *'  # 정각·0분 혼잡을 피한다. 매시 7·17·27·37·47·57분
   workflow_dispatch:

@@ -26,7 +26,7 @@ Cloud가 조회하므로 앱 저장소에 Cloud PR 생성·배포 호출 단계�
   기준 브랜치 push → CI → ECR에 소스 전체 SHA 태그로 이미지 게시
         │ GitHub API 조회
         ▼
-GitHub runner: Auto release (EventBridge가 10분마다 실행, TD-022)
+GitHub runner: Auto release (EventBridge가 ECR push 이벤트마다와 10분마다 실행, TD-022)
   release.sh → 최신 SHA와 Manifest 비교 → 해당 SHA의 CI·게시 job 확인
   → 서비스 묶음별 Manifest PR 생성 → squash 병합
   → 병합이 하나라도 있으면 Deploy production을 한 번 호출
@@ -42,7 +42,7 @@ EC2: /opt/keepgo/cloud
   공개 URL 응답 확인 → 장애·복구 상태 변화 시 Discord
 ```
 
-10분·5분은 조회 간격이며 배포·감지 완료 시간의 보장이 아니다. CI 실행, 배포 대기, 이미지 다운로드와 검증 시간이 추가된다. 이 레포에서는 GitHub schedule이 실행되지 않아 AWS EventBridge가 workflow를 호출한다([TD-022](technical-decisions.md#td-022--github-schedule-대신-eventbridge로-주기-실행)).
+Auto release는 ECR push 이벤트로 바로 시작하고 진행 중인 앱 CI를 최대 3분 기다린다. 10분 조회는 이벤트 유실·대기 초과를 잡는 안전망이다([V2 CD 계획 10절](v2-cd-plan.md#10-v1-선적용--ecr-push-이벤트로-즉시-조회)). 10분·5분은 조회 간격이며 배포·감지 완료 시간의 보장이 아니다. CI 실행, 배포 대기, 이미지 다운로드와 검증 시간이 추가된다. 이 레포에서는 GitHub schedule이 실행되지 않아 AWS EventBridge가 workflow를 호출한다([TD-022](technical-decisions.md#td-022--github-schedule-대신-eventbridge로-주기-실행)).
 
 ## 3. 새 이미지 선택과 dry_run
 
@@ -112,7 +112,7 @@ GitHub 배포 workflow의 concurrency와 호스트 잠금은 서로 다른 범�
 
 | 파일 | 실행 위치·시점 | 역할 |
 | --- | --- | --- |
-| [auto-release.yaml](../.github/workflows/auto-release.yaml) | runner. EventBridge가 10분마다 호출(TD-022), 수동 실행·dry_run 가능 | `AUTO_DEPLOY_ENABLED` 확인 → release.sh 실행 → 병합이 있으면 Deploy production 호출 → 실패 시 Discord |
+| [auto-release.yaml](../.github/workflows/auto-release.yaml) | runner. EventBridge가 ECR push 이벤트마다와 10분마다 호출(TD-022), 수동 실행·dry_run 가능 | `AUTO_DEPLOY_ENABLED` 확인 → release.sh 실행 → 병합이 있으면 Deploy production 호출 → 실패 시 Discord |
 | [release.sh](../scripts/release.sh) | runner (로컬은 `DRY_RUN=1`만) | 저장소별 최신 SHA 조회, 그 SHA의 CI·게시 job 성공 확인, Manifest 수정·형식 검사, release PR 생성·squash 병합. 커밋에 `[skip ci]`를 넣어 release PR의 Validate run을 만들지 않는다 |
 | [deploy-production.yaml](../.github/workflows/deploy-production.yaml) | runner. main push 중 배포 관련 파일이 바뀔 때, 또는 workflow_dispatch(Auto release 호출·수동) | 변수·AWS 계정 확인 → OIDC 인증 → SSM으로 앱 EC2에서 Cloud 커밋 checkout과 deploy.sh 실행 → 종료 코드 판정 → 자동 복구되지 않은 실패만 Discord |
 | [deploy.sh](../scripts/deploy.sh) | 앱 EC2, root (SSM) | 사전 검사 → Secret 준비 → 바뀐 서비스 계산 → pull → 순서대로 교체 → 연결 확인·60초 관찰 → 실패 시 롤백·차단 → 오래된 이미지 정리. 종료 코드 0 성공 / 1 복구됨 / 2 사람 확인 |
@@ -137,7 +137,7 @@ GitHub 배포 workflow의 concurrency와 호스트 잠금은 서로 다른 범�
 
 | 파일 | 만드는 것 |
 | --- | --- |
-| [github-dispatch.yaml](../infrastructure/github-dispatch.yaml) | EventBridge 예약 규칙 2개(Auto release 10분, Health check 5분), GitHub API 호출 대상, 토큰 연결, IAM 역할, 호출 실패 알람(SNS 연결 시) |
+| [github-dispatch.yaml](../infrastructure/github-dispatch.yaml) | EventBridge 예약 규칙 2개(Auto release 10분, Health check 5분), ECR push 이벤트 규칙(Auto release), GitHub API 호출 대상, 토큰 연결, IAM 역할, 호출 실패 알람(SNS 연결 시) |
 | [monitoring.yaml](../infrastructure/monitoring.yaml) | 앱 로그 그룹, SNS 알림 토픽(이메일), 앱 EC2의 로그·지표 전송 권한, CloudWatch 알람 6개 |
 | [monitoring-host.yaml](../infrastructure/monitoring-host.yaml) | 모니터링 EC2(t4g.small), 보안 그룹, 앱 SG의 수집 포트 허용 4개, IAM, Grafana용 고정 IP, 상태·디스크 알람 |
 

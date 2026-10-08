@@ -62,7 +62,7 @@ Auto release는 **무엇을 배포할지** 정하고(앱 레포의 새 이미지
 
 | 하고 싶은 것 | 실행할 것 | 동작 |
 | --- | --- | --- |
-| 앱 PR 병합 후 10분 주기를 기다리지 않고 배포 | Auto release | 새 이미지가 있으면 Manifest PR 병합 → Deploy production 자동 호출. 없으면 아무것도 하지 않음. 앱 CI 이미지 게시가 끝나기 전이면 그 커밋은 다음 조회로 넘어감 |
+| 자동 반영이 안 됐을 때 다시 조회 (보통은 ECR push 이벤트로 바로 실행됨) | Auto release | 새 이미지가 있으면 Manifest PR 병합 → Deploy production 자동 호출. 없으면 아무것도 하지 않음. 앱 CI가 진행 중이면 최대 3분 기다리고, 넘기면 다음 조회로 넘어감 |
 | 무엇이 배포될지 미리 보기 | Auto release + `dry_run` | 조회만 |
 | 서버 env·Secret을 바꾼 뒤 반영, 배포 재시도 | Deploy production(main) | 달라진 서비스만 교체. 달라진 게 없으면 교체 없음. Manifest가 그대로면 새 앱 버전은 들어오지 않음 |
 
@@ -182,9 +182,9 @@ EC2에서 `sudo python3 /opt/keepgo/cloud/scripts/prepare-runtime.py`를 직접 
 
 ## 11. 주기 실행(EventBridge)과 GitHub 토큰 교체
 
-이 레포에서 GitHub `on.schedule`이 실행되지 않아 EventBridge가 Auto release(10분)·Health check(5분)를 실행한다([TD-022](technical-decisions.md#td-022--github-schedule-대신-eventbridge로-주기-실행)). Actions 목록에는 "Manually run by (토큰 소유자)"로 보인다.
+이 레포에서 GitHub `on.schedule`이 실행되지 않아 EventBridge가 Auto release(10분)·Health check(5분)를 실행한다([TD-022](technical-decisions.md#td-022--github-schedule-대신-eventbridge로-주기-실행)). Auto release는 ECR push 이벤트로도 바로 실행된다([V2 CD 계획 10절](v2-cd-plan.md#10-v1-선적용--ecr-push-이벤트로-즉시-조회)). Actions 목록에는 "Manually run by (토큰 소유자)"로 보인다.
 
-- 상태 확인: AWS 콘솔 → EventBridge → 규칙 → `keepgo-v1-auto-release-every-10m`, `keepgo-v1-health-check-every-5m` → 모니터링 탭(Invocations·FailedInvocations).
+- 상태 확인: AWS 콘솔 → EventBridge → 규칙 → `keepgo-v1-auto-release-every-10m`, `keepgo-v1-auto-release-on-ecr-push`, `keepgo-v1-health-check-every-5m` → 모니터링 탭(Invocations·FailedInvocations).
 - 일시 중지: 규칙을 "비활성화"한다. 자동 배포만 멈추려면 `AUTO_DEPLOY_ENABLED=false`가 더 간단하다.
 - **토큰 교체**(만료 전, 또는 FailedInvocations 발생 시): 새 fine-grained PAT(대상 레포 KTB4-8th-CLOUD, 권한 Actions Read and write)을 만든 뒤 관리자 권한 CloudShell에서 실행한다. EC2 SSM 세션은 권한이 없다.
 

@@ -2,7 +2,10 @@ name: Health check
 
 # 5분마다 외부에서 서비스를 확인한다. 컨테이너가 죽으면 Docker가 먼저 자동 재시작하므로,
 # 여기서 실패가 보이면 자동으로 복구되지 않은 장애다. 상태가 바뀔 때(장애 시작·복구)만 Discord로 알린다.
+# 실행: EventBridge(infrastructure/github-dispatch.yaml)가 5분마다 workflow_dispatch로 호출한다.
 on:
+  # 예비용: 이 조직에서는 schedule 이벤트가 발생하지 않는다(TD-022). 실제 주기 실행은 위 EventBridge가 한다.
+  # schedule이 복구되면 EventBridge 주기 규칙을 끄고 이쪽으로 되돌린다. 겹쳐도 concurrency로 직렬 실행된다.
   schedule:
     - cron: '2-59/5 * * * *'  # 정각·0분 혼잡을 피한다. 매시 2·7·12…57분
   workflow_dispatch:

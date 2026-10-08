@@ -208,23 +208,54 @@ V2 인프라를 다 올린 뒤 운영을 ECS로 옮기고, **지금의 V1 인스
 
 ## 6. 진행 순서
 
+담당 표시: **(설정)** 사람이 콘솔·GitHub 화면에서 한다. **(팀)** 앱 팀 결정이나 확인이 먼저 필요하다. 표시가 없으면 Cloud 저장소·앱 CI 코드로 처리한다.
+
+### 단계 0 — 지금 (V1, 2026-10-08 작업 마무리)
+- [ ] `feat/ecr-push-trigger` PR 병합
+- [ ] (설정) CloudShell에서 `keepgo-v1-github-dispatch` 스택 갱신, 변경 세트에 `Add AutoReleaseOnEcrPush` 하나만 있는지 확인(10.6)
+- [ ] 다음 앱 main 병합 때 Auto release가 수십 초 안에 시작·병합·배포되는지 확인
+- [ ] (팀) 지금 개발서버가 계속 운영 브랜치(BE `main`, FE `feat/v1`, AI `main`)를 받을지, 개발 브랜치로 바꿀지 결정. 바꾸면 `sources.json` 브랜치와 FE CI(`develop` 빌드)를 고친다
+
 ### 단계 1 — 기반 (V1 영향 없음)
 - [ ] `infrastructure/`에 V2 ECS 클러스터·서비스·ALB·ECR·IAM Role(dev·prod) 템플릿
 - [ ] App별 ECR push 전용 OIDC Role
 - [ ] Cloud 배포 Role (main·environment 조건)
-- [ ] dev 환경 리소스(RDS·Secret 분리)
+- [ ] dev 환경 리소스(RDS·Secret 분리). 방식 미정(7장)
+- [ ] (설정) 기존 배포 Role 신뢰 정책에 `environment:dev` 추가. 승격 기록용 `ssm:PutParameter`(`/keepgo/dev/*`) 권한 추가
+- [ ] (설정) GitHub Environment `dev` 생성, Variable `DEV_EC2_INSTANCE_ID`(V1 인스턴스). dev Secret을 나누면 `BE_SECRET_ID`·`AI_SECRET_ID`
+- [ ] (설정) dev 도메인: DNS 레코드, V1 인스턴스의 TLS 인증서(`/opt/keepgo/tls`), 접근 제한(공개 또는 IP 제한)
 
 ### 단계 2 — 스키마와 조회
 - [ ] `sources.json`에 `branches`·`services`·`order` 추가
 - [ ] `deployment/envs/{dev,prod}` 스키마와 검사 jq(`check-manifest.jq` 확장)
 - [ ] release.sh를 환경별 조회로 확장. dev head → envs/dev, main head → envs/prod
-- [ ] prod 승격 조건: SSM last-good(dev)과 digest 일치 확인
+- [ ] prod 승격 조건: SSM last-good(dev)과 digest 일치 확인. Auto release에 AWS OIDC 인증 추가
+- [ ] 배포 workflow가 환경을 입력받고, `deploy.sh`가 환경별 Manifest를 읽게 수정(4.8). prod 대상은 ECS로 분기
+- [ ] `compose.yaml`에서 운영 값으로 고정된 것을 환경별로 분리: `SPRING_PROFILES_ACTIVE: prod`, LangSmith 프로젝트 `keepgo`, CloudWatch 로그 그룹 `/keepgo/v1/application`, Prometheus 라벨 `environment: production`
 
 ### 단계 3 — App CI (클라우드 작성)
-- [ ] BE·AI: dev push 빌드·ECR push, main push 트리 해시 확인·retag
-- [ ] FE: `releases/<sha>/` 업로드와 `_complete`, 런타임 `config.json`
-- [ ] App 저장소 브랜치 규칙: main은 `dev`·`hotfix/*` PR만
+
+현재 상태(2026-10-08): BE는 `dev`·`main` push 모두 빌드한다. AI는 `main`만 빌드하고 `dev` 브랜치가 없다. FE는 `main`·`feat/v1`에서 컨테이너 이미지 2개(amd64)를 빌드한다.
+
+- [ ] BE: main push는 다시 빌드하지 않고, 트리 해시가 같은 dev 이미지를 찾아 main SHA 태그만 붙인다. 못 찾으면 실패. dev 빌드 때 트리 해시 태그도 붙인다
+- [ ] (팀) AI: `dev` 브랜치 생성 → dev push 빌드 추가 → main은 BE와 같이 태그만 붙이기
+- [ ] FE: `develop` push 때 컨테이너 이미지 빌드(dev는 V1 Compose라 컨테이너가 필요). prod용 `releases/<sha>/` S3 업로드와 `_complete`도 함께 만든다
+- [ ] (팀) FE: API 주소를 런타임 `config.json`으로 읽을 수 있는지. 안 되면 환경별 두 벌 빌드
+- [ ] (팀) BE: worker·sse 이미지를 나눌지. 나누면 빌드와 ECR 저장소 추가, `EcrRepositories`에 추가
+- [ ] main 출발 브랜치 검사 workflow: PR의 head가 `dev` 또는 `hotfix/*`가 아니면 실패. GitHub 규칙에는 출발 브랜치 제한 옵션이 없어 필수 check로 대신한다
+- [ ] (설정) 앱 저장소 3곳 main Ruleset: PR 필수, 위 check 필수, 직접 push·force push 금지. 저장소 관리자 권한 필요
 - [ ] `feature/*` dev 임시 배포용 `workflow_dispatch`
+
+**순서 주의.** main을 "태그만 붙이기"로 바꾸는 것은 dev 배포가 실제로 돈 뒤에 한다. 먼저 바꾸면 main에서 붙일 dev 이미지가 없어 운영 배포가 막힌다.
+1. dev 빌드 추가 (지금 해도 무해)
+2. Cloud dev 환경 활성화
+3. 승격 1회 성공 확인
+4. main을 태그만 붙이기로 전환
+
+**dev와 prod를 나누는 세 겹.**
+1. 앱 main 규칙: dev를 거치지 않은 코드를 막는다.
+2. main CI 태그 붙이기: dev와 다른 코드의 이미지를 막는다. hotfix를 dev로 역병합하지 않으면 트리가 달라져 여기서 실패한다.
+3. Cloud 승격 조건: dev에서 배포·검증하지 않은 이미지를 막는다.
 
 ### 단계 4 — 배포 workflow
 - [ ] `deploy-ecs.yaml`: 레인별 concurrency, Migration Task, Service 갱신, 목표 Revision·rolloutState 확인, Smoke, last-good 기록
@@ -235,10 +266,16 @@ V2 인프라를 다 올린 뒤 운영을 ECS로 옮기고, **지금의 V1 인스
 - [x] `github-dispatch.yaml`에 ECR Image Action(PUSH·SUCCESS) 규칙 추가, 대상은 기존 Auto release API destination (V1 선적용, 10절)
 - [x] release.sh가 진행 중인 앱 CI를 기다림 (이벤트가 CI 완료 직전에 오므로 필요, 10절)
 - [ ] S3 `_complete` 이벤트 규칙 추가
+- [ ] `EcrRepositories`에 V2 이미지 저장소(worker·sse 등) 추가
 - [ ] PAT 호출 실패 알람(`AlertsTopicArn`) 연결 여부 확인
 - [ ] retag가 ECR 이벤트를 만드는지 확인
 
 ### 단계 6 — 전환
+- [ ] V1 인스턴스를 dev로 넘기기 전 정리
+  - [ ] (설정) `/opt/keepgo/data/uploads`의 운영 사용자 업로드 파일을 운영 저장소로 옮기고 지운다
+  - [ ] Secret을 운영 값에서 dev 값으로 교체
+  - [ ] V1 인스턴스와 ECS 인스턴스(c7i·t3, x86)의 아키텍처가 같은지, BE·AI 이미지 빌드 플랫폼도 확인(FE는 amd64 확인함)
+- [ ] dev 감시·알림: Health check 대상(`PUBLIC_ORIGIN`은 지금 하나뿐), dev Discord 알림, Sentry·Grafana 환경 구분
 - [ ] dev에서 승격 흐름 시험. dev는 V1 인스턴스 Compose라 ECS 동작은 시험하지 못한다(4.8)
 - [ ] prod ECS를 트래픽 전환 전에 무트래픽으로 배포·롤백 시험
 - [ ] prod 전환: 트래픽을 EC2 → ALB/ECS로 옮기고, EC2 SSM 배포를 끈다(`AUTO_DEPLOY_ENABLED=false`)
@@ -258,6 +295,11 @@ V2 인프라를 다 올린 뒤 운영을 ECS로 옮기고, **지금의 V1 인스
 | DB 스키마를 바꾸는 저장소가 BE뿐인지 | BE·AI | AI도 바꾸면 저장소 간 Migration 잠금 필요 |
 | ECR retag가 PUSH 이벤트를 만드는지 | 클라우드 | 안 되면 prod 반영이 최대 10분 |
 | PAT 호출 실패 알람 연결 상태 | 클라우드 | 만료 시 조용히 멈춘다 |
+| 지금 개발서버가 개발 브랜치를 받을지 | 클라우드·팀 | 바꾸면 `sources.json`과 FE CI 수정 |
+| dev DB·Secret 분리 방식(전용 RDS, 같은 RDS에 DB만 분리) | 클라우드 | 비용과 운영 데이터 보호 |
+| dev 도메인과 접근 제한 | 클라우드 | DNS·TLS·보안 그룹 |
+| dev 알림·감시 범위 | 클라우드 | Discord 소음, Health check 대상 |
+| AI `dev` 브랜치를 만들 시점 | AI | 그 전에는 AI가 dev 환경에서 빠진다 |
 
 ## 8. 감수하는 것과 재검토
 

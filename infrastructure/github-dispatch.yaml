@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  KeepGo V1 GitHub Actions 예약 실행 대체. 이 레포에서 on.schedule이 실행되지 않아
+  KeepGo V1 GitHub Actions 실행. 이 레포에서 on.schedule이 실행되지 않아
   EventBridge 예약 규칙이 Auto release(10분)·Health check(5분)를 workflow_dispatch API로 실행한다.
+  ECR push 이벤트도 Auto release를 바로 실행해 새 이미지 반영 지연을 없앤다(10분 조회는 안전망).
   토큰은 파라미터(NoEcho)로만 받고 EventBridge 연결에 저장한다. Git에 넣지 않는다.
 
 Parameters:
@@ -16,6 +17,12 @@ Parameters:
     Type: String
     Default: 100-hours-a-week/KTB4-8th-CLOUD
     AllowedPattern: '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+  EcrRepositories:
+    Type: CommaDelimitedList
+    Default: keepgo-backend,keepgo-ai,keepgo-web,keepgo-nginx
+    Description: >-
+      push되면 Auto release를 바로 실행할 ECR 저장소. compose.yaml의 이미지 저장소와 같게 둔다.
+      V2에서 서비스 이미지가 늘면 여기에 추가한다.
   AlertsTopicArn:
     Type: String
     Default: ''
@@ -103,6 +110,31 @@ Resources:
             MaximumRetryAttempts: 2
             MaximumEventAgeInSeconds: 300
 
+  # 앱 CI가 이미지를 올리면 바로 조회를 시작한다. 이벤트는 "조회하라"는 신호일 뿐이고, 배포 여부는
+  # release.sh 조회와 AUTO_DEPLOY_ENABLED가 정한다. 다른 브랜치(BE dev 등) push도 오지만 조회만 하고 끝난다.
+  # push는 CI가 끝나기 직전에 일어나므로 release.sh가 CI 완료를 잠시 기다린다. 유실되면 10분 조회가 잡는다.
+  AutoReleaseOnEcrPush:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: keepgo-v1-auto-release-on-ecr-push
+      Description: ECR 이미지 push 성공 시 Auto release 실행
+      EventPattern:
+        source: [aws.ecr]
+        detail-type: [ECR Image Action]
+        detail:
+          action-type: [PUSH]
+          result: [SUCCESS]
+          repository-name: !Ref EcrRepositories
+      State: ENABLED
+      Targets:
+        - Id: auto-release
+          Arn: !GetAtt AutoReleaseDestination.Arn
+          RoleArn: !GetAtt InvokeRole.Arn
+          Input: '{"ref":"main"}'
+          RetryPolicy:
+            MaximumRetryAttempts: 2
+            MaximumEventAgeInSeconds: 300
+
   HealthCheckSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -143,5 +175,7 @@ Resources:
 Outputs:
   AutoReleaseRule:
     Value: !Ref AutoReleaseSchedule
+  AutoReleaseOnEcrPushRule:
+    Value: !Ref AutoReleaseOnEcrPush
   HealthCheckRule:
     Value: !Ref HealthCheckSchedule

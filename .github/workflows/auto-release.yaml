@@ -1,8 +1,12 @@
 name: Auto release
 
-# 10분마다 BE·FE·AI 저장소의 최신 커밋을 조회한다. CI가 이미지를 게시했고 Manifest와 다르면
+# BE·FE·AI 저장소의 최신 커밋을 조회한다. CI가 이미지를 게시했고 Manifest와 다르면
 # Manifest를 바꾸는 PR을 만들어 바로 병합하고, 배포 workflow를 실행한다. 로직은 scripts/release.sh에 있다.
 # 앱 저장소는 모두 공개라 별도 토큰 없이 기본 GITHUB_TOKEN으로 읽는다.
+#
+# 실행: EventBridge(infrastructure/github-dispatch.yaml)가 workflow_dispatch로 호출한다.
+#   - ECR push 이벤트마다 바로 (앱 CI가 이미지를 올린 직후)
+#   - 안전망으로 10분마다 (이벤트 유실·호출 실패 대비)
 on:
   schedule:
     - cron: '7-59/10 * * * *'  # 정각·0분 혼잡을 피한다. 매시 7·17·27·37·47·57분
@@ -27,7 +31,7 @@ jobs:
     # 자동 배포 전체 스위치. 'true'가 아니면 조회하지 않는다. dry_run은 켜기 전 확인용이라 스위치와 무관하다.
     if: vars.AUTO_DEPLOY_ENABLED == 'true' || inputs.dry_run
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15  # release.sh가 진행 중인 앱 CI를 최대 3분 기다린다
     env:
       GH_TOKEN: ${{ github.token }}
     steps:

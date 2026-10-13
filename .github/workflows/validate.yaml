@@ -67,6 +67,8 @@ jobs:
 
       - name: Check scripts and workflows
         run: |
+          python3 scripts/check_v2.py
+          python3 -m unittest discover -s tests -p 'test_v2*.py'
           python3 -m unittest discover -s tests -p 'test_runtime*.py'
           for script in scripts/*.sh; do bash -n "${script}"; done
           shellcheck scripts/*.sh

@@ -1,5 +1,4 @@
 .tools/
-.worktrees/
 __pycache__/
 *.pyc
 .artifacts/

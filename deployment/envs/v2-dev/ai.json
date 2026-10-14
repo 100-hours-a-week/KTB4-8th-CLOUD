@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "environment": "v2-dev",
+  "group": "ai",
+  "source": {
+    "repository": "100-hours-a-week/KTB4-8th-AI",
+    "branch": "develop",
+    "commit": "7c9e71ef8b2dbd718102cd7c0d1f8fd7a59d60c0",
+    "run_id": 38529938419,
+    "run_attempt": 1
+  },
+  "image": "602601433533.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-ai@sha256:23ce4c19c64171773cdf868673dd733514c118ae1bb4a7f02369f371e9ac88eb"
+}

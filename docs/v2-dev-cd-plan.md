@@ -2,7 +2,7 @@
 
 2026-10-13. 기존 Cloud 중앙 CD를 확장한다. 운영은 V1에 유지하고 개발 버전만 V2에 배포한다. 이 문서는 예전 `dev → V1, main → V2` 전환안보다 우선한다.
 
-## 확인한 최신 상태
+## 구현 전 확인한 상태 (2026-10-13)
 
 - Cloud `origin/main`: `5d79e9e` (2026-10-13). 이 커밋에서 구현 브랜치를 만들었다. 기존 작업 폴더의 수정 파일은 유지한다.
 - 운영 소스: BE·AI `main`, FE `feat/v1`. FE를 main으로 임의 변경하지 않는다.
@@ -28,7 +28,7 @@
 
 ## 이번 연결의 범위
 
-환경 이름은 `v2-dev`, GitHub Environment는 `dev`다. 개발 브랜치는 현재 원격에 존재하는 BE·AI `develop`을 기본 매핑으로 두되 활성화 전에 팀 확인한다. Cloud workflow 자체는 Cloud `main`에서 실행한다. 앱 브랜치와 Cloud 브랜치를 혼동하지 않는다.
+환경 이름은 `v2-dev`, GitHub Environment는 `dev`다. BE·AI 개발 브랜치는 `develop`이며, 2026-10-14 사용자 확인으로 FE V2 개발 브랜치도 `develop`으로 확정했다. Cloud workflow 자체는 Cloud `main`에서 실행한다. 앱 브랜치와 Cloud 브랜치를 혼동하지 않는다.
 
 첫 배포 대상은 실제 존재하는 BE·AI 서비스다. FE는 브랜치의 앱 코드 및 정적 export/API 라우팅 계약이 정해지기 전까지 자동 배포를 활성화하지 않는다. Worker/SSE, 별도 migration task는 실제 앱·인프라 계약 없이 만들지 않는다. 현재 앱이 시작할 때 수행하는 DB migration은 DB 하위 호환성을 확인해야 하며 이미지 롤백이 스키마를 되돌리지는 않는다.
 
@@ -38,7 +38,7 @@ main 재빌드 금지·dev 이미지의 운영 승격 정책은 이번 변경에
 
 Terraform 코드가 없어도 기존 AWS 설정으로 CD를 작성할 수 있다. 다만 ECS 서비스의 `task_definition`은 CD가 갱신하므로 다음 apply가 예전 revision으로 되돌리지 않도록 관리 주체를 정해야 한다. `ignore_changes = [task_definition]`을 쓰는 경우에도 Role·환경변수·자원 설정 변경을 새 revision에 반영하는 절차를 유지한다. Auto Scaling이 desired_count를 관리한다면 해당 속성도 같은 방식으로 검토한다.
 
-V2 Role의 OIDC 신뢰 조건에 `repo:100-hours-a-week/KTB4-8th-CLOUD:environment:dev`를 반영하고, GitHub Environment `dev`의 배포 브랜치는 Cloud `main`만 허용한다. 앱 이미지 게시 Role은 실제 개발 브랜치를 허용해야 한다. IAM 변경은 제공한 최소 정책과 현재 정책을 비교해 Terraform 원본에도 반영한다.
+V2 Role에는 실제 저장소 ID 형식인 `repo:100-hours-a-week@167328634/KTB4-8th-CLOUD@1344688950:environment:dev` 신뢰 조건을 추가했다. GitHub Environment `dev`의 배포 브랜치는 Cloud `main`만 허용해야 한다. BE·AI 이미지 게시 Role에도 develop 조건을 추가했다. IAM 변경은 `infrastructure/v2-cd/`의 적용 정책과 비교해 Terraform 원본에도 반영한다.
 
 ## 완료 판정
 
@@ -46,6 +46,7 @@ V2 Role의 OIDC 신뢰 조건에 `repo:100-hours-a-week/KTB4-8th-CLOUD:environme
 - [x] 최신 Cloud main에서 격리된 구현 브랜치 생성
 - [x] V2 조회·Manifest·배포·복구 코드와 회귀 테스트 21개
 - [x] 각 앱 저장소 CI 파일 직접 수정, actionlint 검사 통과
+- [x] Cloud·BE·AI·FE 변경 커밋·작업 브랜치 push 완료. FE는 develop 기준 CI만 포함하도록 별도 브랜치로 정리
 - [x] Cloud/dev 및 BE·AI/develop IAM subject 추가·재조회 확인, V2 조회/상태 기록 보조 정책 반영
 - [ ] GitHub Environment/변수 설정 및 Terraform 관리 범위 합의
 - [ ] 수동 정상 배포와 실패 복구 실증

@@ -26,8 +26,8 @@ CI 파일이 없어서 새로 만드는 작업이 아니다. 기존 CI의 브랜
 
 - BE `.github/workflows/ci.yml`: 삭제된 dev 대신 develop을 대상으로 한다. develop 게시 job 이름은 `Dev - Build and Push Image`, main은 기존 `Main - Build and Push Image`를 유지한다.
 - AI `.github/workflows/ci.yml`: develop push 이미지 게시와 develop 대상 PR 검사를 추가한다. 운영 main 게시 조건과 이름은 유지한다. 기존 Ruff/Pytest 주석은 그대로이므로 이 변경이 앱 단위 테스트를 새로 활성화하는 것은 아니다.
-- FE `.github/workflows/frontend-ci.yml`: develop·feat/v2에서 기존 품질 검사를 실행한다. 앱 소스나 lockfile이 없으면 개발 CI는 실패한다. 운영 이미지 게시 조건 main·feat/v1은 유지한다. V2 S3 게시 job은 아직 없다.
-- CI 파일은 각 앱 저장소의 실제 파일에 수정했다. 로컬 수정이 원격 브랜치에 자동 반영되지는 않는다. BE·AI 변경은 develop에 반영해야 한다. FE는 실제 앱 코드를 올릴 개발 브랜치를 확정한 뒤 반영한다.
+- FE `.github/workflows/frontend-ci.yml`: V2 개발 브랜치는 develop으로 확정했다. develop 기준 기존 CI에 develop push 조건만 추가해 품질 검사를 실행한다. 앱 소스나 lockfile이 없으면 개발 CI는 실패한다. 해당 workflow의 이미지 게시는 기존처럼 main만 허용하며 별도 운영 feat/v1의 CI는 변경하지 않는다. V2 S3 게시 job은 아직 없다.
+- CI 변경은 각 앱 저장소의 develop 대상 PR로 반영한다. 처음 FE `ci/v2-development`는 feat/v1 기반이었으므로 병합 대상에서 제외하고, develop에서 CI 변경만 담은 `ci/v2-develop-trigger`를 새로 만들었다. V1 앱 코드 87개 파일이 develop에 섞이는 것을 방지했다.
 
 BE는 기존처럼 bootJar 빌드이며 앱 테스트를 실행하지 않는다. AI도 현재 의존성 설치와 Docker 빌드 중심이다. 중앙의 "CI 성공"은 이 실제 검사 범위만 의미한다.
 
@@ -86,7 +86,9 @@ python scripts/v2_deploy.py --group ai --inspect
 
 2026-10-13 BE·AI 모두 `--inspect` 통과. 조회한 실제 digest는 BE `sha256:038ebf6cd65a1b761adb725ba15fdd5a60148e1286559c7f3fa18fd81d1c9de8`, AI `sha256:f0e01e92f7fa0a60dee2dc8ea6699c910a8b69a69a0c19bf3bb6894c6301c42f`다. 두 서비스 모두 revision 1이며 실제 서비스 갱신은 실행하지 않았다.
 
-로컬 회귀 검사는 V2 21개와 기존 V1 22개가 통과했다. 변경 workflow의 actionlint 검사 및 release.sh 문법 검사도 통과했다. Cloud 변경은 `feat/v2-dev-cd`, 앱 CI 변경은 각 저장소의 `ci/v2-development` 작업 브랜치로 전달한다. BE·AI 작업 브랜치의 기준은 develop, FE는 실제 앱 코드가 있는 feat/v1이다. FE 변경을 적용할 개발 브랜치는 앱 코드 준비와 함께 정한다. GitHub Environment/변수 설정, GitHub OIDC 실인증·수동 배포/롤백 검증과 자동 스위치 활성화는 아직 수행하지 않았다.
+로컬 회귀 검사는 V2 21개와 기존 V1 22개가 통과했다. 변경 workflow의 actionlint 검사 및 release.sh 문법 검사도 통과했다. Cloud 변경은 `feat/v2-dev-cd` → main, BE·AI는 `ci/v2-development` → develop, FE는 `ci/v2-develop-trigger` → develop으로 반영한다. GitHub Environment/변수 설정, GitHub OIDC 실인증·수동 배포/롤백 검증과 자동 스위치 활성화는 아직 수행하지 않았다.
+
+2026-10-14 병합 전 GitHub 변수 조회 결과 V1 `AUTO_DEPLOY_ENABLED=true`였고 V2 스위치 두 개는 설정되어 있지 않았다. 따라서 Cloud 코드 병합만으로 V2 자동 배포는 시작되지 않는다. AI develop은 `f5ed5e3`으로 갱신됐지만 CI 파일에는 충돌이 없었고, FE develop에는 아직 애플리케이션 소스 디렉터리가 없었다. FE CI 반영 후 source_check 실패는 이 미준비 상태를 알리는 것이며 FE 배포가 완료됐다는 의미가 아니다.
 
 ## 남은 앱·인프라 작업
 

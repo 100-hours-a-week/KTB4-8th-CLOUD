@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::602601433533:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": [
+            "repo:100-hours-a-week/KTB4-8th-BE:environment:dev",
+            "repo:100-hours-a-week/KTB4-8th-AI:environment:dev",
+            "repo:100-hours-a-week/KTB4-8th-FE:environment:dev"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CloudV2Development",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::602601433533:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:100-hours-a-week@167328634/KTB4-8th-CLOUD@1344688950:environment:dev"
+        }
+      }
+    }
+  ]
+}

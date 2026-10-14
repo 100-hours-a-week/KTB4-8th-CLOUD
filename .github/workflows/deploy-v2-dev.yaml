@@ -1,0 +1,82 @@
+name: Deploy V2 development
+
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'V2 service group'
+        type: choice
+        options: [backend, ai]
+        required: true
+      execute:
+        description: 'AWS 변경 실행. false는 읽기 전용 사전 검사'
+        type: boolean
+        default: false
+      recover:
+        description: '중단·실패한 배포를 기록된 이전 revision으로 복구'
+        type: boolean
+        default: false
+      retry_failed:
+        description: '원인을 해결한 뒤 같은 실패 이미지 재시도 (복구 완료 필요)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-v2-dev-${{ inputs.group }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    environment: dev
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AWS_RETRY_MODE: standard
+      AWS_MAX_ATTEMPTS: '5'
+    steps:
+      # Select the latest merged desired state after waiting for the group lock.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Check V2 execution switch
+        env:
+          EXECUTE: ${{ inputs.execute }}
+          RECOVER: ${{ inputs.recover }}
+          ENABLED: ${{ vars.V2_CD_ENABLED }}
+        run: |
+          if [[ "$EXECUTE" == true && "$RECOVER" != true && "$ENABLED" != true ]]; then
+            echo 'V2_CD_ENABLED must be true before deployments can change AWS' >&2
+            exit 1
+          fi
+      - name: Configure V2 AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.V2_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: Deploy or recover V2 service
+        env:
+          GROUP: ${{ inputs.group }}
+          EXECUTE: ${{ inputs.execute }}
+          RECOVER: ${{ inputs.recover }}
+          RETRY_FAILED: ${{ inputs.retry_failed }}
+        run: |
+          args=(--group "$GROUP")
+          if [[ "$EXECUTE" == true ]]; then args+=(--execute); fi
+          if [[ "$RECOVER" == true ]]; then args+=(--recover); fi
+          if [[ "$RETRY_FAILED" == true ]]; then args+=(--retry-failed); fi
+          python3 scripts/v2_deploy.py "${args[@]}"
+      - name: Notify deployment failure
+        if: failure() && inputs.execute
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: bash scripts/notify-discord.sh "V2 개발 배포 실패" "ECS 배포와 복구 결과를 확인하세요. 중단된 배포는 recover로 복구해야 합니다."

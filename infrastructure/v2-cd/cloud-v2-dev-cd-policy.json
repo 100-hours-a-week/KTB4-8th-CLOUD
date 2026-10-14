@@ -1,0 +1,58 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadDeploymentAndImageState",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:ListTasks",
+        "elasticloadbalancing:DescribeTargetHealth"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadV2Tasks",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeTasks"
+      ],
+      "Resource": "arn:aws:ecs:ap-northeast-2:602601433533:task/keepgo-v2/*"
+    },
+    {
+      "Sid": "PreserveTaskDefinitionTags",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:ListTagsForResource",
+        "ecs:TagResource"
+      ],
+      "Resource": [
+        "arn:aws:ecs:ap-northeast-2:602601433533:task-definition/keepgo-v2-backend:*",
+        "arn:aws:ecs:ap-northeast-2:602601433533:task-definition/keepgo-v2-ai-api:*"
+      ]
+    },
+    {
+      "Sid": "VerifyPublishedImages",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:DescribeImages",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": [
+        "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-backend",
+        "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-ai"
+      ]
+    },
+    {
+      "Sid": "PersistV2DeploymentState",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:PutParameter"
+      ],
+      "Resource": [
+        "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/backend",
+        "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/ai"
+      ]
+    }
+  ]
+}

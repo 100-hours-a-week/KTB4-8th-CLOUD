@@ -13,9 +13,9 @@
         },
         "StringLike": {
           "token.actions.githubusercontent.com:sub": [
-            "repo:100-hours-a-week/KTB4-8th-BE:environment:dev",
-            "repo:100-hours-a-week/KTB4-8th-AI:environment:dev",
-            "repo:100-hours-a-week/KTB4-8th-FE:environment:dev"
+            "repo:100-hours-a-week@167328634/KTB4-8th-BE@1344686243:environment:dev",
+            "repo:100-hours-a-week@167328634/KTB4-8th-AI@1344686800:environment:dev",
+            "repo:100-hours-a-week@167328634/KTB4-8th-FE@1344685464:environment:dev"
           ]
         }
       }

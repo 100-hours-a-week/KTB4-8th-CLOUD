@@ -15,11 +15,11 @@ KeepGo V1은 앱 EC2 한 대에서 Docker Compose로 네 개의 컨테이너(web
 | 경로 | 보내는 곳 | 채널 | 상태 |
 | --- | --- | --- | --- |
 | GitHub Actions (`notify-discord.sh`) | 배포·릴리스 실패, 외부 감시(Health check) | Discord | 운영 중 |
-| Grafana (모니터링 EC2) | 내부 서비스 비정상, 수집 불가, 앱 경고 | Discord | 모니터링 EC2 운영 중, Discord 수신 시험 기록 없음 |
+| Grafana (모니터링 EC2) | 내부 서비스 비정상, 수집 불가, 앱 경고 | Discord | 10/02 내부 health firing 수신 기록 있음. 앱·수집 장애 및 복구의 전체 경로 시험 미완료 |
 | CloudWatch 알람 → SNS | 앱·모니터링 EC2, RDS, 주기 실행 토큰 | 이메일 | 스택 존재, 알람·구독 승인 미확인. 앱 로그 전송은 2026-10-01 적용 |
 | Sentry | AI 앱 예외, (예정) 외부 감시 | Sentry 알림 규칙 | 에러 수집 운영 중, Uptime 설정 전 |
 
-설치·적용 상태는 [모니터링 운영 구성](v1-monitoring.md), Sentry는 [Sentry 사용 정리](v1-sentry.md)를 따른다.
+코드 구현과 실제 적용 범위는 [모니터링 전체 안내](monitoring-overview.md), 설치 명령은 [모니터링 운영 구성](v1-monitoring.md), Sentry는 [Sentry 사용 정리](v1-sentry.md)를 따른다. Grafana firing 수신 근거는 [BE health 오탐 사례](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)다.
 
 ## 구성
 

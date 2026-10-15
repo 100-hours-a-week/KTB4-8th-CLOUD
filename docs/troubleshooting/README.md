@@ -15,6 +15,11 @@
 
 | 날짜 | 문제 | 영향 | 상태 |
 | --- | --- | --- | --- |
+| 2026-10-14 | [Terraform apply가 V2 Cloud OIDC 신뢰 조건을 덮어씀](2026-10-14-v2-oidc-trust-overwrite.md) | 중앙 CD의 AWS 인증 조건이 반복해서 불일치 | 해결 (Terraform 원본 반영, OIDC·AI 배포 성공) |
+| 2026-10-14 | [V2 Auto release의 workflow/job 잠금 충돌](2026-10-14-v2-release-concurrency-deadlock.md) | 수동 V2 조회가 러너 시작 전에 deadlock으로 취소 | 해결 (Cloud #100, 동일 입력 재검증) |
+| 2026-10-14 | [개발 CI 실패로 V2 배포 후보가 생성되지 않음](2026-10-14-v2-develop-ci-not-deployable.md) | BE 최신 이미지 미게시, FE 소스 검사 실패 | CI 연결 완료, BE 앱 수정·FE 준비 후속 |
+| 2026-10-02 | [챗봇이 두 번째 메시지부터 실패 (BE↔AI 슬롯 계약 불일치)](2026-10-02-chatbot-slot-contract-mismatch.md) | 챗봇이 슬롯 캐시가 남은 10분 동안 응답 없음. 실패 로그도 없음 | 해결 (BE #79) |
+| 2026-10-02 | [로그인 실패 — 같은 증상, 다른 원인 셋](2026-10-02-login-failures.md) | 약 45분 전원 로그인 불가(FE), 간헐 실패, 배포마다 로그아웃 | FE 되돌림으로 복구, 나머지 BE TODO |
 | 2026-10-02 | [BE 관리 포트 전환 후 Backend health 오탐](2026-10-02-backend-8081-health-false-alert.md) | 서비스 영향 없음. 배포부터 모니터링 EC2 반영까지 `internal service unhealthy` 경고 | 해결 (Cloud #58, 모니터링 EC2 반영) |
 | 2026-10-01 | [Backend 무응답 — `docker attach`가 보낸 SIGHUP과 막힌 stdout](2026-10-01-backend-attach-sighup-hang.md) | Backend 약 55분 무응답(컨테이너는 `Up`, CPU 0%) | 복구됨, 재발 방지 main 병합(#52, 배포 확인 대기)·BE 요청 |
 | 2026-10-01 | [Grafana 접속 중 "Failed to fetch" (메모리 상한 256 MiB 근접)](2026-10-01-grafana-memory-limit.md) | 대시보드 접속이 끊김. 알림 평가도 재시작 동안 멈춤 | 수정 (512 MiB), EC2 반영·확인 대기 |
@@ -31,6 +36,9 @@
 
 | 증상 | 먼저 볼 곳 |
 | --- | --- |
+| V2 배포 Role에 추가한 Cloud 조건이 없어지거나 AWS 인증이 다시 실패 | [OIDC 정책 덮어쓰기](2026-10-14-v2-oidc-trust-overwrite.md) — CloudTrail 변경 주체와 Terraform 원본 비교 |
+| Auto release가 몇 초 만에 실패하고 단계 로그가 없음 | [concurrency deadlock](2026-10-14-v2-release-concurrency-deadlock.md) — 실행 요약 annotation과 workflow/job group 확인 |
+| V2에서 `no successful development image publishing run`, FE source 검사 실패 | [개발 CI와 배포 후보](2026-10-14-v2-develop-ci-not-deployable.md) — 최신 커밋의 CI 실패 단계 확인 |
 | Auto release·Health check가 주기적으로 안 돎, Actions에 `schedule` 실행이 없음 | [schedule 미실행](2026-09-30-actions-schedule-not-running.md), [운영 절차](../v1-operations.md) 11절 |
 | 배포 결과가 `rolled_back`, 컨테이너가 `Restarting` 반복 | [SENTRY_DSN 롤백](2026-09-30-ai-sentry-dsn-rollback.md) — Actions의 Wait for deployment result 로그에서 컨테이너 로그 확인 |
 | 바뀐 게 없는데 배포가 서비스를 교체함 | [배포마다 재생성](2026-09-30-env-file-services-recreated-every-deploy.md) |
@@ -41,6 +49,8 @@
 | Discord 알림이 오거나 안 옴 | [장애 알림 시스템](../v1-alerting.md) |
 | Grafana 터널에서 "Failed to fetch" 또는 `Connection to destination port failed` | [Grafana 메모리 상한](2026-10-01-grafana-memory-limit.md) — 먼저 `docker ps`로 Grafana 재시작 여부 확인 |
 | 컨테이너는 `Up`인데 health timeout, CPU 0%, 로그가 끊김 | [Backend attach·SIGHUP](2026-10-01-backend-attach-sighup-hang.md) — `ps -L -o wchan`에 `anon_pipe_write`가 있는지, `ps -ef \| grep 'docker attach'` |
+| 챗봇 폴링이 끝까지 `IN_PROGRESS`, AI 로그는 200 | [슬롯 계약 불일치](2026-10-02-chatbot-slot-contract-mismatch.md) — BE→AI 호출 수와 `ExtractSlotResponse` 로그 수 비교 |
+| 로그인 뒤 다시 로그인 화면, `/login?error` | [로그인 실패](2026-10-02-login-failures.md) — web 접근 로그에서 `/?accessToken=` 뒤 요청, 같은 `state` 중복 |
 | EC2에서 직접 상태를 확인하는 방법 | [운영 절차](../v1-operations.md) 5절 「직접 확인」, 10절 「증상별 빠른 확인」 |
 
 ## EC2에서 자주 쓰는 확인 명령

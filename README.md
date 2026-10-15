@@ -6,6 +6,8 @@
 
 | 알고 싶은 내용 | 문서 |
 | --- | --- |
+| 모니터링 전체 흐름·구축 순서, 코드 구현과 운영 적용 구분, V1/V2 차이 | [모니터링 전체 안내](docs/monitoring-overview.md) |
+| V2 중앙 CD 작업 결과, AI 실제 배포, Terraform 반영, 남은 작업 | [V2 개발 CD 작업 정리](docs/v2-dev-cd-work-summary.md) |
 | 전체 흐름, 구성 이유, 파일 역할, 실패 시 동작과 한계 | [전체 설명](docs/v1-design.md) |
 | CloudWatch 로그·알람, Prometheus·Grafana 구성과 적용 순서 | [모니터링 운영 구성](docs/v1-monitoring.md) |
 | BE·AI·FE 전달용 상세 메트릭·bucket·초기 임계치 | [메트릭 계약 v1](docs/monitoring-metrics-contract.md) |
@@ -23,4 +25,4 @@
 
 배포 없이 후보를 확인하려면 Actions의 Auto release에서 `dry_run`을 선택한다. 자세한 실행 조건과 로컬 검사는 [운영 절차](docs/v1-operations.md#2-배포-전-후보-조회)에 있다.
 
-V2 확장 제안은 [V2 설계](docs/V2%20설계.md)와 [V2 CI/CD 검토](docs/v2-cicd-design-review.md)에 둔다. 이전 V1 설계안·인계 기록은 [보관 문서](docs/archive/README.md)에서 찾는다.
+V2의 실제 적용 상태와 트러블슈팅은 [V2 개발 CD 작업 정리](docs/v2-dev-cd-work-summary.md)를 기준으로 읽는다. 이전 확장 제안은 [V2 설계](docs/V2%20설계.md)와 [V2 CI/CD 검토](docs/v2-cicd-design-review.md)에 둔다. 이전 V1 설계안·인계 기록은 [보관 문서](docs/archive/README.md)에서 찾는다.

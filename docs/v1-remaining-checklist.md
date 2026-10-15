@@ -99,6 +99,8 @@ Secret 변경 절차:
 
 ## 5. 모니터링을 켤 때 필요한 값
 
+전체 흐름과 코드·적용·미검증 구분은 [모니터링 전체 안내](monitoring-overview.md)에 있다. 아래 값은 재구축·설정 변경 시 필요한 입력이며, 설치 완료 여부는 6~7절 기록으로 판단한다.
+
 | 값 | 찾는 곳 | 넣는 곳 |
 | --- | --- | --- |
 | InstanceId | EC2 콘솔 → 인스턴스 ID (= PRODUCTION_EC2_INSTANCE_ID) | `aws cloudformation deploy --parameter-overrides InstanceId=` |
@@ -107,10 +109,11 @@ Secret 변경 절차:
 | DBInstanceIdentifier | RDS 콘솔 → DB 식별자. compose.yaml의 DB_HOST가 `keepgo-db-v1.…`이므로 기본값과 일치할 가능성이 높다 | 다를 때만 `DBInstanceIdentifier=` |
 | Grafana 관리자 비밀번호 | 새로 생성 (`openssl rand -base64 24`) | EC2 `/opt/keepgo/runtime/grafana_admin_password` 한 줄, `472:0`, `0400` |
 | Grafana용 Discord Webhook | GitHub Secret과 같은 URL 또는 별도 채널의 새 Webhook | EC2 `/opt/keepgo/runtime/monitoring.env`에 `DISCORD_WEBHOOK_URL=URL`, `root:root`, `0600` |
+| 앱 private IP·Grafana 도메인 | 앱 EC2 private IPv4, Grafana용 DNS 이름 | 모니터링 EC2 `/opt/keepgo/runtime/monitoring-host.env`에 `APP_HOST_PRIVATE_IP=…`, `GRAFANA_DOMAIN=…` 각각 한 줄, `root:root`, `0600` |
 | observability COMMIT | main 병합 후 `git rev-parse origin/main` | [모니터링 문서](v1-monitoring.md)의 `checkout --detach COMMIT` |
 | 문서 예시의 치환값 | i-REPLACE, REPLACE_EC2_ROLE, REPLACE_EMAIL, COMMIT | 위 값으로 치환 |
 
-**모니터링 전용 IAM role은 만들지 않는다.** EC2에는 role을 하나만 붙일 수 있고 CloudWatch Agent·awslogs는 그 role을 쓴다. 템플릿이 기존 role에 로그 쓰기(`/keepgo/v1/application`의 CreateLogStream·PutLogEvents)와 지표 쓰기(`CWAgent` 네임스페이스의 PutMetricData) 정책 두 개만 붙인다. 스택 배포는 관리자 계정으로 1회 실행하고 GitHub 배포 role에는 권한을 추가하지 않는다. Grafana 터널 사용자는 해당 인스턴스의 `ssm:StartSession`만 있으면 된다.
+**앱 EC2는 기존 IAM role을 사용한다.** `monitoring.yaml`이 기존 role에 로그 쓰기(`/keepgo/v1/application`의 CreateLogStream·PutLogEvents)와 지표 쓰기(`CWAgent` namespace의 PutMetricData) 정책을 붙인다. **별도 모니터링 EC2에는 `monitoring-host.yaml`이 SSM·CWAgent 권한을 가진 전용 role/profile을 만든다.** 스택 배포 역할과 GitHub 앱 배포 역할은 별개다. 터널 사용자는 대상 인스턴스와 SSM port forwarding document 사용 권한이 필요하다.
 
 **GitHub Secret의 Webhook은 Grafana에 자동 전달되지 않는다.** 비밀번호와 Webhook 값 자체는 Git/문서에 넣지 않는다. CloudFormation은 `CAPABILITY_NAMED_IAM`이 필요하므로 IAM 정책 생성 권한이 있는 계정으로 실행한다.
 
@@ -131,7 +134,7 @@ Secret 변경 절차:
 - [x] SSM 터널(전용 IAM 사용자 `keepgo-grafana-tunnel`)로 Grafana 로그인 확인.
 - [x] **Grafana HTTPS 공개(TD-025):** EIP `3.34.14.66` 연결, 가비아 `grafana` A 레코드, 스택 갱신으로 443 인바운드(`UPDATE_COMPLETE`), Caddy 인증서 발급 성공.
 - [ ] 모니터링 SG가 아닌 곳에서 앱 EC2 8081·9464·9100·9115가 막혀 있는지 확인.
-- [ ] Grafana Discord 및 CloudWatch SNS 이메일 실제 수신 확인(아래 6-1).
+- [ ] Grafana Discord의 장애·복구 경로 및 CloudWatch SNS 이메일 수신 확인(아래 6-1). 10/02 내부 health firing 수신은 [오탐 사례](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)에 기록돼 있다.
 - [ ] 앱 재배포 후에도 모니터링과 로그 수집 유지 확인.
 
 ### 6-1. Grafana 할 일 (TODO)
@@ -153,7 +156,7 @@ Secret 변경 절차:
 **운영 상태**
 
 - [ ] Grafana 메모리 확인. 256 MiB에서 재시작해 512 MiB로 올렸다([사례](troubleshooting/2026-10-01-grafana-memory-limit.md)). 며칠 사용 후 `docker stats`와 `RestartCount`가 늘지 않는지 본다.
-- [ ] 모니터링 EC2 checkout 정리. 지금은 PR 브랜치 커밋(`feat/monitoring-host-split`)을 쓴다. PR이 main에 머지되면 main 커밋으로 다시 checkout한다(앱 EC2의 exporter checkout도 같이).
+- [ ] 두 EC2의 observability 적용 SHA를 다시 확인하고 검토한 커밋으로 맞춘다. 10/01에는 PR 브랜치를 사용했고, 10/02에는 모니터링 EC2를 main의 Cloud #58·#67로 옮긴 기록이 있다. 두 호스트가 현재 같은 SHA인지는 별도 확인한다.
 - [ ] Caddy 인증서 자동 갱신 확인. 첫 발급 2026-10-01, 갱신은 만료 전 Caddy가 알아서 한다. 두 달쯤 뒤 `docker logs keepgo-monitoring-caddy-1`에 갱신 성공이 있는지 한 번 본다. `caddy-data` 볼륨은 지우지 않는다.
 - [ ] Grafana 보안 패치 관리 담당 정하기. 인터넷에 공개돼 있으므로 보안 공지가 나오면 compose의 이미지 태그를 올려 재생성한다(TD-025).
 - [ ] 외부에서 Prometheus(9090)·Grafana 직접 포트(3001)가 닫혀 있는지 확인. 모니터링 SG 인바운드는 443 하나여야 한다.
@@ -161,14 +164,14 @@ Secret 변경 절차:
 **대시보드·지표**
 
 - [ ] `KeepGo V1 - Infrastructure and Health` 대시보드에서 앱 EC2 CPU·메모리·디스크, 서비스 4개 health가 보이는지 확인.
-- [ ] 앱 상세 대시보드 3개(HTTP·Backend·AI)는 BE·AI 계측 전까지 No data가 정상. 계측 배포 후 7절 순서로 수집 대상을 등록한다.
+- [ ] HTTP·Backend 대시보드에서 실제 요청·JVM/DB 지표를 확인한다. BE·AI 수집 대상은 10/02 등록 완료했다. AI Providers and Streaming은 확장 지표 미구현으로 No data이며, HTTP·Backend 기본 패널의 누락과 구분한다.
 - [ ] 파트별로 자주 볼 패널·쿼리가 있으면 받아서 대시보드에 추가한다. 대시보드는 저장소의 provisioning 파일이 원본이고 `allowUiUpdates: false`라 UI에서 고쳐도 저장되지 않는다. 고칠 때는 `scripts/render-app-monitoring.py` 또는 `monitoring/grafana/dashboards/`를 수정한다.
 
 **기타 (Grafana 밖)**
 
 - [ ] 연결되지 않은 EIP `3.34.10.134`의 주인 확인. 쓰지 않으면 해제한다(미연결 EIP도 월 약 $3.6).
 
-모니터링 EC2(t4g.small, 2 GiB)의 Prometheus·Grafana 상한은 1,024 MiB, 앱 EC2의 exporter 상한은 192 MiB다. 앱 자동 CD는 두 EC2의 observability checkout을 갱신하지 않는다. 바뀐 파일별 반영 방법은 [구성](v1-monitoring.md) 7절.
+모니터링 EC2(t4g.small, 2 GiB)의 컨테이너 상한 합계는 Prometheus 512 + Grafana 512 + Caddy 128 = **1,152 MiB**, 앱 EC2의 exporter 상한은 192 MiB다. OS·Docker·Agent 사용량은 이 합계에 포함되지 않는다. 앱 자동 CD는 두 EC2의 observability checkout을 갱신하지 않는다. 바뀐 파일별 반영 방법은 [구성](v1-monitoring.md) 7절.
 
 ## 7. 앱 상세 메트릭
 

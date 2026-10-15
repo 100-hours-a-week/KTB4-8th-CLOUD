@@ -28,7 +28,7 @@
 | TD-022 | 2026-09-30 | GitHub schedule 대신 EventBridge 예약 규칙 + API destination으로 Auto release·Health check 실행 (TD-009 실행 수단 변경) | 채택 (운영 적용) |
 | TD-023 | 2026-10-01 | 외부 감시는 유지하되 Actions Health check를 Sentry Uptime Monitoring으로 이전 (같은 날 Route 53 안에서 변경) | 결정 (적용 대기) |
 | TD-024 | 2026-10-01 | Prometheus·Grafana를 별도 t4g.small로 분리, 앱 EC2는 수집 전용 포트만 게시 (TD-015 호스트 배치 대체) | 채택 (모니터링 EC2·앱 exporter 운영 확인 2026-10-01, 알림 수신 시험 대기) |
-| TD-025 | 2026-10-01 | Grafana를 Caddy·Let's Encrypt로 `grafana.keepgo.kr` HTTPS 공개, Prometheus는 비공개 유지 | 결정 (저장소 반영, AWS 적용 대기) |
+| TD-025 | 2026-10-01 | Grafana를 Caddy·Let's Encrypt로 `grafana.keepgo.kr` HTTPS 공개, Prometheus는 비공개 유지 | 채택 (EIP·DNS·443·인증서 발급 기록 있음. 사용자 접속·갱신 확인은 별도) |
 
 ## TD-001 — 버전 Manifest 형식
 
@@ -543,7 +543,7 @@ t4g.small 요금은 2026-10-01 공개 요금 집계([Vantage](https://instances.
 
 ## TD-025 — Grafana를 HTTPS 서브도메인으로 공개
 
-**상태:** 결정 (2026-10-01), 저장소 반영·AWS 적용 대기. 적용 절차는 [모니터링 운영 구성](v1-monitoring.md) 5-5절에 있다.
+**상태:** 채택 (2026-10-01). [체크리스트](v1-remaining-checklist.md) 6절에 EIP·DNS 설정, 스택 `UPDATE_COMPLETE`, Caddy 인증서 발급 성공이 기록돼 있다. 사용자 환경별 HTTPS 접속·계정 관리·갱신 검증은 별도다. 2026-10-15 문서 대조에서 기존 "AWS 적용 대기"를 정정했으며 운영 환경을 재확인한 것은 아니다. 적용 절차는 [모니터링 운영 구성](v1-monitoring.md) 5-5절에 있다.
 
 **맥락:** [TD-024](#td-024--모니터링-전용-인스턴스-분리)에서 Grafana는 인바운드 없이 SSM 포트 포워딩으로만 접속하게 했다. 실제로 써 보니 보는 사람마다 IAM 사용자·액세스 키·Session Manager plugin이 필요하고, 터널이 20분 유휴 시간에 끊긴다. 팀은 집 등 여러 곳에서 브라우저만으로 대시보드를 보길 원한다.
 

@@ -1,6 +1,8 @@
 # CloudWatch + Prometheus + Grafana 운영 구성
 
-2026-09-30 구성 기준. PG는 **Prometheus + Grafana**다. Loki·Promtail은 사용하지 않는다. 저장소 설정을 준비한 상태이며 실제 AWS 설치·알림 수신 완료는 [검증 현황](v1-implementation-status.md)에 따로 기록한다.
+2026-10-15 문서·코드 대조 기준. PG는 **Prometheus + Grafana**다. Loki·Promtail은 사용하지 않는다. 이 문서는 **V1 설치·변경 Runbook**이다. 전체 흐름과 V1/V2 구현·적용 구분은 [모니터링 전체 안내](monitoring-overview.md), 날짜별 운영 증거는 [검증 현황](v1-implementation-status.md)과 [체크리스트](v1-remaining-checklist.md) 6~7절에 있다.
+
+10/01 전용 EC2·exporter·PG·Grafana HTTPS·앱 CloudWatch 로그, 10/02 BE·AI 타깃 수집의 적용 기록이 있다. 아래 명령은 재구축·변경 절차이며 전부 미적용이라는 뜻이 아니다. Agent 지표·SNS 수신, Grafana 알림의 전체 장애/복구 경로, 공개 metrics 차단은 검증이 남아 있다. 이번 문서 대조에서 운영 환경에 재접속하지 않았다.
 
 ## 1. 역할과 데이터 흐름
 
@@ -12,7 +14,7 @@
 | 호스트 CPU·메모리·디스크 상세 추이 | node-exporter → Prometheus, 30초 | Grafana 기본 대시보드 |
 | Nginx·FE·BE·AI 내부 HTTP health | blackbox-exporter → Prometheus, 30초 | Grafana: 3분 지속 실패 → Discord, 복구 알림 |
 | Prometheus·exporter·앱 지표 수집 실패 | Prometheus `up` | Grafana: 3분 지속 실패 또는 NoData/Error → Discord |
-| 앱 요청 수·오류율·지연·JVM·DB pool·AI 제공자 | 계약을 구현한 앱을 Prometheus에 등록 | 상세 대시보드 3개·초기 알림 8개 준비. 검증 후 타깃 활성화 |
+| 앱 요청 수·오류율·지연·JVM·DB pool | BE·AI 타깃 등록, 10/02 수집 확인 | 상세 대시보드 3개·초기 알림 8개 준비. AI 제공자·TTFT 확장 지표는 미구현 |
 | 외부 HTTPS 경로·배포 실패 | 기존 GitHub Actions | 기존 Discord 알림 유지 |
 
 CloudWatch는 호스트 밖에서 감시하므로 EC2와 PG가 함께 죽어도 EC2 상태 알림이 남는다. 내부 프로브와 Actions 외부 감시는 관측 경로가 다르다. 동일 장애에서 두 알림이 올 수 있고, Grafana는 지속 장애를 4시간마다 다시 알린다. 서버 자원 임계치 알림은 CloudWatch가 담당해 중복 설정하지 않는다.
@@ -21,11 +23,11 @@ Grafana는 Prometheus를 기본 데이터 소스로 쓴다. 로그·RDS 조회�
 
 ## 2. 배포 경계·용량·접근
 
-2026-10-01 Prometheus·Grafana를 모니터링 전용 EC2로 분리했다([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리)). 저장소 설정은 분리 구성으로 바뀌었고 AWS 적용은 대기 중이다.
+2026-10-01 Prometheus·Grafana를 모니터링 전용 EC2로 분리했다([TD-024](technical-decisions.md#td-024--모니터링-전용-인스턴스-분리)). 같은 날 AWS 호스트·exporter·PG 실행과 기본 수집 성공을 확인한 기록이 있다. 설정 준비와 운영 인수 시험 완료를 구분한다.
 
 | 호스트 | Compose | 서비스 | 메모리 상한 |
 | --- | --- | --- | --- |
-| 모니터링 EC2 (t4g.small, arm64, 2 vCPU / 2 GiB, gp3 20 GiB) | `compose.monitoring.yaml` (`keepgo-monitoring`) | Prometheus, Grafana | 1,024 MiB (Grafana는 256 MiB에서 메모리 부족으로 재시작해 512 MiB로 올림) |
+| 모니터링 EC2 (t4g.small, arm64, 2 vCPU / 2 GiB, gp3 20 GiB) | `compose.monitoring.yaml` (`keepgo-monitoring`) | Prometheus, Grafana, Caddy | 1,152 MiB (512 + 512 + 128; Grafana는 256 MiB에서 메모리 부족으로 재시작해 512 MiB로 올림) |
 | 앱 EC2 (기존) | `compose.exporters.yaml` (`keepgo-exporters`) | node-exporter, blackbox-exporter | 192 MiB |
 | 앱 EC2 (기존) | `compose.yaml` (`keepgo-v1`) | 앱 4개 | 2,432 MiB |
 
@@ -42,7 +44,7 @@ node-exporter는 측정할 호스트에, blackbox-exporter는 `backend`·`ai-api
 
 - **보안 그룹이 경계다.** 포트는 모든 인터페이스에 게시하지만 EC2 ENI에는 private IP만 있다. 앱 SG에 위 4개 포트를 **모니터링 SG만 소스로** 허용한다(`infrastructure/monitoring-host.yaml`이 추가). 적용 전에 앱 SG에 `0.0.0.0/0`이나 VPC 전체를 허용하는 넓은 규칙이 없는지 확인한다. BE 8080, AI 8000은 게시하지 않는다.
 - **blackbox 9115는 요청받은 URL을 대신 호출한다.** 소스를 모니터링 SG보다 넓히지 않는다.
-- **모니터링 EC2:** 인바운드는 Grafana HTTPS(443, Caddy) 하나다(TD-025, 5-5절). 아웃바운드는 HTTPS(Discord·SSM·이미지 pull·GitHub·dnf·ACME)와 앱 SG 수집 포트만 허용한다. 공인 IP는 Elastic IP로 고정한다. Prometheus `127.0.0.1:9090`과 Grafana `127.0.0.1:3001`은 공개하지 않고 SSM 포트 포워딩으로만 접근한다.
+- **모니터링 EC2:** 인바운드는 Grafana HTTPS(443, Caddy) 하나다(TD-025, 5-5절). SG 아웃바운드는 HTTPS(Discord·SSM·이미지 pull·GitHub·dnf·ACME)와 앱 SG 대상 TCP 8081~9464 범위다. 실제 수집 포트 4개는 앱 SG 인바운드에서 제한한다. 공인 IP는 Elastic IP로 고정한다. Prometheus `127.0.0.1:9090`과 Grafana `127.0.0.1:3001`은 공개하지 않고 SSM 포트 포워딩으로만 접근한다.
 - **앱 주소:** `prometheus.yml`과 앱 수집 대상은 IP 대신 `app-host` 이름을 쓴다. `compose.monitoring.yaml`이 `APP_HOST_PRIVATE_IP`로 이 이름을 앱 EC2 private IP에 연결한다. 앱 EC2를 교체하면 모니터링 EC2의 `/opt/keepgo/runtime/monitoring-host.env`만 바꾸고 Prometheus를 재생성한다.
 - **checkout:** 두 EC2 모두 별도 checkout `/opt/keepgo/observability`를 쓴다. 앱 CD의 checkout 변경이 모니터링 마운트 파일까지 바꾸지 않게 한다. 같은 파일을 앱 Compose와 `-f`로 합치지 않는다.
 - **앱 네트워크:** blackbox가 `keepgo-v1_web`, `keepgo-v1_service`에 붙으므로 앱 EC2에서는 앱이 먼저 떠 있어야 한다. 운영 중 앱 `compose down`은 이 외부 네트워크 사용 때문에 실패할 수 있으므로 서비스별 재배포 절차를 사용한다. Prometheus는 더 이상 앱 네트워크에 붙지 않는다.
@@ -53,7 +55,7 @@ node-exporter는 측정할 호스트에, blackbox-exporter는 `backend`·`ai-api
 
 ### 2-1. BE 관리 포트 전환
 
-BE가 관리 포트 8081을 쓰면 `/actuator/health`도 8081로 옮겨 간다. `compose.yaml`의 backend healthcheck는 **8081을 먼저 보고 실패하면 8080을 본다.** 그래서 지금 이미지와 8081 이미지 모두 통과한다. 각 시도는 `timeout -k 1 2`로 감싸 응답이 없어도 프로세스가 남지 않는다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). BE 8081 이미지(BE PR #64, release `d88350649240`)는 2026-10-02 15:10(KST)에 배포됐다. 같은 날 다음을 한 PR(Cloud #58, `1b5731a`)로 바꿨다. 모니터링 EC2는 checkout을 옮기고 Prometheus를 재시작해 반영했다([사례](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)).
+현재 `compose.yaml`의 backend healthcheck와 blackbox는 **8081만 확인한다.** 전환 준비 때 사용한 "8081 실패 시 8080 재시도"는 제거됐다. healthcheck 시도는 `timeout -k 1 2`로 감싸 응답이 없어도 프로세스가 남지 않는다([사례](troubleshooting/2026-10-01-backend-attach-sighup-hang.md)). BE 8081 이미지(BE PR #64, release `d88350649240`)는 2026-10-02 15:10(KST)에 배포됐다. 같은 날 다음 변경을 한 PR(Cloud #58, `1b5731a`)을 적용했다. 모니터링 EC2는 checkout을 옮기고 Prometheus를 재시작해 반영했다([사례](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)).
 
 1. `compose.yaml` healthcheck에서 8080 재시도를 지우고 8081만 본다.
 2. `prometheus.yml` service-health의 backend 대상을 `http://backend:8081/actuator/health`로 바꾼다. 8080 대상을 그대로 둔 채 BE가 배포되어 `KeepGo internal service unhealthy` 알림이 오탐으로 울렸다.
@@ -176,15 +178,16 @@ sudo install -d -m 0700 /opt/keepgo/runtime
 | --- | --- | --- |
 | `/opt/keepgo/runtime/grafana_admin_password` | 무작위 관리자 비밀번호 한 줄 | 472:0, 0400 (Grafana UID 472가 읽음) |
 | `/opt/keepgo/runtime/monitoring.env` | `DISCORD_WEBHOOK_URL=실제 URL` 한 줄 | root:root, 0600 |
-| `/opt/keepgo/runtime/monitoring-host.env` | `APP_HOST_PRIVATE_IP=앱 EC2 private IP` 한 줄 | root:root, 0600 |
+| `/opt/keepgo/runtime/monitoring-host.env` | `APP_HOST_PRIVATE_IP=앱 EC2 private IP`, `GRAFANA_DOMAIN=grafana.keepgo.kr` 각각 한 줄 | root:root, 0600 |
 
 Compose 파일 기반 secret은 호스트 파일 권한을 그대로 사용한다. GitHub Secret을 EC2가 자동으로 읽지는 않으므로 같은 Discord 채널용 값을 별도로 배치해야 한다. contact point는 파일 provisioning으로 주입하고, Grafana는 Webhook을 런타임 환경변수로 받는다. 관리자 권한의 `docker inspect`에서는 보일 수 있다. 비밀번호와 Webhook 없이 운영 모니터링을 시작하지 않는다.
 
-비밀값 파일은 값을 출력하지 않고 형식만 확인한다. 첫 줄이 `1`이어야 한다. `DISCORD_WEBHOOK_URL=` 접두사가 빠지면 Grafana가 provisioning에 실패해 재시작을 반복한다.
+비밀값 파일은 값을 출력하지 않고 형식만 확인한다. 아래 세 grep의 출력이 각각 `1`이어야 한다. `DISCORD_WEBHOOK_URL=` 접두사가 빠지면 Grafana가 provisioning에 실패해 재시작을 반복한다. `GRAFANA_DOMAIN`은 현재 Compose의 필수값이라 Caddy를 아직 시작하지 않아도 필요하다.
 
 ```sh
 sudo grep -c '^DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/' /opt/keepgo/runtime/monitoring.env
 sudo grep -c '^APP_HOST_PRIVATE_IP=[0-9.]*$' /opt/keepgo/runtime/monitoring-host.env
+sudo grep -c '^GRAFANA_DOMAIN=.' /opt/keepgo/runtime/monitoring-host.env
 sudo ls -l /opt/keepgo/runtime/   # env 0600 root, 비밀번호 0400 472
 ```
 
@@ -201,9 +204,11 @@ cd /opt/keepgo/observability
 compose="docker compose --env-file /opt/keepgo/runtime/monitoring-host.env -f compose.monitoring.yaml"
 sudo $compose config --quiet
 sudo $compose pull
-sudo $compose up -d --wait --wait-timeout 120
+sudo $compose up -d --wait --wait-timeout 120 prometheus grafana
 sudo $compose ps
 ```
+
+최초 설치에서는 위 두 서비스만 시작하고, 5-5절의 EIP·DNS 확인 후 Caddy를 시작한다. DNS 준비 전에 전체 서비스를 `up`하면 Caddy가 먼저 인증서 발급을 시도한다.
 
 CloudWatch Agent는 앱 EC2와 같은 설정을 쓴다.
 
@@ -223,7 +228,7 @@ aws ssm start-session --region ap-northeast-2 --target MONITORING_INSTANCE_ID \
   --parameters '{"portNumber":["3001"],"localPortNumber":["3001"]}'
 ```
 
-브라우저에서 `http://localhost:3001` → admin으로 로그인한다. Prometheus Targets 화면은 별도 터미널에서 동일 명령의 두 포트를 9090으로 바꿔 터널링한다. SSM의 대상 인스턴스 및 port forwarding document 사용 권한이 필요하며 SSH 인바운드는 필요 없다.
+현재 Grafana는 HTTPS root URL과 Secure cookie를 사용한다. 로그인은 5-5절을 마친 뒤 `https://grafana.keepgo.kr`에서 확인한다. 3001 SSM 터널은 `/api/health` 등 진단용이며, `http://localhost:3001` 로그인은 리다이렉트·쿠키 설정 때문에 실패할 수 있다. Prometheus Targets 화면은 별도 터미널에서 동일 명령의 두 포트를 9090으로 바꿔 터널링한다. SSM의 대상 인스턴스 및 port forwarding document 사용 권한이 필요하며 SSH 인바운드는 필요 없다.
 
 기본 대시보드는 `KeepGo / KeepGo V1 - Infrastructure and Health`다. 7개 기본 scrape target(prometheus, node, blackbox, 서비스 probe 4개)이 UP인지 확인한다. node·blackbox의 instance는 `app-host:9100`, `app-host:9115`로 보인다. **probe의 `up=1`은 exporter 호출 성공일 뿐**이므로 `probe_success=1`도 서비스 4개 각각 확인한다. HTTP 프로브는 2xx 기준이며 Backend의 `/actuator/health`가 DB 장애 때 503을 내는 계약을 따른다. AI health 응답이 실제 외부 AI 제공자까지 검사하는지는 앱 구현에 달려 있다.
 
@@ -250,7 +255,7 @@ T=infrastructure/monitoring-host.yaml
 cf deploy --stack-name $S --template-file $T --capabilities CAPABILITY_IAM --parameter-overrides $P --no-execute-changeset
 ```
 
-출력의 `describe-change-set` 명령을 실행해 바뀌는 리소스를 본다. `MonitoringSecurityGroup`은 Modify, `GrafanaAddress`·`GrafanaAddressAssociation`은 Add여야 하고, **`MonitoringInstance`·`MonitoringLaunchTemplate`은 목록에 없어야 한다.** 확인되면 실행한다.
+출력의 `describe-change-set` 명령을 실행해 바뀌는 리소스를 본다. 443 추가만 목적이라면 `MonitoringSecurityGroup` Modify만 예상한다. **EIP는 스택 밖 자원이므로 `GrafanaAddress`·`GrafanaAddressAssociation` Add를 기대하지 않는다.** `MonitoringInstance`·`MonitoringLaunchTemplate` 변경이 나오면 실행 전에 원인을 확인한다. 이미 443이 반영돼 있다면 변경 사항이 없을 수 있다. 의도한 변경만 있는 경우 실행한다.
 
 ```sh
 cf execute-change-set --change-set-name CHANGE_SET_ARN
@@ -258,7 +263,7 @@ cf wait stack-update-complete --stack-name $S
 cf describe-stacks --stack-name $S --query 'Stacks[0].Outputs' --output table
 ```
 
-변경 세트에는 `MonitoringSecurityGroup` Modify 한 줄만 있어야 한다. **`deploy --no-execute-changeset`은 변경 세트만 만들고 적용하지 않는다.** `execute-change-set`까지 실행하고 스택 상태가 `UPDATE_COMPLETE`인지 확인한다. EIP가 붙으면 기존 자동 공인 IP는 사라지지만, SSM·Discord 아웃바운드는 EIP로 그대로 나간다.
+**`deploy --no-execute-changeset`은 변경 세트만 만들고 적용하지 않는다.** 변경이 있다면 `execute-change-set`까지 실행하고 스택 상태가 `UPDATE_COMPLETE`인지 확인한다. EIP가 붙으면 기존 자동 공인 IP는 사라지지만, SSM·Discord 아웃바운드는 EIP로 그대로 나간다.
 
 **② DNS:** `keepgo.kr`은 가비아 DNS다. `grafana` A 레코드 → EIP(`3.34.14.66`)를 추가한다(TTL 300). 모니터링 EC2는 보안 그룹이 UDP 53 아웃바운드를 막아 `dig @8.8.8.8`이 timeout이므로, `@` 없이 VPC DNS로 확인한다.
 
@@ -266,10 +271,10 @@ cf describe-stacks --stack-name $S --query 'Stacks[0].Outputs' --output table
 dig +short grafana.keepgo.kr
 ```
 
-**③ 모니터링 EC2:** 도메인을 env 파일에 넣고 새 커밋으로 올린다.
+**③ 모니터링 EC2:** 5-3절에서 준비한 `GRAFANA_DOMAIN`이 DNS와 같은지 확인하고 새 커밋으로 올린다. 기존 파일에 없거나 값이 다르면 `sudoedit`로 한 줄만 설정한다.
 
 ```sh
-echo "GRAFANA_DOMAIN=grafana.keepgo.kr" | sudo tee -a /opt/keepgo/runtime/monitoring-host.env
+sudoedit /opt/keepgo/runtime/monitoring-host.env
 cd /opt/keepgo/observability
 sudo git fetch -q origin && sudo git checkout -q --detach COMMIT
 E=/opt/keepgo/runtime/monitoring-host.env

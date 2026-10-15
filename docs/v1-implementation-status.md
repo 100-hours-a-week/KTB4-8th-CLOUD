@@ -6,6 +6,14 @@
 
 현재 파일·기능 목록은 [전체 설명의 파일 역할](v1-design.md#9-파일과-상태의-위치)이 기준이다. 조회·병합은 release.sh로 분리됐고 Actions 수동 dry_run 입력이 구현돼 있다. dry_run은 자동 배포 OFF에서도 실행하며 실패 Discord를 생략한다.
 
+## 모니터링 현황을 읽는 기준 (2026-10-15 문서 대조)
+
+[모니터링 전체 안내](monitoring-overview.md)에 코드 구현·운영 적용 기록·미검증 항목을 구분했다. 아래 날짜별 기록은 당시 상태다. 09/30의 "미설치·타깃 비활성"을 현재 상태로 읽지 않는다.
+
+- 10/01 [체크리스트](v1-remaining-checklist.md) 6절에는 전용 호스트·exporter·PG 실행, 기본 7 targets UP·4 probes 성공, Grafana 로그인, EIP/DNS·443·Caddy 인증서 발급 완료가 기록돼 있다. 두 호스트의 Agent 설치·설정 적용도 기록돼 있으나 실제 지표 유입과 SNS 수신은 미확인이다.
+- 10/02 BE·AI 수집은 아래 기록대로 연결됐다. 같은 날 [backend health 오탐의 Discord firing 수신](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)도 있었다. 이는 앱 상세 알림·수집 실패·NoData/Error의 발생/복구 시험 완료를 뜻하지 않는다.
+- V2 Terraform의 관측 설정은 전체 안내 5절에서 별도로 다룬다. 이번 정리는 파일과 기존 기록의 대조이며 운영 환경 재검증은 수행하지 않았다.
+
 ## 기존 작업에서 남긴 로컬 검증 기록
 
 - Manifest·sources `jq` 검사 통과. web·frontend SHA가 다르면 거부되는 것도 확인했다.
@@ -57,7 +65,7 @@
 ## 2026-09-30 상세 메트릭 계약·설정
 
 - [파트 전달용 계약](monitoring-metrics-contract.md)에 공통 HTTP, BE JVM/Hikari, AI 제공자·TTFT·재시도·토큰 지표의 이름·단위·label·bucket·측정 경계와 파트별 확인 항목을 정의했다.
-- Prometheus recording rule 8개·초기 alert rule 8개, Grafana 상세 대시보드 3개·앱 알림 전달 rule을 추가했다. 타깃이 비어 있는 현재 상태에서 앱 알림은 발생하지 않는다. 임계치/for는 Prometheus가 판정하고 Grafana는 Discord 전달을 담당한다.
+- Prometheus recording rule 8개·초기 alert rule 8개, Grafana 상세 대시보드 3개·앱 알림 전달 rule을 추가했다. 당시(09/30)는 타깃이 비어 있어 앱 알림이 발생하지 않았다. 10/02 등록 이후 상태는 아래 기록을 따른다. 임계치/for는 Prometheus가 판정하고 Grafana는 Discord 전달을 담당한다.
 - 공식 Prometheus 3.13.3 Windows 배포물의 SHA256을 확인하고 native promtool로 16개 규칙 문법, 무트래픽·저트래픽·counter reset·장애/복구·계측 누락·취소 제외 등을 포함한 **19개 시나리오**를 통과했다. 이 안에서 **대시보드/전달 PromQL 27개**의 미등록 상태 평가도 확인했다.
 - CI에 생성 JSON 일치 검사와 promtool 동작 시험을 추가했다. 적용/회신/알림별 대응은 [운영 절차](monitoring-alert-runbook.md)에 기록했다. 실제 BE·AI 코드 구현과 Grafana 컨테이너 provisioning·운영 알림 수신 검증은 별도로 남아 있다.
 
@@ -88,8 +96,10 @@
 - [ ] GitHub 변수·Secret·PR 생성 권한·production 승인 정책·main 보호 정책을 운영 설정과 대조한다.
 - [x] CloudWatch 로그 smoke 확인과 앱 로그 전송 활성화 (2026-10-01, 위 절).
 - [ ] CloudWatch Agent 지표·알람 상태·SNS 구독 승인을 확인한다.
-- [ ] PG 용량·런타임 비밀값 준비 후 설치하고 Grafana 대시보드·Discord·NoData/Error·복구 알림을 시험한다.
-- [ ] BE·AI 계측과 Nginx 공개 차단을 확인하고 앱 Prometheus 타깃을 활성화한다.
+- [x] 전용 모니터링 EC2·PG·exporter 설치와 기본 수집·Grafana 로그인, HTTPS 인증서 발급 확인 (2026-10-01 체크리스트 기록).
+- [x] BE·AI 기본 계측 연결·Prometheus 타깃 활성화와 `up=1` 확인 (2026-10-02, 위 절).
+- [ ] Grafana 기본·앱 대시보드 값과 Discord·NoData/Error·복구 알림의 전체 경로를 시험한다. 내부 health firing 수신 한 건은 확인 기록이 있다.
+- [ ] Nginx 공개·rewrite 경로의 metrics 차단과 비허용 출발지의 수집 포트 차단을 시험한다.
 - [ ] main 반영 후 실제 Actions dry_run에서 후보 조회·무변경·실패 알림 생략을 확인한다.
 - [ ] EC2 요구사항과 실제 이미지·설정 차이를 확인하고 최초 수동 배포를 수행한다.
 - [ ] Health check의 정상 검사와 실제 장애·복구 Webhook 전달을 각각 확인한다.

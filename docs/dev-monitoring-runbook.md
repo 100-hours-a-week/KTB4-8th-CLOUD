@@ -121,4 +121,14 @@ V2를 운영으로 전환할 때 단순히 기존 dev 시계열의 이름을 운
 
 - 2026-10-20: 기존 도구 우선 연결 및 main AI 계측 재사용을 사용자 승인. 역할 전환 계획 확인.
 - AI PR #49: 테스트·컨테이너 빌드 통과 후 develop에 병합, commit `54cc4581f40af9d3b936447644c880ec4e63df3d`.
-- 개발 연결 스택 생성 완료. host 송신 설정·앱 rollout·수집·알림 검증은 후속 실행 결과로 갱신한다.
+- 개발 연결 스택 `keepgo-dev-monitoring` CREATE_COMPLETE, peering `pcx-05cde5410c13d5275` active. 기존 host 스택 UPDATE_COMPLETE이며 변경 리소스는 SG egress 하나, 교체 없음.
+- AI `keepgo-v2-ai-api:6` rollout COMPLETED, running=1/HEALTHY. 실행 image digest는 `sha256:c3c7afb30b4e0603bf21b1bd65d5a63a824f4e4cce932a01d333b1c596e92710`.
+- 모니터링 EC2에서 BE `10.20.10.81:8081`, AI `10.20.10.115:9464` 응답 200 및 capability 확인. 적용 뒤 운영 9개·개발 2개 모두 scrape up.
+- timer active와 discovery 파일 mtime 갱신, 개발 dashboard UID `keepgo-http-dev`·`keepgo-backend-dev` 등록 확인. 기존 운영 집계와 개발 namespace는 Prometheus 규칙 테스트로 분리 검증.
+- 초기 점검 후 AI도 2a로 재배치돼 최종 BE·AI 모두 cross-AZ다. 순간 응답 본문 크기 32,142+2,348 bytes를 30초마다 30일 수집하는 가정은 전송료 약 $0.06/월이다. 요청·프로토콜 overhead와 부하/label/task 증가를 제외한 예시이며 실제 청구액이 아니다.
+- 적용 후 가용 메모리 약 995~1,015MiB, Prometheus 86~87MiB, Grafana 347~355MiB. 장기 용량 시험 결과는 아니다.
+- 기존 파일 백업 `/opt/keepgo/dev-monitoring-backup-20261020`. Prometheus SIGHUP과 Grafana alerting provisioning reload 사용. 데이터 volume·운영 앱 교체 없음.
+- `[DEV]` 시험 경보의 firing 전달 성공: 2026-10-20 12:09:40 UTC, Discord receiver lastNotifyAttemptError 없음. 해제 이후 복구 전송 확인 진행 중.
+- 자동 발견의 주소 교체·정상 0개·조회 실패 보존·허용 subnet 검증 4개 테스트 통과. 기존/개발 Prometheus 규칙 테스트와 Cloud 전체 CI 통과. 실제 task 교체 중 연속 수집 공백은 별도 강제 배포 시험을 수행하지 않았다.
+
+대시보드: [개발 HTTP](https://grafana.keepgo.kr/d/keepgo-http-dev), [개발 JVM·DB 풀](https://grafana.keepgo.kr/d/keepgo-backend-dev). Grafana 로그인이 필요하다.

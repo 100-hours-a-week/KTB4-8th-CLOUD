@@ -7,6 +7,7 @@
 | 알고 싶은 내용 | 문서 |
 | --- | --- |
 | 모니터링 전체 흐름·구축 순서, 코드 구현과 운영 적용 구분, V1/V2 차이 | [모니터링 전체 안내](docs/monitoring-overview.md) |
+| 옵저빌리티 도입 우선순위, 도구별 트레이드오프, 비용·SLO·단계별 실행안 | [옵저빌리티 도입 검토](docs/observability-adoption-review.md) |
 | V2 중앙 CD 작업 결과, AI 실제 배포, Terraform 반영, 남은 작업 | [V2 개발 CD 작업 정리](docs/v2-dev-cd-work-summary.md) |
 | 전체 흐름, 구성 이유, 파일 역할, 실패 시 동작과 한계 | [전체 설명](docs/v1-design.md) |
 | CloudWatch 로그·알람, Prometheus·Grafana 구성과 적용 순서 | [모니터링 운영 구성](docs/v1-monitoring.md) |

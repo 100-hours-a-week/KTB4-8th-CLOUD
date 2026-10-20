@@ -14,6 +14,18 @@ set -euo pipefail
 shopt -s inherit_errexit  # $(...) 안의 API 오류도 무시하지 않고 멈춘다
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# The central entrypoint supports V2 without changing the V1 manifest contract.
+case "${RELEASE_TARGET:-production}" in
+  production) ;;
+  v2-dev)
+    if [[ -n "${DRY_RUN:-}" ]]; then
+      exec python3 scripts/v2_release.py
+    else
+      exec python3 scripts/v2_release.py --execute
+    fi
+    ;;
+  *) echo "Unknown RELEASE_TARGET" >&2; exit 2 ;;
+esac
 MANIFEST=deployment/production-manifest.json
 SOURCES=deployment/sources.json
 DRY_RUN="${DRY_RUN:-}"

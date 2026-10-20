@@ -56,6 +56,11 @@ services:
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: 0.0.0.0
+    # KAKAO_REST_API_KEY (Secrets Manager Secret-v1-FE → prepare-runtime.py가 생성)
+    env_file:
+      - path: /opt/keepgo/runtime/frontend.env
+        format: raw
+        required: true
     mem_limit: 512m
     healthcheck:
       test:

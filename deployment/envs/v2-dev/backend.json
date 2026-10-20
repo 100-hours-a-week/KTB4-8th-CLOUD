@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "environment": "v2-dev",
+  "group": "backend",
+  "source": {
+    "repository": "100-hours-a-week/KTB4-8th-BE",
+    "branch": "develop",
+    "commit": "08e8a5720430698d011f63ee85be5cabdb5022c4",
+    "run_id": 39448798936,
+    "run_attempt": 1
+  },
+  "image": "602601433533.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend@sha256:814b63d6a18cc7577d36a95f3336534befb7b28e086ef8f3788246f32a00487c"
+}

@@ -67,7 +67,7 @@ tag_of() { local var="${TAG_VAR[$1]}"; echo "${!var}"; }
 # env_file·PEM 파일 내용 변경을 Compose 설정 해시에만 의존하지 않는다. pull 실패/중단 뒤에도
 # 마지막으로 적용된 컨테이너와 비교해야 하므로 '조회 직전 파일'을 기준으로 삼지 않는다.
 declare -A runtime_changed
-for service in backend ai-api; do
+for service in backend ai-api frontend; do
   id="$(container_of "${service}")"
   python3 "${ROOT_DIR}/scripts/prepare-runtime.py" --check-applied "${service}" "${id:-missing}"
   status=$?
@@ -96,7 +96,7 @@ record_applied() {
     hash="$("${COMPOSE[@]}" config --hash "${service}" | awk -v s="${service}" '$1 == s {print $2}')"
     [[ -n "${hash}" ]] || return 1
     echo "${id} ${hash}" > "${STATE_DIR}/applied-config-${service}" || return 1
-    [[ "${service}" == backend || "${service}" == ai-api ]] || continue
+    [[ "${service}" == backend || "${service}" == ai-api || "${service}" == frontend ]] || continue
     python3 "${ROOT_DIR}/scripts/prepare-runtime.py" --record-applied "${service}" "${id}" || return 1
   done
   return 0

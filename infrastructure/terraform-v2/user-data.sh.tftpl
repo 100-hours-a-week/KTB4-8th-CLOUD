@@ -1,0 +1,13 @@
+#!/bin/bash
+# 흐름: ECS 최적화 AMI 부팅 → 클러스터·호스트 그룹 등록 → Task의 호스트 자격 증명 접근 차단.
+set -euo pipefail
+
+cat >> /etc/ecs/ecs.config <<'ECS_CONFIG'
+ECS_CLUSTER=${cluster_name}
+ECS_INSTANCE_ATTRIBUTES={"pool":"${pool_name}"}
+ECS_RESERVED_MEMORY=256
+ECS_AWSVPC_BLOCK_IMDS=true
+ECS_ENABLE_TASK_IAM_ROLE=true
+ECS_ENABLE_CONTAINER_METADATA=true
+ECS_ENABLE_SPOT_INSTANCE_DRAINING=true
+ECS_CONFIG

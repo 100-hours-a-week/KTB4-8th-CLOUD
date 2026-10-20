@@ -128,7 +128,7 @@ V2를 운영으로 전환할 때 단순히 기존 dev 시계열의 이름을 운
 - 초기 점검 후 AI도 2a로 재배치돼 최종 BE·AI 모두 cross-AZ다. 순간 응답 본문 크기 32,142+2,348 bytes를 30초마다 30일 수집하는 가정은 전송료 약 $0.06/월이다. 요청·프로토콜 overhead와 부하/label/task 증가를 제외한 예시이며 실제 청구액이 아니다.
 - 적용 후 가용 메모리 약 995~1,015MiB, Prometheus 86~87MiB, Grafana 347~355MiB. 장기 용량 시험 결과는 아니다.
 - 기존 파일 백업 `/opt/keepgo/dev-monitoring-backup-20261020`. Prometheus SIGHUP과 Grafana alerting provisioning reload 사용. 데이터 volume·운영 앱 교체 없음.
-- `[DEV]` 시험 경보의 firing 전달 성공: 2026-10-20 12:09:40 UTC, Discord receiver lastNotifyAttemptError 없음. 해제 이후 복구 전송 확인 진행 중.
+- `[DEV]` 시험 경보의 firing 전달 성공: 2026-10-20 12:09:40 UTC, 해제 후 복구 전달 성공: 12:14:40 UTC. 두 번 모두 Discord receiver lastNotifyAttemptError 없음. 검증 후 임시 시험 규칙을 삭제하고 Prometheus 설정 검증·reload 완료.
 - 자동 발견의 주소 교체·정상 0개·조회 실패 보존·허용 subnet 검증 4개 테스트 통과. 기존/개발 Prometheus 규칙 테스트와 Cloud 전체 CI 통과. 실제 task 교체 중 연속 수집 공백은 별도 강제 배포 시험을 수행하지 않았다.
 
 대시보드: [개발 HTTP](https://grafana.keepgo.kr/d/keepgo-http-dev), [개발 JVM·DB 풀](https://grafana.keepgo.kr/d/keepgo-backend-dev). Grafana 로그인이 필요하다.

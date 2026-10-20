@@ -1,0 +1,15 @@
+[Unit]
+Description=Discover KeepGo development BE and AI metrics targets
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/keepgo/observability/scripts/discover-dev-metrics.py
+TimeoutStartSec=50
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/keepgo/observability/monitoring/prometheus/targets
+Environment=AWS_DEFAULT_REGION=ap-northeast-2

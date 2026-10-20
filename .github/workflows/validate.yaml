@@ -50,6 +50,8 @@ jobs:
       - name: Check monitoring configuration
         run: |
           python3 scripts/render-app-monitoring.py --check
+          python3 scripts/render-dev-monitoring.py --check
+          python3 -m unittest discover -s tests -p 'test_dev_monitoring.py'
           monitoring="$(APP_HOST_PRIVATE_IP=10.0.0.10 GRAFANA_DOMAIN=grafana.example.com \
             docker compose -f compose.monitoring.yaml config --no-env-resolution --format json)"
           exporters="$(docker compose -f compose.exporters.yaml config --no-env-resolution --format json)"
@@ -57,7 +59,7 @@ jobs:
             --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" check config /etc/prometheus/prometheus.yml
           # 등록 전 무트래픽·계측 누락·오류/지연·counter reset을 실제 PromQL 엔진으로 검사한다.
           docker run --rm -v "${PWD}:/repo:ro" -w /repo \
-            --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" test rules tests/prometheus/application.test.yml
+            --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" test rules tests/prometheus/application.test.yml tests/prometheus/development.test.yml
           docker run --rm -v "${PWD}/monitoring/blackbox:/etc/blackbox:ro" \
             "$(jq -r '.services["blackbox-exporter"].image' <<<"${exporters}")" --config.file=/etc/blackbox/blackbox.yml --config.check
           # Caddyfile 문법. adapt는 인증서를 요청하지 않는다.

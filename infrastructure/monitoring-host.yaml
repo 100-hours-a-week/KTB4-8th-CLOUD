@@ -5,6 +5,14 @@ Description: >-
   알림 SNS 토픽은 infrastructure/monitoring.yaml 스택의 AlertsTopicArn 출력값을 쓴다.
 
 Parameters:
+  DevBackendSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: Optional development backend SG, through the dev monitoring peering stack
+  DevAiSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: Optional development AI SG, through the dev monitoring peering stack
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: 앱 EC2와 같은 VPC
@@ -42,6 +50,10 @@ Parameters:
     Default: 80
     Description: 루트 디스크 사용률 경고 기준(%)
 
+Conditions:
+  HasDevBackend: !Not [!Equals [!Ref DevBackendSecurityGroupId, '']]
+  HasDevAi: !Not [!Equals [!Ref DevAiSecurityGroupId, '']]
+
 Resources:
   MonitoringSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -68,6 +80,22 @@ Resources:
           FromPort: 8081
           ToPort: 9464
           DestinationSecurityGroupId: !Ref AppSecurityGroupId
+        - !If
+          - HasDevBackend
+          - Description: scrape development backend management
+            IpProtocol: tcp
+            FromPort: 8081
+            ToPort: 8081
+            DestinationSecurityGroupId: !Ref DevBackendSecurityGroupId
+          - !Ref AWS::NoValue
+        - !If
+          - HasDevAi
+          - Description: scrape development AI metrics
+            IpProtocol: tcp
+            FromPort: 9464
+            ToPort: 9464
+            DestinationSecurityGroupId: !Ref DevAiSecurityGroupId
+          - !Ref AWS::NoValue
       Tags: [{Key: Name, Value: keepgo-v1-monitoring}]
 
   AppIngressNodeExporter:

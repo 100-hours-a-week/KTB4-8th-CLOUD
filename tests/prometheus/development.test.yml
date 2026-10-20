@@ -1,0 +1,32 @@
+rule_files:
+  - ../../monitoring/prometheus/rules/development-recording.yml
+  - ../../monitoring/prometheus/rules/development-alerts.yml
+evaluation_interval: 30s
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="application-dev",environment="development",cluster="keepgo-v2",service="backend",instance="be:8081",metrics_contract="v1"}'
+        values: '1+0x20'
+      - series: 'up{job="application-dev",environment="development",cluster="keepgo-v2",service="ai-api",instance="ai:9464",metrics_contract="v1"}'
+        values: '1+0x20'
+      - series: 'keepgo_observability_info{job="application-dev",environment="development",cluster="keepgo-v2",service="backend",instance="be:8081",contract="1",capability="http"}'
+        values: '1+0x20'
+      - series: 'keepgo_observability_info{job="application-dev",environment="development",cluster="keepgo-v2",service="ai-api",instance="ai:9464",contract="1",capability="http"}'
+        values: '1+0x20'
+      - series: 'keepgo_http_requests_total{job="application-dev",environment="development",cluster="keepgo-v2",service="ai-api",instance="ai:9464",metrics_contract="v1",route="/v1/extract",method="POST",status="200",traffic_class="generation"}'
+        values: '0+60x20'
+      - series: 'keepgo_http_requests_total{job="application",service="ai-api",instance="prod:9464",metrics_contract="v1",route="/v1/extract",method="POST",status="200",traffic_class="generation"}'
+        values: '0+60000x20'
+    promql_expr_test:
+      - expr: keepgo_dev:http_requests:rate5m
+        eval_time: 5m
+        exp_samples:
+          - labels: 'keepgo_dev:http_requests:rate5m{environment="development",cluster="keepgo-v2",service="ai-api",route="/v1/extract",method="POST",status="200",traffic_class="generation"}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: KeepGoDevHttpMetricsMissing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: KeepGoDevTargetMissing
+        exp_alerts: []

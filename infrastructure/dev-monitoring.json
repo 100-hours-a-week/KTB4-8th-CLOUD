@@ -1,0 +1,181 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "KeepGo development metrics connectivity only. Owns peering, narrow routes, ingress and ECS read policy.",
+  "Parameters": {
+    "MonitoringVpcId": {
+      "Type": "String"
+    },
+    "DevelopmentVpcId": {
+      "Type": "String"
+    },
+    "MonitoringRouteTableId": {
+      "Type": "String"
+    },
+    "DevelopmentRouteTableId": {
+      "Type": "String"
+    },
+    "MonitoringSecurityGroupId": {
+      "Type": "String"
+    },
+    "BackendSecurityGroupId": {
+      "Type": "String"
+    },
+    "AiSecurityGroupId": {
+      "Type": "String"
+    },
+    "MonitoringRoleName": {
+      "Type": "String"
+    },
+    "MonitoringPrivateCidr": {
+      "Type": "String",
+      "AllowedPattern": "172\\.31\\.\\d+\\.\\d+/32"
+    },
+    "AppSubnetACidr": {
+      "Type": "String",
+      "Default": "10.20.10.0/24"
+    },
+    "AppSubnetCCidr": {
+      "Type": "String",
+      "Default": "10.20.11.0/24"
+    }
+  },
+  "Resources": {
+    "Peering": {
+      "Type": "AWS::EC2::VPCPeeringConnection",
+      "Properties": {
+        "VpcId": {
+          "Ref": "MonitoringVpcId"
+        },
+        "PeerVpcId": {
+          "Ref": "DevelopmentVpcId"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "keepgo-dev-monitoring"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "development-metrics"
+          }
+        ]
+      }
+    },
+    "MonitoringToAppA": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "MonitoringRouteTableId"
+        },
+        "DestinationCidrBlock": {
+          "Ref": "AppSubnetACidr"
+        },
+        "VpcPeeringConnectionId": {
+          "Ref": "Peering"
+        }
+      }
+    },
+    "MonitoringToAppC": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "MonitoringRouteTableId"
+        },
+        "DestinationCidrBlock": {
+          "Ref": "AppSubnetCCidr"
+        },
+        "VpcPeeringConnectionId": {
+          "Ref": "Peering"
+        }
+      }
+    },
+    "AppToMonitoring": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "DevelopmentRouteTableId"
+        },
+        "DestinationCidrBlock": {
+          "Ref": "MonitoringPrivateCidr"
+        },
+        "VpcPeeringConnectionId": {
+          "Ref": "Peering"
+        }
+      }
+    },
+    "BackendMetricsIngress": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "DependsOn": "Peering",
+      "Properties": {
+        "GroupId": {
+          "Ref": "BackendSecurityGroupId"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 8081,
+        "ToPort": 8081,
+        "SourceSecurityGroupId": {
+          "Ref": "MonitoringSecurityGroupId"
+        },
+        "Description": "keepgo development metrics from monitoring host"
+      }
+    },
+    "AiMetricsIngress": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "DependsOn": "Peering",
+      "Properties": {
+        "GroupId": {
+          "Ref": "AiSecurityGroupId"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 9464,
+        "ToPort": 9464,
+        "SourceSecurityGroupId": {
+          "Ref": "MonitoringSecurityGroupId"
+        },
+        "Description": "keepgo development metrics from monitoring host"
+      }
+    },
+    "DiscoveryPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "keepgo-dev-metrics-discovery",
+        "Roles": [
+          {
+            "Ref": "MonitoringRoleName"
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": "ecs:ListTasks",
+              "Resource": "*",
+              "Condition": {
+                "ArnEquals": {
+                  "ecs:cluster": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:cluster/keepgo-v2"
+                  }
+                }
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Action": "ecs:DescribeTasks",
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:task/keepgo-v2/*"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "PeeringId": {
+      "Value": {
+        "Ref": "Peering"
+      }
+    }
+  }
+}

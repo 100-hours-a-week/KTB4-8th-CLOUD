@@ -101,7 +101,7 @@ class MonitoringContractTest(unittest.TestCase):
                     refs = {query["refId"] for query in rule["data"]}
                     self.assertIn(rule["condition"], refs)
                     # No firing application alert is normal; an unreachable monitoring backend is not.
-                    expected = "OK" if rule["uid"] == "keepgo-application" else "Alerting"
+                    expected = "OK" if rule["uid"] in ("keepgo-application", "keepgo-development") else "Alerting"
                     self.assertEqual(rule["noDataState"], expected)
                     self.assertEqual(rule["execErrState"], "Alerting")
                     self.assertEqual(rule["data"][0]["datasourceUid"], "keepgo-prometheus")

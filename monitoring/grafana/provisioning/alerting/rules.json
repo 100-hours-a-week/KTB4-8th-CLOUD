@@ -112,7 +112,7 @@
                   "type": "prometheus",
                   "uid": "keepgo-prometheus"
                 },
-                "expr": "up",
+                "expr": "up{job!=\"application-dev\"}",
                 "instant": true,
                 "range": false,
                 "intervalMs": 30000,

@@ -15,6 +15,15 @@
 
 HTTP 200 업무 실패는 기본 HTTP 지표만으로 구분되지 않는다. 요청이 없으면 rate/지연이 No data일 수 있으며, 정상 0으로 대체하지 않는다. 개발 계측 누락은 capability로 판단해 무트래픽만으로 잘못 경보하지 않는다.
 
+## 개발 로그 확인
+
+현재 Grafana의 실제 datasource는 Prometheus 하나다. 개발 메트릭은 위 대시보드에서 확인하고 로그 본문·스택 트레이스는 AWS 서울 리전 CloudWatch → Logs → Log groups에서 확인한다.
+
+- BE: `/keepgo/v2/backend`
+- AI: `/keepgo/v2/ai-api`
+
+두 그룹의 로그 스트림과 기록 존재를 확인했다. 배포마다 task별 스트림이 달라지므로 조사할 시간대와 task를 선택하거나 Logs Insights로 그룹 전체를 검색한다. Grafana 안에서 로그를 조회하려면 이후 CloudWatch datasource와 조회용 IAM 권한을 추가할 수 있다. 이번 연결에는 포함하지 않았다.
+
 ## 네트워크와 소유권
 
 | 관리 주체 | 소유 리소스 |
@@ -27,7 +36,7 @@ HTTP 200 업무 실패는 기본 HTTP 지표만으로 구분되지 않는다. �
 
 기존 모니터링 SG는 egress를 inline으로 관리하므로 새 스택의 별도 Egress 리소스와 섞지 않는다. host 스택 갱신은 기존 ImageId·parameter를 유지하고 **인스턴스 교체가 없는 change set**인지 확인한다. CLI로 읽은 템플릿의 한글이 손실된 문제가 있어 저장소의 UTF-8 원본으로 다시 검증했으며, 최종 change set은 SG 송신 규칙만 수정한다.
 
-피어링 자체 고정비는 없고 같은 AZ 전송은 무료다. 10월 20일 확인 시 BE는 2a, AI와 모니터링은 2c이므로 BE 경로에는 양쪽 합계 약 $0.02/GB 전송비가 적용된다. 예를 들어 응답 100KB를 30초마다 수집하면 30일 8.64GB, 약 $0.17이다. 실제 크기·task 수·프로토콜 overhead에 따라 달라진다. [AWS 요금](https://aws.amazon.com/vpc/pricing/)
+피어링 자체 고정비는 없고 같은 AZ 전송은 무료다. 10월 20일 최종 적용 확인 시 BE·AI는 2a, 모니터링은 2c이므로 두 경로에 양쪽 합계 약 $0.02/GB 전송비가 적용된다. 예를 들어 응답 100KB를 30초마다 수집하면 30일 8.64GB, 약 $0.17이다. 실제 크기·task 수·프로토콜 overhead에 따라 달라진다. 최종 응답 크기로 계산한 예시는 아래 실행 기록에 있다. [AWS 요금](https://aws.amazon.com/vpc/pricing/)
 
 ## 자동 대상 발견
 

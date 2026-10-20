@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::602601433533:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:sub": [
+            "repo:100-hours-a-week@167328634/KTB4-8th-FE@1344685464:ref:refs/heads/main",
+            "repo:100-hours-a-week@167328634/KTB4-8th-FE@1344685464:ref:refs/heads/feat/v1"
+          ],
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "DevelopImagePublishing",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::602601433533:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:100-hours-a-week@167328634/KTB4-8th-FE@1344685464:ref:refs/heads/develop"
+        }
+      }
+    }
+  ]
+}

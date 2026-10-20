@@ -27,7 +27,8 @@
       ],
       "Resource": [
         "arn:aws:ecs:ap-northeast-2:602601433533:task-definition/keepgo-v2-backend:*",
-        "arn:aws:ecs:ap-northeast-2:602601433533:task-definition/keepgo-v2-ai-api:*"
+        "arn:aws:ecs:ap-northeast-2:602601433533:task-definition/keepgo-v2-ai-api:*",
+        "arn:aws:ecs:ap-northeast-2:602601433533:task-definition/keepgo-v2-frontend:*"
       ]
     },
     {
@@ -39,7 +40,8 @@
       ],
       "Resource": [
         "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-backend",
-        "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-ai"
+        "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-ai",
+        "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-web"
       ]
     },
     {
@@ -51,7 +53,8 @@
       ],
       "Resource": [
         "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/backend",
-        "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/ai"
+        "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/ai",
+        "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/frontend"
       ]
     }
   ]

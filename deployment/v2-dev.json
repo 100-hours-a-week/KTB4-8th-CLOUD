@@ -6,6 +6,16 @@
   "cluster": "keepgo-v2",
   "state_prefix": "/keepgo/v2-dev/deployments",
   "groups": {
+    "frontend": {
+      "repository": "100-hours-a-week/KTB4-8th-FE",
+      "branch": "develop",
+      "workflow": "frontend-ci.yml",
+      "job": "Dev - Build and Push Image",
+      "ecr_repository": "keepgo-web",
+      "service": "keepgo-v2-frontend",
+      "family": "keepgo-v2-frontend",
+      "container": "frontend"
+    },
     "backend": {
       "repository": "100-hours-a-week/KTB4-8th-BE",
       "branch": "develop",

@@ -6,7 +6,7 @@ on:
       group:
         description: 'V2 service group'
         type: choice
-        options: [backend, ai]
+        options: [backend, ai, frontend]
         required: true
       execute:
         description: 'AWS 변경 실행. false는 읽기 전용 사전 검사'

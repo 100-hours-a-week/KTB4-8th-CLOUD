@@ -14,6 +14,7 @@ ADDITIONS = {
     "keepgo-v2-github-deploy": "repo:100-hours-a-week@167328634/KTB4-8th-CLOUD@1344688950:environment:dev",
     "keepgo-be-ecr-push": "repo:100-hours-a-week@167328634/KTB4-8th-BE@1344686243:ref:refs/heads/develop",
     "keepgo-ai-ecr-push": "repo:100-hours-a-week@167328634/KTB4-8th-AI@1344686800:ref:refs/heads/develop",
+    "keepgo-fe-ecr-push": "repo:100-hours-a-week@167328634/KTB4-8th-FE@1344685464:ref:refs/heads/develop",
 }
 
 
@@ -39,13 +40,16 @@ def support_policy():
         {"Sid": "ReadV2Tasks", "Effect": "Allow", "Action": ["ecs:DescribeTasks"],
          "Resource": prefix + "task/keepgo-v2/*"},
         {"Sid": "PreserveTaskDefinitionTags", "Effect": "Allow", "Action": ["ecs:ListTagsForResource", "ecs:TagResource"],
-         "Resource": [prefix + "task-definition/keepgo-v2-backend:*", prefix + "task-definition/keepgo-v2-ai-api:*"]},
+         "Resource": [prefix + "task-definition/keepgo-v2-backend:*", prefix + "task-definition/keepgo-v2-ai-api:*",
+                      prefix + "task-definition/keepgo-v2-frontend:*"]},
         {"Sid": "VerifyPublishedImages", "Effect": "Allow", "Action": ["ecr:DescribeImages", "ecr:BatchGetImage"],
          "Resource": ["arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-backend",
-                      "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-ai"]},
+                      "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-ai",
+                      "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-web"]},
         {"Sid": "PersistV2DeploymentState", "Effect": "Allow", "Action": ["ssm:GetParameter", "ssm:PutParameter"],
          "Resource": ["arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/backend",
-                      "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/ai"]},
+                      "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/ai",
+                      "arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/frontend"]},
     ]}
 
 

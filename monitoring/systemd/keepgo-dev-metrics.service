@@ -13,4 +13,3 @@ ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/opt/keepgo/observability/monitoring/prometheus/targets
 Environment=AWS_DEFAULT_REGION=ap-northeast-2
-

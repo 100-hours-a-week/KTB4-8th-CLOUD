@@ -25,7 +25,7 @@ HTTP 200 업무 실패는 기본 HTTP 지표만으로 구분되지 않는다. �
 
 메트릭 포트를 공인 노출하지 않는다. BE 8081은 포트 단위 접근이며 URL 경로 제한은 아니다. 공유 모니터링 443의 기존 접근 정책은 유지된다. Peering은 양방향 라우팅이며 dev/prod 권한 격리를 완성하는 장치가 아니다.
 
-기존 모니터링 SG는 egress를 inline으로 관리하므로 새 스택의 별도 Egress 리소스와 섞지 않는다. host 스택 갱신은 기존 ImageId·parameter를 유지하고 **인스턴스 교체가 없는 change set**인지 확인한다. 기존 저장 템플릿의 한글 손상은 유효한 저장소 YAML을 기반으로 보정하되 실제 경보 설명을 보존해 이번 자원 변경을 SG로 제한한다.
+기존 모니터링 SG는 egress를 inline으로 관리하므로 새 스택의 별도 Egress 리소스와 섞지 않는다. host 스택 갱신은 기존 ImageId·parameter를 유지하고 **인스턴스 교체가 없는 change set**인지 확인한다. CLI로 읽은 템플릿의 한글이 손실된 문제가 있어 저장소의 UTF-8 원본으로 다시 검증했으며, 최종 change set은 SG 송신 규칙만 수정한다.
 
 피어링 자체 고정비는 없고 같은 AZ 전송은 무료다. 10월 20일 확인 시 BE는 2a, AI와 모니터링은 2c이므로 BE 경로에는 양쪽 합계 약 $0.02/GB 전송비가 적용된다. 예를 들어 응답 100KB를 30초마다 수집하면 30일 8.64GB, 약 $0.17이다. 실제 크기·task 수·프로토콜 overhead에 따라 달라진다. [AWS 요금](https://aws.amazon.com/vpc/pricing/)
 
@@ -44,6 +44,40 @@ sudo python3 /opt/keepgo/observability/scripts/discover-dev-metrics.py
 `development.json`은 runtime 생성 파일이다. 저장소의 빈 초기 파일로 덮어쓰지 않는다. 성공 시 mtime을 갱신하며 Prometheus의 `prometheus_sd_file_mtime_seconds`로 discovery 지연을 감시한다. 서비스가 없어지는 경우에는 `absent(up{...})` 경보가 별도로 발생한다.
 
 ## 검증과 적용 절차
+
+**Git push/PR merge는 IaC 적용이 아니다.** Cloud 저장소 CI는 검증을 수행하며 아래 스택 명령과 모니터링 파일 배치는 별도다. AI develop은 기존 CI/CD가 자동 배포한다. 현재 배포/개발 역할 전환까지 자동으로 수행하는 워크플로는 추가하지 않았다.
+
+현재 계정·서울 리전에서 재현하는 스택 명령은 다음과 같다. 먼저 계획만 만들고 출력된 change set을 검토한다. 인프라 재생성·역할 전환 후에는 아래 ID를 새 실제 값으로 갱신한다.
+
+```bash
+aws cloudformation deploy --region ap-northeast-2 \
+  --stack-name keepgo-dev-monitoring \
+  --template-file infrastructure/dev-monitoring.json \
+  --capabilities CAPABILITY_IAM --no-execute-changeset \
+  --parameter-overrides \
+    MonitoringVpcId=vpc-028e5c0c4fa690a01 DevelopmentVpcId=vpc-0bfd4e11c520dc5fd \
+    MonitoringRouteTableId=rtb-0b0f52fba7c41ca82 DevelopmentRouteTableId=rtb-05fb8bcbd1b458f6f \
+    MonitoringSecurityGroupId=sg-0e6562fdb95325e5a BackendSecurityGroupId=sg-0dd66b4b150b00bcd \
+    AiSecurityGroupId=sg-01f3a77725d2bf7d5 MonitoringPrivateCidr=172.31.34.195/32 \
+    MonitoringRoleName=keepgo-v1-monitoring-host-MonitoringRole-aPO7SRtnPXMR
+
+# 출력된 change-set ARN을 아래에 넣는다. 최초 생성은 연결 관련 7개 리소스만 Add여야 한다.
+aws cloudformation execute-change-set --region ap-northeast-2 --change-set-name CHANGE_SET_ARN
+# 최초 생성은 stack-create-complete, 이후 갱신은 stack-update-complete로 기다린다.
+aws cloudformation wait stack-create-complete --region ap-northeast-2 --stack-name keepgo-dev-monitoring
+
+aws cloudformation deploy --region ap-northeast-2 \
+  --stack-name keepgo-v1-monitoring-host \
+  --template-file infrastructure/monitoring-host.yaml \
+  --capabilities CAPABILITY_IAM --no-execute-changeset \
+  --parameter-overrides \
+    DevBackendSecurityGroupId=sg-0dd66b4b150b00bcd DevAiSecurityGroupId=sg-01f3a77725d2bf7d5
+# 기존 스택에서 생략한 parameter는 이전 값을 사용한다. EC2/LaunchTemplate 교체는 중단한다.
+aws cloudformation execute-change-set --region ap-northeast-2 --change-set-name CHANGE_SET_ARN
+aws cloudformation wait stack-update-complete --region ap-northeast-2 --stack-name keepgo-v1-monitoring-host
+```
+
+두 명령의 `CHANGE_SET_ARN`은 서로 다른 출력값이다. 변경 없음 메시지가 나오면 execute를 다시 실행하지 않는다. 네트워크 적용 후에도 아래 앱·수집기·Grafana 적용을 끝내야 모니터링이 연결된다.
 
 1. AI PR에서 고정 dependency 설치·계측 테스트·Docker build를 통과시킨다. develop 반영 후 기존 V2 CD의 실제 task image digest를 확인한다.
 2. 네트워크 change set에서 새 연결 리소스만 추가되는지 확인하고 적용한다. host egress는 SG만 수정되는지 확인한다.

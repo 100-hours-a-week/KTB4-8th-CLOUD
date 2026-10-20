@@ -210,7 +210,7 @@ class Deployer:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--group", required=True, choices=["backend", "ai"])
+    parser.add_argument("--group", required=True, choices=["backend", "ai", "frontend"])
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--recover", action="store_true")
     parser.add_argument("--retry-failed", action="store_true")

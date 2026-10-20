@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from v2_common import Error, Pending, candidate, image_uri, load_config, successful_run, task_payload, verify_provenance
 from v2_deploy import Deployer
 from v2_release import blocked
-from configure_v2_iam import add_subject, ADDITIONS
+from configure_v2_iam import add_subject, ADDITIONS, support_policy
 
 CONFIG = load_config()
 COMMIT = "a" * 40
@@ -120,6 +120,34 @@ class V2Tests(unittest.TestCase):
 
     def writes(self):
         return [c[1] for c in self.aws.calls if c[1] in {"put-parameter", "register-task-definition", "update-service"}]
+
+    def test_frontend_candidate_requires_successful_develop_publish(self):
+        manifest = candidate(self.gh, self.aws, CONFIG, "frontend")
+        self.assertEqual(manifest["source"]["repository"], "100-hours-a-week/KTB4-8th-FE")
+        self.assertIn("/keepgo-web@sha256:", manifest["image"])
+        self.gh.published = False
+        self.assertIsNone(candidate(self.gh, self.aws, CONFIG, "frontend"))
+
+    def test_frontend_update_preserves_runtime_secrets_and_sidecars(self):
+        definition = copy.deepcopy(self.aws.definition)
+        definition["family"] = "keepgo-v2-frontend"
+        definition["containerDefinitions"][1].update(
+            name="frontend", secrets=[{"name": "KAKAO_REST_API_KEY", "valueFrom": "secret-arn"}])
+        before = copy.deepcopy(definition)
+        image = image_uri(CONFIG, CONFIG["groups"]["frontend"], NEW)
+        payload = task_payload(definition, CONFIG["groups"]["frontend"], image)
+        expected = copy.deepcopy(before["containerDefinitions"])
+        expected[1]["image"] = image
+        self.assertEqual(payload["containerDefinitions"], expected)
+        self.assertEqual(definition, before)
+
+    def test_frontend_policy_matches_checked_in_policy(self):
+        path = Path(__file__).resolve().parents[1] / "infrastructure/v2-cd/cloud-v2-dev-cd-policy.json"
+        self.assertEqual(support_policy(), json.loads(path.read_text(encoding="utf-8")))
+        statements = {s["Sid"]: s for s in support_policy()["Statement"]}
+        self.assertIn("arn:aws:ssm:ap-northeast-2:602601433533:parameter/keepgo/v2-dev/deployments/frontend",
+                      statements["PersistV2DeploymentState"]["Resource"])
+        self.assertIn("KTB4-8th-FE@1344685464:ref:refs/heads/develop", ADDITIONS["keepgo-fe-ecr-push"])
 
     def test_latest_failed_run_does_not_fall_back_to_old_success(self):
         self.gh.runs.append(dict(self.gh.runs[0], id=8, conclusion="failure"))

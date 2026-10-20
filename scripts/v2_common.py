@@ -82,10 +82,12 @@ def load_config(path=None):
             or data.get("cluster") != "keepgo-v2"
             or data.get("state_prefix") != "/keepgo/v2-dev/deployments"):
         raise Error("Invalid V2 environment configuration")
-    if set(data.get("groups", {})) != {"backend", "ai"}:
-        raise Error("Only the verified backend and ai services are supported")
+    services = {"backend": "keepgo-v2-backend", "ai": "keepgo-v2-ai-api",
+                "frontend": "keepgo-v2-frontend"}
+    if set(data.get("groups", {})) != set(services):
+        raise Error("Only the verified backend, ai and frontend services are supported")
     for name, group in data["groups"].items():
-        expected = "keepgo-v2-backend" if name == "backend" else "keepgo-v2-ai-api"
+        expected = services[name]
         if group["service"] != expected or group["family"] != expected:
             raise Error("Unexpected V2 service/family")
         if group["branch"] in {"main", "feat/v1"}:

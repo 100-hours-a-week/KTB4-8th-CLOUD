@@ -44,7 +44,14 @@ resource "aws_iam_role_policy" "github_deploy" {
       {
         Effect    = "Allow"
         Action    = "iam:PassRole"
-        Resource  = concat([for role in aws_iam_role.exec : role.arn], [for role in aws_iam_role.task : role.arn])
+        Resource  = concat(
+          [for role in aws_iam_role.exec : role.arn],
+          [for role in aws_iam_role.task : role.arn],
+          [
+            "arn:aws:iam::${var.aws_account_id}:role/${local.name}-frontend-exec",
+            "arn:aws:iam::${var.aws_account_id}:role/${local.name}-frontend-task",
+          ]
+        )
         Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } }
       },
       # FE 정적 파일 업로드와 캐시 무효화
@@ -75,6 +82,10 @@ import {
   id = "keepgo-v2-github-deploy:cloud-v2-dev-cd"
 }
 
+data "aws_ecr_repository" "frontend_cd" {
+  name = "keepgo-web"
+}
+
 resource "aws_iam_role_policy" "cloud_v2_dev_cd" {
   name = "cloud-v2-dev-cd"
   role = aws_iam_role.github_deploy.id
@@ -101,13 +112,14 @@ resource "aws_iam_role_policy" "cloud_v2_dev_cd" {
         Resource = [
           "arn:aws:ecs:${local.region}:${var.aws_account_id}:task-definition/${local.name}-backend:*",
           "arn:aws:ecs:${local.region}:${var.aws_account_id}:task-definition/${local.name}-ai-api:*",
+          "arn:aws:ecs:${local.region}:${var.aws_account_id}:task-definition/${local.name}-frontend:*",
         ]
       },
       {
         Sid      = "VerifyPublishedImages"
         Effect   = "Allow"
         Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
-        Resource = [data.aws_ecr_repository.app["keepgo-backend"].arn, data.aws_ecr_repository.app["keepgo-ai"].arn]
+        Resource = [data.aws_ecr_repository.app["keepgo-backend"].arn, data.aws_ecr_repository.app["keepgo-ai"].arn, data.aws_ecr_repository.frontend_cd.arn]
       },
       {
         Sid    = "PersistV2DeploymentState"
@@ -116,6 +128,7 @@ resource "aws_iam_role_policy" "cloud_v2_dev_cd" {
         Resource = [
           "arn:aws:ssm:${local.region}:${var.aws_account_id}:parameter/keepgo/v2-dev/deployments/backend",
           "arn:aws:ssm:${local.region}:${var.aws_account_id}:parameter/keepgo/v2-dev/deployments/ai",
+          "arn:aws:ssm:${local.region}:${var.aws_account_id}:parameter/keepgo/v2-dev/deployments/frontend",
         ]
       },
     ]

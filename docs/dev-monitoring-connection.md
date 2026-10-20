@@ -1,6 +1,6 @@
 # 개발 환경 모니터링 연결 작업 기록
 
-작성일: 2026-10-19 (KST). 갱신: 2026-10-21. **10월 20일 적용 검증 완료: 피어링·AI 계측·개발 수집·대시보드, 운영 9개+개발 2개 모두 up, Discord 경보·복구 전송 성공. Cloud PR 병합 요청은 중단됐고 이후 병합 여부는 미확인**. 12절에 로그 사용성과 비용 비교 후속 기록을 추가했다.
+작성일: 2026-10-19 (KST). 갱신: 2026-10-21. **10월 20일 적용 검증 완료: 피어링·AI 계측·개발 수집·대시보드, 운영 9개+개발 2개 모두 up, Discord 경보·복구 전송 성공. Cloud PR #112는 미병합 상태를 확인했고, 사용자 결정으로 열어둔다**. 12절에 로그 사용성과 비용 비교 후속 기록을 추가했다.
 
 아래 1~10절의 미확정·미적용 표현은 최초 계획 당시 기록이다. 현재 결정과 적용 결과는 11절을 우선한다.
 
@@ -263,7 +263,7 @@ VPC 피어링은 전이 라우팅을 제공하지 않는다. VPC가 많아지면
 | 환경 분리 | 개발 `application-dev` job, `keepgo_dev:*` 집계, development/keepgo-v2 라벨. 기존 운영 집계는 유지 |
 | 자동 발견 | systemd timer active, 30초마다 ECS 조회. 파일 mtime 갱신과 실제 최신 task IP 등록 확인 |
 | 대시보드 | `[DEV] KeepGo - Application HTTP`, `[DEV] KeepGo - Backend JVM and DB Pool` 등록 |
-| 변경 PR | [Cloud #112](https://github.com/100-hours-a-week/KTB4-8th-CLOUD/pull/112), 전체 CI 통과. 최종 실행 기록 갱신·병합 진행 중 |
+| 변경 PR | [Cloud #112](https://github.com/100-hours-a-week/KTB4-8th-CLOUD/pull/112), 전체 CI 통과. 10월 21일 문서를 제외한 19개 파일로 정리했으며 사용자 결정으로 main 병합 보류 |
 | Discord | `[DEV]` 시험 경보 12:09:40 UTC, 복구 12:14:40 UTC 수신점 전송 성공 확인. 임시 시험 규칙 삭제·설정 검증·reload 완료 |
 
 AI는 배포 중 2c에서 2a로 이동했다. 최종 점검의 BE·AI 둘 다 모니터링 EC2와 다른 AZ다. 순간 메트릭 응답 본문은 BE 32,142 bytes, AI 2,348 bytes로, 이 크기가 30초 간격·30일 유지된다는 가정에서 본문 전송료는 합계 약 **$0.06/월**이다. 요청·프로토콜 overhead, 지표 증가, task 수 변화는 별도이며 청구 실측값이 아니다. 배치가 변경될 수 있으므로 “영구 무료”라고 표현하지 않는다.
@@ -272,7 +272,7 @@ AI는 배포 중 2c에서 2a로 이동했다. 최종 점검의 BE·AI 둘 다 �
 
 적용 방법은 Git push가 아니라 CloudFormation change set 실행과 SSM 설정 배치다. 기존 파일은 `/opt/keepgo/dev-monitoring-backup-20261020`에 보관하고 Prometheus SIGHUP·Grafana provisioning reload를 사용했다. TSDB/Grafana volume과 운영 앱은 교체하지 않았다.
 
-재현 가능한 스택 명령, 파일 배치 절차, 롤백, V1/V2 역할 전환 체크는 [실행 runbook](https://github.com/100-hours-a-week/KTB4-8th-CLOUD/blob/feat/dev-monitoring/docs/dev-monitoring-runbook.md)에 있다. 실제 ECS task 교체 중의 연속 수집 공백 시험은 아직 수행하지 않았으며, 주소 교체/0개/조회 실패 처리는 단위 테스트와 현재 task 발견으로 검증했다.
+재현 가능한 스택 명령, 파일 배치 절차, 롤백, V1/V2 역할 전환 체크는 [실행 runbook](dev-monitoring-runbook.md)에 있다. 이 문서는 통합 작업 브랜치에서 보존하며 main PR에는 포함하지 않는다. 실제 ECS task 교체 중의 연속 수집 공백 시험은 아직 수행하지 않았으며, 주소 교체/0개/조회 실패 처리는 단위 테스트와 현재 task 발견으로 검증했다.
 
 ## 12. 2026-10-21 개발 로그 사용성과 비용 후속 정리
 
@@ -290,4 +290,4 @@ AI는 배포 중 2c에서 2a로 이동했다. 최종 점검의 BE·AI 둘 다 �
 | 트래픽 구분 | Grafana의 CloudWatch 조회와 Live Tail은 이번 개발 VPC 피어링이 필요하지 않음 |
 | 팀 사용 방식 | 평소 그룹 단위 검색, 다음 단계로 Grafana 화면 통합, 배포·재현 중 Live Tail 단기 사용 |
 
-이번 갱신은 문서화다. Grafana 로그 datasource·조회 IAM·자동 새로고침·보존 변경은 적용하지 않았다. Cloud PR #112의 병합 요청은 앞선 대화에서 중단됐으며, 11절의 “병합 진행 중”은 당시 기록이다. 이후 병합 여부는 이번 문서 작업에서 재조회하지 않았다.
+이번 갱신은 문서화다. Grafana 로그 datasource·조회 IAM·자동 새로고침·보존 변경은 적용하지 않았다. Cloud PR #112는 10월 21일 미병합 상태를 확인했으며 사용자 결정으로 열어둔다. 코드와 문서는 통합 작업 브랜치에 보존하며 [통합 상태](branch-integration-status.md)에 main 반영 범위를 기록했다.

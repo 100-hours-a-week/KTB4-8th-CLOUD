@@ -1,14 +1,19 @@
 # KeepGo Cloud — 자동 CD
 
-단일 EC2의 Docker Compose로 Nginx, Frontend, Backend, AI API를 운영한다. 앱 CI가 이미지를 게시하면 Cloud가 새 버전을 조회해 Manifest PR을 병합하고 SSM으로 배포한다.
+운영 V1은 단일 EC2의 Docker Compose, 개발 V2는 ECS를 사용한다. 앱 CI가 이미지를 게시하면 ECR push → EventBridge → Cloud 중앙 CD가 검증된 버전의 Manifest PR을 병합하고 환경별 배포를 실행한다. 10분 주기 조회는 보조 경로로 유지한다.
+
+이 브랜치는 최신 실행 코드와 문서를 함께 보관하는 통합 작업 브랜치다. `main`에는 배포·운영 코드, 설정, 검증 파일과 배포 Manifest를 반영하며 상세 문서·검토 기록은 이 브랜치에서 관리한다. [통합 및 반영 상태](docs/branch-integration-status.md)
 
 **처음 읽을 문서: [자동 CD 전체 설명 — 어떻게 동작하고 왜 이렇게 구성했는가](docs/v1-design.md)**
 
 | 알고 싶은 내용 | 문서 |
 | --- | --- |
+| 개발 BE·AI 모니터링 설치·자동 대상 발견·로그 확인·복구 | [개발 모니터링 실행 절차](docs/dev-monitoring-runbook.md) |
+| 개발 모니터링 연결의 조사·비용·적용 기록 | [개발 모니터링 연결 기록](docs/dev-monitoring-connection.md) |
 | 모니터링 전체 흐름·구축 순서, 코드 구현과 운영 적용 구분, V1/V2 차이 | [모니터링 전체 안내](docs/monitoring-overview.md) |
 | 옵저빌리티 도입 우선순위, 도구별 트레이드오프, 비용·SLO·단계별 실행안 | [옵저빌리티 도입 검토](docs/observability-adoption-review.md) |
-| V2 중앙 CD 작업 결과, AI 실제 배포, Terraform 반영, 남은 작업 | [V2 개발 CD 작업 정리](docs/v2-dev-cd-work-summary.md) |
+| 관측 도구 선택·로그 조회 비용·대안 비교 | [모니터링 선택 검토](docs/observability-selection-review.md) |
+| V2 중앙 CD·프론트 자동배포·ECR 즉시 트리거의 적용 기록 | [V2 개발 CD 작업 정리](docs/v2-dev-cd-work-summary.md) |
 | 전체 흐름, 구성 이유, 파일 역할, 실패 시 동작과 한계 | [전체 설명](docs/v1-design.md) |
 | CloudWatch 로그·알람, Prometheus·Grafana 구성과 적용 순서 | [모니터링 운영 구성](docs/v1-monitoring.md) |
 | BE·AI·FE 전달용 상세 메트릭·bucket·초기 임계치 | [메트릭 계약 v1](docs/monitoring-metrics-contract.md) |

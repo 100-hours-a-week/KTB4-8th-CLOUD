@@ -2,6 +2,19 @@
 
 작성: 2026-10-15. 작업·검증: 2026-10-13~14, 시각은 별도 표기가 없으면 한국 시간(KST).
 
+## 후속 반영 — 2026-10-20, 문서 통합 2026-10-21
+
+- FE `develop` 이미지 게시와 `keepgo-v2-frontend` ECS 자동배포를 [Cloud #109](https://github.com/100-hours-a-week/KTB4-8th-CLOUD/pull/109), [FE #11](https://github.com/100-hours-a-week/KTB4-8th-FE/pull/11)로 연결했다. FE는 Next.js standalone 컨테이너를 사용하며 초기 S3 정적 게시 제안을 따르지 않는다.
+- 최초 FE 배포는 `18a947df7c8de3faeabfecba299834ef5f3b95dc`, ECS revision 2로 [성공](https://github.com/100-hours-a-week/KTB4-8th-CLOUD/actions/runs/39382676951)했다. 당시 최신 develop·Manifest·실행 digest 일치, 주요 페이지 4개·정적 파일 21개·BFF 경로를 확인했다.
+- 기존 CloudFormation 스택에 `keepgo-v1-auto-release-on-ecr-push`를 실제 추가했다. FE·BE·AI·Nginx 이미지 push 성공 이벤트가 중앙 Auto release를 호출한다. 검증용 실제 ECR 이벤트의 매칭·호출 성공 각 1회와 [릴리스 성공](https://github.com/100-hours-a-week/KTB4-8th-CLOUD/actions/runs/39383731806)을 확인하고 검증용 태그를 제거했다.
+- EventBridge 10분 주기와 GitHub 예비 cron은 유지한다. 주기 축소·삭제는 논의만 했으며 적용하지 않았다.
+- 개발 BE·AI 모니터링의 적용·복구 기록은 [실행 절차](dev-monitoring-runbook.md), 코드·문서의 main 반영 구분은 [통합 상태](branch-integration-status.md)를 따른다.
+- 최신 **목표** 버전은 `deployment/envs/v2-dev/{frontend,backend,ai}.json`이다. Manifest 갱신만으로 실제 배포 성공을 단정하지 않으며 각 서비스의 SSM 상태와 Actions 실행을 확인한다.
+
+아래는 10월 13~14일의 최초 연결 기록이다. FE 미연결, ECR 규칙 미설치, 초기 CI 실패 등은 당시 상태이며 위 후속 기록으로 대체됐다.
+
+## 최초 연결 기록 — 2026-10-13~14
+
 기존 Cloud 중앙 CD에 V2 개발 ECS 배포를 연결했다. AI는 중앙 자동 릴리스가 배포 workflow를 호출해 실제 서비스 교체까지 성공했다. BE는 개발 CI 실패로 후보에서 제외됐고, FE의 V2 배포 연결은 앱 준비 후 진행한다.
 
 이 문서는 `feat/v1-central-cd-prep` 브랜치의 작업 기록이다. 아래 상태는 마지막으로 확인한 실행 결과이며 실시간 대시보드가 아니다. Cloud main에는 실행·설정·검증·배포 대상 파일을 반영했고 이 문서는 main에 병합하지 않았다. 이전 V2 설계 제안과 다른 내용은 이 문서의 실제 적용 결과를 기준으로 읽는다.

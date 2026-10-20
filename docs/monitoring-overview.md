@@ -2,7 +2,9 @@
 
 문서 대조일: **2026-10-15**. V1은 이 작업 브랜치의 설정 파일과 2026-10-01~02 운영 기록을, V2는 로컬 `origin/main`의 `92adfbc4fd7361412beb9eb1211e45610516bba0`에 있는 Terraform과 [개발 CD 작업 기록](v2-dev-cd-work-summary.md)을 확인했다. **이번 정리는 AWS·Grafana·SNS에 새로 접속해 현재 상태를 검증한 결과가 아니다.** 과거 적용 기록, 코드에 정의된 구성, 앞으로 할 일을 구분한다.
 
-현재까지의 기록상 V1은 CloudWatch 앱 로그, 전용 EC2의 Prometheus·Grafana, 내부 health 및 BE·AI 기본 메트릭 수집까지 연결됐다. V2에는 ECS 로그·Container Insights·CloudWatch 알람을 만드는 Terraform이 있다. **V1 Grafana가 V2 ECS까지 수집한다는 근거는 없다.**
+10월 15일 기록상 V1은 CloudWatch 앱 로그, 전용 EC2의 Prometheus·Grafana, 내부 health 및 BE·AI 기본 메트릭 수집까지 연결됐고 V2에는 ECS 로그·Container Insights·CloudWatch 알람을 만드는 Terraform이 있었다.
+
+**후속 갱신(2026-10-21): 10월 20일 기존 모니터링 EC2에 V2 개발 BE·AI 메트릭 연결과 `[DEV]` 경보·복구 검증을 완료했다.** 적용 근거는 [개발 연결 작업 기록](dev-monitoring-connection.md) 11절을 따른다. 개발 로그는 현재 CloudWatch에서 조회하며 Grafana 로그 연동은 제안 단계다. **로그 검색·Live Tail·피어링 비용과 팀별 사용량 예시는 [모니터링 선택 검토](observability-selection-review.md) 15절**에 있다. 아래 본문의 기존 구성 설명은 10월 15일 기준이다.
 
 ## 1. 상세 문서는 어디에 있는가
 

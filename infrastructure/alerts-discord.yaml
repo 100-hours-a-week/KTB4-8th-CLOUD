@@ -69,8 +69,6 @@ Resources:
       Role: !GetAtt RelayRole.Arn
       Timeout: 15
       MemorySize: 128
-      # 경보 폭주 시에도 Discord rate limit을 넘지 않게 동시 실행을 묶는다. SNS가 재시도한다.
-      ReservedConcurrentExecutions: 2
       LoggingConfig: {LogGroup: !Ref RelayLogs}
       Environment:
         Variables:

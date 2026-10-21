@@ -65,13 +65,21 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewerExceptHostHeader"
 }
 
+# Host까지 넘기는 정책. 앱이 리디렉트 주소를 만들 때 api.keepgo.kr이 아니라 사용자가 접속한 dev.keepgo.kr을 쓰게 된다
+data "aws_cloudfront_origin_request_policy" "all_viewer_with_host" {
+  name = "Managed-AllViewer"
+}
+
 locals {
   # ALB 리스너 규칙과 같은 경로를 CloudFront도 ALB로 보낸다. 웹과 API가 한 도메인이라 CORS가 필요 없습니다.
   api_paths = flatten([for rule in local.listener_rules : rule.paths])
+  # ALB가 웹 도메인 인증서를 가지고 있을 때만 Host를 넘긴다. 이때 CloudFront 기본주소(*.cloudfront.net)는 ALB 인증서와 이름이 달라 502가 난다.
+  origin_request_policy_id = var.web_alb_certificate_arn == "" ? data.aws_cloudfront_origin_request_policy.all_viewer.id : data.aws_cloudfront_origin_request_policy.all_viewer_with_host.id
+
 }
 
-# ---------- 페이지 경로 → 파일 ----------
-# Next 정적 export는 페이지마다 html이 생긴다: /home → /home.html, /mypage/profile → /mypage/profile.html
+# 개인정보처리방칙 리디렉트
+# 페이지 경로는 FE(Next) 서버가 처리합니다. 이 함수는 외부 문서로 보내는 리디렉트만 맡는다.
 resource "aws_cloudfront_function" "web_router" {
   name    = "${local.name}-web-router"
   runtime = "cloudfront-js-2.0"
@@ -89,18 +97,7 @@ resource "aws_cloudfront_function" "web_router" {
         };
       }
 
-      if (uri === '/') {
-        request.uri = '/index.html';
-        return request;
-      }
-
-      if (uri.endsWith('/')) {
-        uri = uri.slice(0, -1);
-      }
-
-      if (uri.split('/').pop().indexOf('.') === -1) {
-        request.uri = uri + '.html';
-      }
+      
 
       return request;
     }
@@ -115,6 +112,8 @@ resource "aws_cloudfront_distribution" "web" {
   price_class     = "PriceClass_200"
   aliases         = var.web_domain_name == "" ? [] : [var.web_domain_name]
   comment         = "${local.name} web"
+  # Host를 넘기기 전에 ALB가 웹 도메인 인증서를 먼저 가지고 있어야 합니다(순서가 바뀌면 502)
+  depends_on = [aws_lb_listener_certificate.web]
 
   origin {
     origin_id                = "web"
@@ -138,12 +137,13 @@ resource "aws_cloudfront_distribution" "web" {
 
   # 페이지(HTML). 캐시 시간은 업로드할 때 붙이는 Cache-Control을 따른다.
   default_cache_behavior {
-    target_origin_id       = "web"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD"]
-    cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
-    compress               = true
+    target_origin_id         = "api"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id = local.origin_request_policy_id
+    compress                 = true
 
     function_association {
       event_type   = "viewer-request"
@@ -154,7 +154,7 @@ resource "aws_cloudfront_distribution" "web" {
   # 빌드 해시가 붙은 JS·CSS. 오래 캐시해도 배포 때 파일명이 바뀐다.
   ordered_cache_behavior {
     path_pattern           = "/_next/static/*"
-    target_origin_id       = "web"
+    target_origin_id       = "api"
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
@@ -171,7 +171,7 @@ resource "aws_cloudfront_distribution" "web" {
       allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
       cached_methods           = ["GET", "HEAD"]
       cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
-      origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+      origin_request_policy_id = local.origin_request_policy_id
       compress                 = false
     }
   }

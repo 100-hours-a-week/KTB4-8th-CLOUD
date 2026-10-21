@@ -99,3 +99,12 @@ resource "aws_lb_listener_rule" "app" {
     path_pattern { values = each.value.paths }
   }
 }
+
+# 웹 도메인(dev.keepgo.kr) 인증서를 HTTPS 리스너에 추가한다. ALB는 접속한 이름(SNI)에 맞는 인증서를 추가한다.action "name" 
+resource "aws_lb_listener_certificate" "web" {
+  count = var.web_alb_certificate_arn == "" ? 0 : 1
+
+  listener_arn    = aws_lb_listener.https.arn
+  certificate_arn = var.web_alb_certificate_arn
+}
+  

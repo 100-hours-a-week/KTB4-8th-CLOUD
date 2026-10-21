@@ -69,8 +69,8 @@
 
 | 결과 | 결정 |
 |---|---|
-| CloudWatch 경보 상태가 바뀌지 않음 | 사용자 경로 경보 추가: `HTTPCode_ELB_5XX_Count`, `HealthyHostCount < 1`. 35초짜리 단발 장애는 무시하고 1~2분 이상 이어질 때 울리도록 기간을 정한다 |
-| 전달 경로 없음 | 위 경보를 Discord로 연결. SNS 구독 추가 또는 Grafana CloudWatch 데이터소스 중 선택 |
+| CloudWatch 경보 상태가 바뀌지 않음 | (전달은 2026-10-21 [Discord 중계](v1-alerting.md#1-5-cloudwatch-경보--discord-중계-v1v2)로 해결) 사용자 경로 경보 추가: `HTTPCode_ELB_5XX_Count`, `HealthyHostCount < 1`. 35초짜리 단발 장애는 무시하고 1~2분 이상 이어질 때 울리도록 기간을 정한다 |
+| 전달 경로 없음 | 완료: SNS → Lambda → Discord. 새 경보도 V2 SNS 토픽으로 보내면 Discord로 온다 |
 | Prometheus가 사용자 실패를 보지 못함 | 외부에서 실제 경로를 요청하는 검사는 위 ALB 경보로 대부분 대체되는지 먼저 확인한 뒤 판단 |
 | 끊긴 시간 35초 | 개발 환경에서는 health check 조정이나 BE 2개 운영이 불필요. 운영 전환 시 BE min=2(호스트 추가 비용)와 비교 |
 

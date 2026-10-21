@@ -16,7 +16,7 @@ KeepGo V1은 앱 EC2 한 대에서 Docker Compose로 네 개의 컨테이너(web
 | --- | --- | --- | --- |
 | GitHub Actions (`notify-discord.sh`) | 배포·릴리스 실패, 외부 감시(Health check) | Discord | 운영 중 |
 | Grafana (모니터링 EC2) | 내부 서비스 비정상, 수집 불가, 앱 경고 | Discord | 10/02 내부 health firing 수신 기록 있음. 앱·수집 장애 및 복구의 전체 경로 시험 미완료 |
-| CloudWatch 알람 → SNS | 앱·모니터링 EC2, RDS, 주기 실행 토큰 | 이메일 | 스택 존재, 알람·구독 승인 미확인. 앱 로그 전송은 2026-10-01 적용 |
+| CloudWatch 알람 → SNS → Lambda | V1 앱·모니터링 EC2·RDS·주기 실행 토큰, V2 서비스·RDS·Redis·큐·ALB·배포 실패 | Discord(`[PROD]`/`[DEV]`), V1은 이메일도 유지 | 2026-10-21 적용, V1·V2 경로 수신 확인 (아래 1-5) |
 | Sentry | AI 앱 예외, (예정) 외부 감시 | Sentry 알림 규칙 | 에러 수집 운영 중, Uptime 설정 전 |
 
 코드 구현과 실제 적용 범위는 [모니터링 전체 안내](monitoring-overview.md), 설치 명령은 [모니터링 운영 구성](v1-monitoring.md), Sentry는 [Sentry 사용 정리](v1-sentry.md)를 따른다. Grafana firing 수신 근거는 [BE health 오탐 사례](troubleshooting/2026-10-02-backend-8081-health-false-alert.md)다.
@@ -43,7 +43,8 @@ flowchart LR
     end
     APP -. 수집 9100·9115·8081·9464 .-> P
     G -- 서비스·수집·앱 경고 --> D
-    CW[CloudWatch 알람] -- SNS --> M[(이메일)]
+    CW[CloudWatch 알람] -- SNS --> L[Lambda 중계] -- Webhook --> D
+    CW -- SNS V1 --> M[(이메일)]
     APP -. 지표 .-> CW
     MON -. 상태·디스크 .-> CW
     EB -. 호출 실패 .-> CW
@@ -58,7 +59,7 @@ flowchart LR
 | Health check | 배포와 관계없이 밖에서 공개 주소를 확인한다. 장애가 시작될 때와 복구될 때 한 번씩 알린다. Sentry Uptime으로 이전 예정([TD-023](technical-decisions.md#td-023--외부-감시-유지-sentry-uptime으로-이전)) |
 | notify-discord.sh | 제목, 내용, 해당 GitHub Actions 실행 링크를 Discord Webhook으로 보낸다 |
 | Grafana | Prometheus 지표로 내부 서비스·수집·앱 경고를 판정해 같은 Discord 채널로 보낸다. 복구 알림을 보내고, 장애가 이어지면 4시간마다 다시 알린다 |
-| CloudWatch 알람 | 서버 자원·RDS·호스트 상태와 EventBridge 호출 실패를 SNS 이메일로 보낸다 |
+| CloudWatch 알람 | 서버 자원·RDS·호스트 상태와 EventBridge 호출 실패를 SNS로 보낸다. SNS를 구독한 Lambda(`keepgo-alerts-discord`)가 Discord 메시지로 바꾼다. 모니터링 EC2가 죽어도 이 경로는 동작한다 |
 
 AWS 로그·지표·알람, 모니터링 EC2(t4g.small)는 과금 대상이다. 전체 알림 구성을 무료로 보지 않는다.
 
@@ -90,7 +91,7 @@ AWS 로그·지표·알람, 모니터링 EC2(t4g.small)는 과금 대상이다. 
 
 같은 장애가 Actions와 Grafana에서 따로 올 수 있다(8-2).
 
-### 1-3. 서버·인프라 (CloudWatch → SNS 이메일)
+### 1-3. 서버·인프라 (CloudWatch → SNS → Discord·이메일)
 
 | 알람 | 조건 |
 | --- | --- |
@@ -106,6 +107,26 @@ AWS 로그·지표·알람, 모니터링 EC2(t4g.small)는 과금 대상이다. 
 ### 1-4. 앱 오류 (Sentry)
 
 AI 앱의 예외는 Sentry로 간다. 알림 여부와 대상은 Sentry의 알림 규칙에 따른다. Backend·Frontend는 Sentry를 쓰지 않는다([Sentry 사용 정리](v1-sentry.md)).
+
+### 1-5. CloudWatch 경보 → Discord 중계 (V1·V2)
+
+[`infrastructure/alerts-discord.yaml`](../infrastructure/alerts-discord.yaml) 스택(`keepgo-alerts-discord`)이 V1·V2 경보 SNS 토픽을 구독한다. SNS는 Discord를 직접 호출하지 못해 짧은 Lambda가 메시지를 바꾼다.
+
+| 항목 | 동작 |
+| --- | --- |
+| 표시 | 토픽 기준 V1 `[PROD]`, V2 `[DEV]`. 역할을 바꿀 때는 스택 파라미터 `V1Label`·`V2Label`만 바꾼다 |
+| 보내는 것 | ALARM 진입(빨강)과 ALARM에서 벗어남(초록), V2 ECS 배포 실패·롤백. OK↔INSUFFICIENT_DATA는 보내지 않는다 |
+| 웹훅 | SSM SecureString `/keepgo/alerts/discord-webhook-url`. Grafana와 같은 채널의 별도 웹훅이라 하나만 끊을 수 있다 |
+| 중계 실패 | `keepgo-alerts-discord-errors` 경보를 V1 SNS 이메일로 받는다 |
+| V2 Terraform | V2 토픽은 Terraform 소유지만 구독은 이 스택이 만든다. Terraform은 state에 없는 구독을 지우지 않는다 |
+
+배포·갱신은 UTF-8 템플릿을 그대로 쓴다. Windows CLI는 `AWS_CLI_FILE_ENCODING=UTF-8`가 필요하다.
+
+```sh
+aws cloudformation deploy --stack-name keepgo-alerts-discord   --template-file infrastructure/alerts-discord.yaml --capabilities CAPABILITY_IAM
+```
+
+계정의 Lambda 동시 실행 한도가 10이라 `ReservedConcurrentExecutions`를 둘 수 없다(최초 생성 실패 원인). 2026-10-21 시험: `keepgo-v2-rds-cpu`를 `set-alarm-state`로 ALARM 전환 → Discord 경보·복구 수신, V1은 합성 SNS 메시지로 `[PROD]` 표시 수신. V1 실제 경보 경로는 같은 구독 방식이며 실제 상태 전환으로는 시험하지 않았다.
 
 ## 2. 배포 실패 알림의 판정 기준
 

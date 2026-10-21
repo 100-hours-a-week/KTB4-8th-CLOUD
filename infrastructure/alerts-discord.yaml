@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  KeepGo CloudWatch 경보 → Discord 중계. V1·V2 경보 SNS 토픽을 Lambda가 구독해 Discord 메시지로 바꾼다.
+  SNS는 Discord를 직접 호출하지 못한다. 웹훅 URL은 SSM SecureString에만 두고 템플릿·파라미터에 넣지 않는다.
+  V2 토픽은 Terraform 소유다. 구독만 이 스택이 추가하며 Terraform은 자기 state에 없는 구독을 지우지 않는다.
+
+Parameters:
+  WebhookParameterName:
+    Type: String
+    Default: /keepgo/alerts/discord-webhook-url
+    AllowedPattern: '/[A-Za-z0-9/_.-]+'
+    Description: Discord 웹훅 URL을 담은 SSM SecureString 이름. 스택보다 먼저 만든다.
+  V1TopicArn:
+    Type: String
+    Default: arn:aws:sns:ap-northeast-2:602601433533:keepgo-v1-alerts
+  V1Label:
+    Type: String
+    Default: PROD
+    Description: V1 경보 앞에 붙일 표시. V1/V2 역할을 바꾸면 이 값과 V2Label을 바꾼다.
+  V2TopicArn:
+    Type: String
+    Default: arn:aws:sns:ap-northeast-2:602601433533:keepgo-v2-alerts
+  V2Label:
+    Type: String
+    Default: DEV
+
+Resources:
+  RelayLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/keepgo-alerts-discord
+      RetentionInDays: 14
+
+  RelayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: relay
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt RelayLogs.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${WebhookParameterName}'
+              # 기본 aws/ssm 키로 암호화한 SecureString 복호화. SSM을 거친 요청만 허용한다.
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: '*'
+                Condition:
+                  StringEquals: {kms:ViaService: !Sub 'ssm.${AWS::Region}.amazonaws.com'}
+
+  Relay:
+    Type: AWS::Lambda::Function
+    DependsOn: RelayLogs
+    Properties:
+      FunctionName: keepgo-alerts-discord
+      Description: CloudWatch 경보·ECS 배포 실패 SNS 메시지를 Discord로 보낸다
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt RelayRole.Arn
+      Timeout: 15
+      MemorySize: 128
+      # 경보 폭주 시에도 Discord rate limit을 넘지 않게 동시 실행을 묶는다. SNS가 재시도한다.
+      ReservedConcurrentExecutions: 2
+      LoggingConfig: {LogGroup: !Ref RelayLogs}
+      Environment:
+        Variables:
+          WEBHOOK_PARAMETER: !Ref WebhookParameterName
+          LABELS: !Sub '{"${V1TopicArn}": "${V1Label}", "${V2TopicArn}": "${V2Label}"}'
+      Code:
+        ZipFile: |
+          # 흐름: SNS 레코드 → 경보/ECS 이벤트/기타 판별 → Discord embed → 웹훅 POST. 실패는 예외로 SNS 재시도에 맡긴다.
+          import json, os, time, urllib.error, urllib.parse, urllib.request
+          import boto3
+
+          LABELS = json.loads(os.environ.get("LABELS", "{}"))
+          COLORS = {"ALARM": 0xE74C3C, "OK": 0x2ECC71}
+          _webhook = None
+
+
+          def webhook():
+              global _webhook
+              if _webhook is None:
+                  _webhook = boto3.client("ssm").get_parameter(
+                      Name=os.environ["WEBHOOK_PARAMETER"], WithDecryption=True)["Parameter"]["Value"]
+              return _webhook
+
+
+          def cut(text, size):
+              text = str(text or "")
+              return text if len(text) <= size else text[:size - 1] + "…"
+
+
+          def alarm(label, m):
+              new, old = m.get("NewStateValue"), m.get("OldStateValue")
+              # OK↔INSUFFICIENT_DATA는 지표 공백일 뿐이라 보내지 않는다.
+              if "ALARM" not in (new, old):
+                  return None
+              name, region = m.get("AlarmName", "?"), os.environ.get("AWS_REGION", "ap-northeast-2")
+              link = (f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}"
+                      f"#alarmsV2:alarm/{urllib.parse.quote(name)}")
+              head = "🚨 경보" if new == "ALARM" else "✅ 복구" if new == "OK" else "❔ " + str(new)
+              return {"title": cut(f"[{label}] {head} {name}", 256), "url": link,
+                      "color": COLORS.get(new, 0x95A5A6), "description": cut(m.get("NewStateReason"), 1500),
+                      "fields": [{"name": "상태", "value": f"{old} → {new}", "inline": True},
+                                 {"name": "시각", "value": cut(m.get("StateChangeTime"), 64), "inline": True}]}
+
+
+          def ecs(label, m):
+              d = m.get("detail", {})
+              service = (m.get("resources") or ["?"])[0].rsplit("/", 1)[-1]
+              return {"title": cut(f"[{label}] 🚨 배포 실패·롤백 {service}", 256), "color": COLORS["ALARM"],
+                      "description": cut(d.get("reason") or d.get("eventName"), 1500),
+                      "fields": [{"name": "deployment", "value": cut(d.get("deploymentId"), 100), "inline": True},
+                                 {"name": "시각", "value": cut(m.get("time"), 64), "inline": True}]}
+
+
+          def embed(record):
+              sns = record["Sns"]
+              label = LABELS.get(sns.get("TopicArn"), "?")
+              try:
+                  m = json.loads(sns.get("Message") or "{}")
+              except ValueError:
+                  m = None
+              if isinstance(m, dict) and "AlarmName" in m:
+                  return alarm(label, m)
+              if isinstance(m, dict) and m.get("source") == "aws.ecs":
+                  return ecs(label, m)
+              return {"title": cut(f"[{label}] {sns.get('Subject') or 'SNS 알림'}", 256),
+                      "description": cut(sns.get("Message"), 1500), "color": 0x95A5A6}
+
+
+          def post(body):
+              request = urllib.request.Request(webhook(), json.dumps(body).encode(), method="POST", headers={
+                  "Content-Type": "application/json", "User-Agent": "keepgo-alerts-discord/1.0"})
+              for attempt in range(2):
+                  try:
+                      urllib.request.urlopen(request, timeout=5).close()
+                      return
+                  except urllib.error.HTTPError as error:
+                      if error.code != 429 or attempt:
+                          raise RuntimeError(f"Discord HTTP {error.code}") from None
+                      time.sleep(min(float(json.load(error).get("retry_after", 1)), 5))
+
+
+          def handler(event, context):
+              embeds = [e for e in map(embed, event.get("Records", [])) if e]
+              if embeds:
+                  post({"username": "CloudWatch", "embeds": embeds[:10]})
+              return {"sent": len(embeds)}
+
+  V1Subscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref V1TopicArn
+      Protocol: lambda
+      Endpoint: !GetAtt Relay.Arn
+
+  V2Subscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref V2TopicArn
+      Protocol: lambda
+      Endpoint: !GetAtt Relay.Arn
+
+  V1Invoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Relay
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref V1TopicArn
+
+  V2Invoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Relay
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref V2TopicArn
+
+  # 중계가 실패하면 Discord에는 아무것도 오지 않는다. 이 경보만은 V1 이메일 구독으로 받는다.
+  RelayErrors:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: keepgo-alerts-discord-errors
+      AlarmDescription: Discord 경보 중계 Lambda 실패. 웹훅 삭제·만료, SSM 권한, Discord 장애를 확인한다.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref Relay}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref V1TopicArn]
+      OKActions: [!Ref V1TopicArn]
+
+Outputs:
+  FunctionName:
+    Value: !Ref Relay

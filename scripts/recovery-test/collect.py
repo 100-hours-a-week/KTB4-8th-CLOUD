@@ -81,11 +81,14 @@ def prometheus(path, start, end):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("run")
+    parser.add_argument("--end", help="cut the window here, e.g. when the next test started (UTC ISO)")
     args = parser.parse_args()
 
     path = run_dir(args.run)
     # Alarms evaluate 3 x 60s and Prometheus rules use for: 3~5m, so look a bit past the run.
     start, end = window(path, timedelta(minutes=5), timedelta(minutes=10))
+    if args.end and parse(args.end) < end:
+        end = parse(args.end)
     if end > now():
         print(f"warning: alarms may still be evaluating; rerun after {iso(end)} for the full window")
         end = now()

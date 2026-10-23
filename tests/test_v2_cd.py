@@ -6,12 +6,15 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from v2_common import Error, Pending, candidate, image_uri, load_config, successful_run, task_payload, verify_provenance
+import tempfile
+from v2_common import (Error, Pending, candidate, image_uri, load_config, successful_run, targets, task_payload,
+                       validate_manifest, verify_provenance)
 from v2_deploy import Deployer
 from v2_release import blocked
 from configure_v2_iam import add_subject, ADDITIONS, support_policy
 
-CONFIG = load_config()
+# Fixture instead of deployment/v2-dev.json: the development config is removed when V2 is promoted in place.
+CONFIG = load_config("v2-dev", Path(__file__).resolve().parent / "fixtures/v2-dev.json")
 COMMIT = "a" * 40
 OLD = "sha256:" + "1" * 64
 NEW = "sha256:" + "2" * 64
@@ -110,6 +113,64 @@ class FakeAWS:
                 self.definition["containerDefinitions"][1]["image"] = image_uri(CONFIG, CONFIG["groups"]["backend"], NEW)
             return {}
         raise AssertionError((api_service, operation, options))
+
+
+def prod_config(cluster="keepgo-v2-prod", branch="main"):
+    data = copy.deepcopy(CONFIG)
+    data.update(environment="v2-prod", cluster=cluster, state_prefix="/keepgo/v2-prod/deployments")
+    for name, group in data["groups"].items():
+        service = group["service"].replace("keepgo-v2", cluster, 1)
+        group.update(branch=branch, job="Main - Build and Push Image", service=service, family=service)
+    return data
+
+
+def load(data, environment="v2-prod"):
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "config.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return load_config(environment, path)
+
+
+class EnvironmentTests(unittest.TestCase):
+    def test_production_config_tracks_main_with_its_own_state(self):
+        config = load(prod_config())
+        self.assertEqual(config["state_prefix"], "/keepgo/v2-prod/deployments")
+        self.assertEqual(config["groups"]["ai"]["service"], "keepgo-v2-prod-ai-api")
+
+    def test_production_must_track_main(self):
+        with self.assertRaisesRegex(Error, "must track main"):
+            load(prod_config(branch="develop"))
+
+    def test_development_must_not_track_production_branch(self):
+        data = copy.deepcopy(CONFIG)
+        data["groups"]["backend"]["branch"] = "main"
+        with self.assertRaisesRegex(Error, "production branch"):
+            load(data, "v2-dev")
+
+    def test_state_prefix_must_match_environment(self):
+        data = prod_config()
+        data["state_prefix"] = "/keepgo/v2-dev/deployments"
+        with self.assertRaisesRegex(Error, "configuration"):
+            load(data)
+
+    def test_service_must_belong_to_cluster(self):
+        data = prod_config()
+        data["groups"]["backend"].update(service="keepgo-v2-backend", family="keepgo-v2-backend")
+        with self.assertRaisesRegex(Error, "service/family"):
+            load(data)
+
+    def test_unknown_environment_rejected(self):
+        with self.assertRaisesRegex(Error, "configuration"):
+            load(dict(prod_config(), environment="staging"), "staging")
+
+    def test_in_place_promotion_overlaps_development_services(self):
+        self.assertTrue(targets(prod_config("keepgo-v2")) & targets(CONFIG))
+        self.assertFalse(targets(prod_config()) & targets(CONFIG))
+
+    def test_manifest_from_another_environment_rejected(self):
+        manifest = candidate(FakeGitHub(), FakeAWS(), CONFIG, "backend")
+        with self.assertRaisesRegex(Error, "Invalid V2 manifest"):
+            validate_manifest(manifest, load(prod_config("keepgo-v2")), "backend")
 
 
 class V2Tests(unittest.TestCase):

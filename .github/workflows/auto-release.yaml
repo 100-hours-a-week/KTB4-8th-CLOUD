@@ -12,7 +12,7 @@ on:
       target:
         description: '조회 대상. all은 환경별 자동 스위치가 켜진 대상만 실행'
         type: choice
-        options: [production, v2-dev, all]
+        options: [production, v2-dev, v2-prod, all]
         default: all
       dry_run:
         description: '조회만 하고 PR·병합·배포는 하지 않는다 (AUTO_DEPLOY_ENABLED가 꺼져 있어도 실행)'
@@ -31,7 +31,7 @@ concurrency:
 jobs:
   release:
     # 자동 배포 전체 스위치. 'true'가 아니면 조회하지 않는다. dry_run은 켜기 전 확인용이라 스위치와 무관하다.
-    if: inputs.target != 'v2-dev' && (vars.AUTO_DEPLOY_ENABLED == 'true' || inputs.dry_run)
+    if: inputs.target != 'v2-dev' && inputs.target != 'v2-prod' && (vars.AUTO_DEPLOY_ENABLED == 'true' || inputs.dry_run)
     concurrency:
       group: auto-release-production
       cancel-in-progress: false
@@ -100,3 +100,44 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: bash scripts/notify-discord.sh "V2 개발 릴리스 실패" "개발 이미지 조회·Manifest 병합·배포 호출을 확인하세요."
+
+  # 운영 V2는 별도 스위치로만 켠다. 설정 파일(deployment/v2-prod.json)이 생기기 전에도 안전하도록
+  # dry_run은 target을 v2-prod로 직접 고른 경우에만 실행한다.
+  release-v2-prod:
+    name: Find V2 production images
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || inputs.target == 'v2-prod' || inputs.target == 'all') &&
+      (vars.V2_PROD_AUTO_DEPLOY_ENABLED == 'true' || (inputs.dry_run && inputs.target == 'v2-prod'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: v2-prod
+    concurrency:
+      group: auto-release-v2-prod
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Configure V2 AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.V2_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: Discover production images
+        env:
+          RELEASE_TARGET: v2-prod
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: bash scripts/release.sh
+      - name: Notify V2 release failure
+        if: failure() && !inputs.dry_run
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: bash scripts/notify-discord.sh "V2 운영 릴리스 실패" "운영 이미지 조회·Manifest 병합·배포 호출을 확인하세요."

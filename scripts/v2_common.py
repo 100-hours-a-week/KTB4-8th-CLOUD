@@ -1,4 +1,4 @@
-"""V2 development release contract and read-only provenance checks (stdlib only)."""
+"""V2 release contract per environment and read-only provenance checks (stdlib only)."""
 import copy
 import json
 import os
@@ -75,23 +75,49 @@ class GitHub:
             page += 1
 
 
-def load_config(path=None):
-    data = json.loads(Path(path or ROOT / "deployment/v2-dev.json").read_text(encoding="utf-8"))
-    if (data.get("schema_version") != 1 or data.get("environment") != "v2-dev"
+ENVIRONMENTS = ("v2-dev", "v2-prod")
+# ECS service/family is always "<cluster>-<suffix>", so a config cannot point at arbitrary services.
+SERVICE_SUFFIXES = {"backend": "backend", "ai": "ai-api", "frontend": "frontend"}
+PRODUCTION_BRANCHES = {"main", "feat/v1"}
+
+
+def config_path(environment):
+    if environment not in ENVIRONMENTS:
+        raise Error("Unknown V2 environment")
+    return ROOT / f"deployment/{environment}.json"
+
+
+def targets(data):
+    return {(data.get("cluster"), group.get("service")) for group in data.get("groups", {}).values()}
+
+
+def load_config(environment="v2-dev", path=None):
+    data = json.loads(Path(path or config_path(environment)).read_text(encoding="utf-8"))
+    cluster = data.get("cluster", "")
+    if (environment not in ENVIRONMENTS or data.get("schema_version") != 1
+            or data.get("environment") != environment
             or not re.fullmatch(r"\d{12}", data.get("account_id", ""))
-            or data.get("cluster") != "keepgo-v2"
-            or data.get("state_prefix") != "/keepgo/v2-dev/deployments"):
+            or not re.fullmatch(r"keepgo-v2(-[a-z0-9]+)?", cluster)
+            or data.get("state_prefix") != f"/keepgo/{environment}/deployments"):
         raise Error("Invalid V2 environment configuration")
-    services = {"backend": "keepgo-v2-backend", "ai": "keepgo-v2-ai-api",
-                "frontend": "keepgo-v2-frontend"}
-    if set(data.get("groups", {})) != set(services):
+    if set(data.get("groups", {})) != set(SERVICE_SUFFIXES):
         raise Error("Only the verified backend, ai and frontend services are supported")
     for name, group in data["groups"].items():
-        expected = services[name]
+        expected = f"{cluster}-{SERVICE_SUFFIXES[name]}"
         if group["service"] != expected or group["family"] != expected:
             raise Error("Unexpected V2 service/family")
-        if group["branch"] in {"main", "feat/v1"}:
+        if environment == "v2-prod":
+            if group["branch"] != "main":
+                raise Error("V2 production must track main")
+        elif group["branch"] in PRODUCTION_BRANCHES:
             raise Error("V2 development must not track the production branch")
+    if path is None:
+        # Two environments deploying different branches to one ECS service would overwrite each other.
+        for other in ENVIRONMENTS:
+            other_path = config_path(other)
+            if other != environment and other_path.exists():
+                if targets(data) & targets(json.loads(other_path.read_text(encoding="utf-8"))):
+                    raise Error("Another V2 environment targets the same ECS service")
     return data
 
 
@@ -137,7 +163,7 @@ def successful_run(gh, group, commit):
         return None
     latest = max(runs, key=lambda item: item["id"])
     if latest.get("status") != "completed":
-        raise Pending("Development CI is still running")
+        raise Pending("CI is still running")
     if latest.get("conclusion") != "success":
         return None
     if (latest.get("head_sha") != commit or latest.get("head_branch") != group["branch"]
@@ -158,7 +184,7 @@ def candidate(gh, aws, config, name):
     ci = successful_run(gh, group, commit)
     if ci is None:
         return None
-    return {"schema_version": 1, "environment": "v2-dev", "group": name,
+    return {"schema_version": 1, "environment": config["environment"], "group": name,
             "source": {"repository": group["repository"], "branch": group["branch"],
                        "commit": commit, "run_id": ci["id"], "run_attempt": ci["run_attempt"]},
             "image": resolve_image(aws, config, group, commit)}
@@ -167,7 +193,7 @@ def candidate(gh, aws, config, name):
 def validate_manifest(manifest, config, name):
     group = config["groups"][name]
     if (set(manifest) != {"schema_version", "environment", "group", "source", "image"}
-            or manifest["schema_version"] != 1 or manifest["environment"] != "v2-dev"
+            or manifest["schema_version"] != 1 or manifest["environment"] != config["environment"]
             or manifest["group"] != name):
         raise Error("Invalid V2 manifest")
     source = manifest["source"]

@@ -1,4 +1,4 @@
-"""Deploy one verified V2 development image, with durable interruption/rollback state."""
+"""Deploy one verified V2 image to one environment, with durable interruption/rollback state."""
 import argparse
 import json
 import os
@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import time
 
-from v2_common import AWS, DIGEST, Error, GitHub, ROOT, check_account, load_config, task_payload, verify_provenance
+from v2_common import AWS, DIGEST, ENVIRONMENTS, Error, GitHub, ROOT, check_account, load_config, task_payload, verify_provenance
 
 
 class Deployer:
@@ -210,6 +210,7 @@ class Deployer:
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--environment", choices=ENVIRONMENTS, default="v2-dev")
     parser.add_argument("--group", required=True, choices=["backend", "ai", "frontend"])
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--recover", action="store_true")
@@ -218,7 +219,7 @@ def main():
     args = parser.parse_args()
     if args.execute and (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_REF") != "refs/heads/main"):
         raise Error("AWS writes are restricted to Cloud main in GitHub Actions")
-    config = load_config()
+    config = load_config(args.environment)
     aws = AWS(config["region"])
     check_account(aws, config)
     deployer = Deployer(aws, config, args.group)
@@ -239,9 +240,9 @@ def main():
     if args.recover:
         deployer.recover(args.execute)
         return 0
-    path = ROOT / f"deployment/envs/v2-dev/{args.group}.json"
+    path = ROOT / f"deployment/envs/{args.environment}/{args.group}.json"
     if not path.exists():
-        raise Error("No verified V2 manifest yet; run V2 image discovery after development CI succeeds")
+        raise Error("No verified V2 manifest yet; run V2 image discovery after CI succeeds")
     manifest = json.loads(path.read_text(encoding="utf-8"))
     verify_provenance(GitHub(), aws, config, args.group, manifest)
     deployer.deploy(manifest, execute=args.execute, retry_failed=args.retry_failed)

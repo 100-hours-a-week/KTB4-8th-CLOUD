@@ -24,7 +24,7 @@ class DiscoveryTest(unittest.TestCase):
     def test_only_running_application_container_is_targeted(self):
         targets = discovery.discover(self.reader())
         self.assertEqual(targets[0]["targets"], ["10.20.10.81:8081"])
-        self.assertEqual(targets[0]["labels"]["environment"], "development")
+        self.assertEqual(targets[0]["labels"]["environment"], "production")
         self.assertEqual(targets[0]["labels"]["__metrics_path__"], "/actuator/prometheus")
         self.assertEqual(len(targets), 1)
 

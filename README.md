@@ -8,6 +8,7 @@
 
 | 알고 싶은 내용 | 문서 |
 | --- | --- |
+| V2 운영 전환·V1 개발 전환의 순서, 출시 필수 작업, CI/CD·모니터링 변경, 미정 사항 | [V2 운영 전환 계획](docs/v2-prod-cutover-plan.md) |
 | 개발 BE·AI 모니터링 설치·자동 대상 발견·로그 확인·복구 | [개발 모니터링 실행 절차](docs/dev-monitoring-runbook.md) |
 | 개발 모니터링 연결의 조사·비용·적용 기록 | [개발 모니터링 연결 기록](docs/dev-monitoring-connection.md) |
 | 모니터링 전체 흐름·구축 순서, 코드 구현과 운영 적용 구분, V1/V2 차이 | [모니터링 전체 안내](docs/monitoring-overview.md) |

@@ -52,3 +52,11 @@ scrape_configs:
     file_sd_configs:
       - files: [/etc/prometheus/targets/application.json]
         refresh_interval: 30s
+
+  # Separate job and rules keep development out of the existing production aggregates.
+  - job_name: application-dev
+    sample_limit: 10000
+    label_limit: 40
+    file_sd_configs:
+      - files: [/etc/prometheus/targets/development.json]
+        refresh_interval: 30s

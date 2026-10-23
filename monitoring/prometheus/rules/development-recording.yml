@@ -1,0 +1,57 @@
+# 클라우드 공통 조회 계층. BE는 Micrometer 기본 이름을 보존하고 AI만 명시적 이름을 쓴다.
+# rate/increase를 인스턴스별로 계산한 뒤 합쳐야 재시작 counter reset이 처리된다.
+# 실제 요청이 없으면 비율은 NaN/No data다. 없는 계측을 정상(0)으로 숨기지 않는다.
+groups:
+  - name: keepgo-development-recording
+    rules:
+      - record: keepgo_dev:http_requests:rate5m
+        expr: |
+          sum by (environment, cluster, service, route, method, status, traffic_class) (
+            label_replace(rate(http_server_requests_seconds_count{job="application-dev",metrics_contract="v1",service="backend",traffic_class=~"interactive|generation|stream",uri!~"/actuator.*|/health.*|/metrics"}[5m]), "route", "$1", "uri", "(.+)")
+          )
+          or
+          sum by (environment, cluster, service, route, method, status, traffic_class) (
+            rate(keepgo_http_requests_total{job="application-dev",metrics_contract="v1",service="ai-api",traffic_class=~"interactive|generation|stream",route!~"/health.*|/metrics"}[5m])
+          )
+      - record: keepgo_dev:http_requests:increase5m
+        expr: |
+          sum by (environment, cluster, service, route, method, status, traffic_class) (
+            label_replace(increase(http_server_requests_seconds_count{job="application-dev",metrics_contract="v1",service="backend",traffic_class=~"interactive|generation|stream",uri!~"/actuator.*|/health.*|/metrics"}[5m]), "route", "$1", "uri", "(.+)")
+          )
+          or
+          sum by (environment, cluster, service, route, method, status, traffic_class) (
+            increase(keepgo_http_requests_total{job="application-dev",metrics_contract="v1",service="ai-api",traffic_class=~"interactive|generation|stream",route!~"/health.*|/metrics"}[5m])
+          )
+      - record: keepgo_dev:http_duration_seconds_bucket:rate5m
+        expr: |
+          sum by (environment, cluster, service, route, method, traffic_class, le) (
+            label_replace(rate(http_server_requests_seconds_bucket{job="application-dev",metrics_contract="v1",service="backend",traffic_class=~"interactive|generation|stream",uri!~"/actuator.*|/health.*|/metrics"}[5m]), "route", "$1", "uri", "(.+)")
+          )
+          or
+          sum by (environment, cluster, service, route, method, traffic_class, le) (
+            rate(keepgo_http_request_duration_seconds_bucket{job="application-dev",metrics_contract="v1",service="ai-api",traffic_class=~"interactive|generation|stream",route!~"/health.*|/metrics"}[5m])
+          )
+      - record: keepgo_dev:http_5xx:ratio5m
+        expr: |
+          (
+            sum by (environment, cluster, service) (keepgo_dev:http_requests:rate5m{status=~"5.."})
+            or on (environment, cluster, service) (0 * sum by (environment, cluster, service) (keepgo_dev:http_requests:rate5m))
+          ) / sum by (environment, cluster, service) (keepgo_dev:http_requests:rate5m)
+      - record: keepgo_dev:http_duration:p95_5m
+        expr: histogram_quantile(0.95, sum by (environment, cluster, service, traffic_class, le) (keepgo_dev:http_duration_seconds_bucket:rate5m))
+      - record: keepgo_dev:jvm_heap:ratio
+        expr: |
+          sum by (environment, cluster, service, instance) (jvm_memory_used_bytes{job="application-dev",metrics_contract="v1",area="heap"})
+          / sum by (environment, cluster, service, instance) (jvm_memory_max_bytes{job="application-dev",metrics_contract="v1",area="heap"} > 0)
+      - record: keepgo_dev:db_pool:ratio
+        expr: |
+          hikaricp_connections_active{job="application-dev",metrics_contract="v1"}
+          / hikaricp_connections_max{job="application-dev",metrics_contract="v1"}
+      - record: keepgo_dev:ai_provider_errors:ratio5m
+        expr: |
+          (
+            sum by (environment, cluster, service, provider, model) (rate(keepgo_ai_provider_requests_total{job="application-dev",metrics_contract="v1",outcome=~"error|timeout|rate_limited"}[5m]))
+            or on (environment, cluster, service, provider, model)
+            (0 * sum by (environment, cluster, service, provider, model) (rate(keepgo_ai_provider_requests_total{job="application-dev",metrics_contract="v1",outcome!="cancelled"}[5m])))
+          )
+          / sum by (environment, cluster, service, provider, model) (rate(keepgo_ai_provider_requests_total{job="application-dev",metrics_contract="v1",outcome!="cancelled"}[5m]))

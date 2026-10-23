@@ -72,7 +72,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_with_host" {
 
 locals {
   # ALB 리스너 규칙과 같은 경로를 CloudFront도 ALB로 보낸다. 웹과 API가 한 도메인이라 CORS가 필요 없습니다.
-  api_paths = flatten([for rule in local.listener_rules : rule.paths])
+  api_paths = flatten([for rule in local.active_listener_rules : rule.paths])
   # ALB가 웹 도메인 인증서를 가지고 있을 때만 Host를 넘긴다. 이때 CloudFront 기본주소(*.cloudfront.net)는 ALB 인증서와 이름이 달라 502가 난다.
   origin_request_policy_id = var.web_alb_certificate_arn == "" ? data.aws_cloudfront_origin_request_policy.all_viewer.id : data.aws_cloudfront_origin_request_policy.all_viewer_with_host.id
 
@@ -110,7 +110,7 @@ resource "aws_cloudfront_distribution" "web" {
   is_ipv6_enabled = true
   http_version    = "http2and3"
   price_class     = "PriceClass_200"
-  aliases         = var.web_domain_name == "" ? [] : [var.web_domain_name]
+  aliases         = var.web_domain_name == "" ? [] : concat([var.web_domain_name], var.web_extra_aliases)
   comment         = "${local.name} web"
   # Host를 넘기기 전에 ALB가 웹 도메인 인증서를 먼저 가지고 있어야 합니다(순서가 바뀌면 502)
   depends_on = [aws_lb_listener_certificate.web]
@@ -131,6 +131,22 @@ resource "aws_cloudfront_distribution" "web" {
       origin_protocol_policy   = "https-only"
       origin_ssl_protocols     = ["TLSv1.2"]
       origin_read_timeout      = 60
+      origin_keepalive_timeout = 60
+    }
+  }
+
+  # v2 SSE(채팅·추천)는 AI 답이 올 때까지 데이터가 없다. BE SseEmitter(120초)에 맞춰 대기 시간을 늘리기
+  # 120초를 넘는 값은 Service Quotas에서 CloudFront "Response timeout per origin" 상향 승인이 먼저 필요
+  origin {
+    origin_id   = "api-sse"
+    domain_name = var.api_domain_name
+
+    custom_origin_config {
+      http_port                = 80
+      https_port               = 443
+      origin_protocol_policy   = "https-only"
+      origin_ssl_protocols     = ["TLSv1.2"]
+      origin_read_timeout      = 120
       origin_keepalive_timeout = 60
     }
   }
@@ -160,6 +176,18 @@ resource "aws_cloudfront_distribution" "web" {
     cached_methods         = ["GET", "HEAD"]
     cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
     compress               = true
+  }
+
+  # v2 API(SSE 포함)는 긴 대기 시간 오리진으로. /api/* 보다 먼저 와야 한다.
+  ordered_cache_behavior {
+    path_pattern             = "/api/v2/*"
+    target_origin_id         = "api-sse"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id = local.origin_request_policy_id
+    compress                 = false
   }
 
   dynamic "ordered_cache_behavior" {

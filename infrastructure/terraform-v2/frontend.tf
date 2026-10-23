@@ -171,7 +171,7 @@ resource "aws_ecs_task_definition" "frontend" {
 
   container_definitions = jsonencode([{
     name            = "frontend"
-    image           = "${data.aws_ecr_repository.frontend.repository_url}:${var.image_tags["frontend"]}"
+    image           = local.deployed_image["frontend"]
     essential       = true
     stopTimeout     = 30
     linuxParameters = { initProcessEnabled = true }

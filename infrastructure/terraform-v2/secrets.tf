@@ -14,7 +14,7 @@ data "aws_secretsmanager_secret" "v2_ai" {
 locals {
   # V1 Secret에 실제로 있는 키만 삽입. 만약 하나라도 부족하면 Task 시작 안함
   secret_env_keys = {
-    backend = ["GOOGLE_CLIENT_SECRET", "VWORLD_API_KEY"]
+    backend = ["GOOGLE_CLIENT_SECRET", "VWORLD_API_KEY", "GOOGLE_LOGIN_CLIENT_SECRET"]
     ai-api  = ["GOOGLE_API_KEY", "NAVER_MAP_CLIENT_ID", "NAVER_MAP_CLIENT_SECRET", "SENTRY_DSN"]
   }
   # V2 전용 Secret(Secret-v2-AI)에서 읽는 키. LangSmith 로그를 운영과 다른 키로 분리한다.

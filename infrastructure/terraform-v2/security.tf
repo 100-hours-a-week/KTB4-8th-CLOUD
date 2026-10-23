@@ -24,6 +24,8 @@ locals {
     redis-from-wk    = { target = "redis", source = "worker", port = 6379 }
     # 디버깅용: SSM 포트 포워딩(호스ㅡㅌ 경유)으로 RedisInsigint 접속
     redis-from-host = { target = "redis", source = "ecs-host", port = 6379 }
+    # 디버깅용: SSM 포트 포워딩(호스트 경유)으로 DB 도구 접속. 필요 없어지면 지운다.
+    rds-from-host    = { target = "rds", source = "ecs-host", port = 3306 }
   }
 }
 

@@ -79,13 +79,16 @@ resource "aws_lb_listener" "https" {
 locals {
   # V1 nginx가 Backend로 보내던 경로와 같다. 규칙 하나에 경로 값은 최대 5개.
   listener_rules = {
+    # 켜진 서비스의 경로만 ALB 규칙과 CloudFront 경로로 사용. 꺼진 sserk /events/*를 잡으면 FE 정적 파일이 503이 된다.
     sse     = { priority = 10, paths = ["/events/*"] }
     backend = { priority = 20, paths = ["/api/*", "/oauth2/*", "/login/oauth2/*", "/public/*"] }
   }
+  active_listener_rules = { for key, rule in local.listener_rules : key => rule if contains(keys(local.enabled), key) }
+
 }
 
 resource "aws_lb_listener_rule" "app" {
-  for_each = local.listener_rules
+  for_each = local.active_listener_rules
 
   listener_arn = aws_lb_listener.https.arn
   priority     = each.value.priority

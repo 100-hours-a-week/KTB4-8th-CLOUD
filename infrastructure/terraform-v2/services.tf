@@ -22,6 +22,22 @@ data "aws_ecr_repository" "app" {
   name     = each.key
 }
 
+# 현재 배포된 이미지는 중앙 CD가 SSM에 기록
+# tfvars 태그 대신 이 값을 사용해 설정만 바꾸는 apply가 코드를 옛버전으로 되돌리지 않게 한다.
+data "aws_ssm_parameter" "deployed" {
+  for_each = { backend = "backend", ai-api = "ai", frontend = "frontend" }
+  name     = "/keepgo/v2-dev/deployments/${each.value}"
+}
+locals {
+  deployed = { for key, param in data.aws_ssm_parameter.deployed : key => jsondecode(nonsensitive(param.value)) }
+
+  deployed_image = {
+    for key, d in local.deployed : key => (
+      d.phase == "succeeded" ? d.image : "${split("@", d.image)[0]}@${d.previous_digest}"
+    )
+  }
+}
+
 resource "aws_cloudwatch_log_group" "app" {
   for_each          = local.services
   name              = "/keepgo/v2/${each.key}"
@@ -62,6 +78,7 @@ locals {
     AI_SERVER_API_ADDRESS                                         = "http://ai-api.${aws_service_discovery_private_dns_namespace.main.name}:8000"
     FRONTEND_SERVER_ADDRESS                                       = local.web_origin
     SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECTURI = "${local.web_origin}/login/oauth2/code/google"
+    GOOGLE_LOGIN_CLIENT_ID                                        = "365953128391-vv6cqktt3lfao0djcpl54a5cvq5hko0e.apps.googleusercontent.com"
     JAVA_TOOL_OPTIONS                                             = "-XX:MaxRAMPercentage=65.0"
     LOGGING_LEVEL_ROOT                                            = "INFO"
     SERVER_FORWARD_HEADERS_STRATEGY                               = "native"
@@ -98,7 +115,7 @@ locals {
       EMBEDDING_PROVIDER     = "google"
       CHROMA_PATH            = "/app/chroma"
       LANGSMITH_TRACING      = "true"
-      LANGSMITH_WORKSPACE_ID = "3839065b-21f0-4891-857e-e81695ab40e5"
+      LANGSMITH_WORKSPACE_ID = "7c8ee26f-acab-4d46-98cb-8973264080fe"
       LANGSMITH_PROJECT      = "keepgo_local"
     }
   }
@@ -152,8 +169,9 @@ resource "aws_ecs_task_definition" "app" {
 
     # 2) 앱 컨테이너
     [{
-      name              = each.key
-      image             = "${data.aws_ecr_repository.app[each.value.repository].repository_url}:${var.image_tags[each.key]}"
+      name = each.key
+      # CD가 배포한 이미지를 따른다. SSM 기록이 없는 서비스(sse나 worker를 처음 킬때)만 tfvars 태그를 쓴다.
+      image             = lookup(local.deployed_image, each.key, "${data.aws_ecr_repository.app[each.value.repository].repository_url}:${var.image_tags[each.key]}")
       essential         = true
       cpu               = each.value.cpu
       memory            = each.value.memory

@@ -143,3 +143,9 @@ variable "github_deploy_subjects" {
     "repo:100-hours-a-week@167328634/KTB4-8th-CLOUD@1344688950:environment:dev",
   ]
 }
+
+variable "web_extra_aliases" {
+  description = "웹 도메인 외에 CloudFront가 함께 받을 이름(인증서에 모두 들어 있어야 함)"
+  type        = list(string)
+  default     = []
+}

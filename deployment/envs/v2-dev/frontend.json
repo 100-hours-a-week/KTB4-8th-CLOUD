@@ -5,9 +5,9 @@
   "source": {
     "repository": "100-hours-a-week/KTB4-8th-FE",
     "branch": "develop",
-    "commit": "e11df764286e50bccc2b5ed8335403532f5dd3f2",
-    "run_id": 39906404593,
+    "commit": "07b87c8f89282cb59874a6e73004524a7fb8f734",
+    "run_id": 39922957073,
     "run_attempt": 1
   },
-  "image": "602601433533.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web@sha256:70ce6378f0192317ccd369bfb8fbc0ca3ebe2b90bbf717a411647d07319e11db"
+  "image": "602601433533.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-web@sha256:b8f855a50de8a61536bd9a090231d70e0388953f2e63ad3407c92b77e5881eef"
 }

@@ -1,14 +1,14 @@
 {
   "id": null,
   "uid": "keepgo-backend-dev",
-  "title": "[DEV] KeepGo - Backend JVM and DB Pool",
-  "description": "Micrometer/Hikari contract v1. JVM heap and process/container memory have different denominators. GC pause rate is pause-seconds per second. Development only; production queries remain unchanged.",
+  "title": "[PROD V2] KeepGo - Backend JVM and DB Pool",
+  "description": "Micrometer/Hikari contract v1. JVM heap and process/container memory have different denominators. GC pause rate is pause-seconds per second. V2 ECS production (keepgo-v2) only; V1 queries remain unchanged.",
   "schemaVersion": 39,
   "version": 1,
   "tags": [
     "keepgo",
     "application",
-    "development",
+    "production",
     "keepgo-v2"
   ],
   "timezone": "browser",

@@ -1,14 +1,14 @@
 {
   "id": null,
   "uid": "keepgo-http-dev",
-  "title": "[DEV] KeepGo - Application HTTP",
-  "description": "Contract v1. Health/metrics routes are excluded. No data means no observations or missing instrumentation, not zero errors. Stream duration is full response lifetime. Development only; production queries remain unchanged.",
+  "title": "[PROD V2] KeepGo - Application HTTP",
+  "description": "Contract v1. Health/metrics routes are excluded. No data means no observations or missing instrumentation, not zero errors. Stream duration is full response lifetime. V2 ECS production (keepgo-v2) only; V1 queries remain unchanged.",
   "schemaVersion": 39,
   "version": 1,
   "tags": [
     "keepgo",
     "application",
-    "development",
+    "production",
     "keepgo-v2"
   ],
   "timezone": "browser",

@@ -12,7 +12,7 @@ groups:
         for: 10m
         labels: {scope: development, severity: warning, signal: http_metrics_missing}
         annotations:
-          summary: Development HTTP capability is missing. Counters may be absent before the first request.
+          summary: V2 HTTP capability is missing. Counters may be absent before the first request.
       - alert: KeepGoDevHttp5xxHigh
         expr: |
           (keepgo_dev:http_5xx:ratio5m > 0.05)
@@ -80,20 +80,20 @@ groups:
         for: 3m
         labels: {scope: development, severity: warning, signal: scrape_down}
         annotations:
-          summary: Development metrics endpoint is unreachable for 3 minutes.
+          summary: V2 production metrics endpoint is unreachable for 3 minutes.
       - alert: KeepGoDevTargetMissing
         expr: |
-          absent(up{job="application-dev",environment="development",cluster="keepgo-v2",service="backend"})
-          or absent(up{job="application-dev",environment="development",cluster="keepgo-v2",service="ai-api"})
+          absent(up{job="application-dev",environment="production",cluster="keepgo-v2",service="backend"})
+          or absent(up{job="application-dev",environment="production",cluster="keepgo-v2",service="ai-api"})
         for: 5m
         labels: {scope: development, severity: warning, signal: target_missing}
         annotations:
-          summary: Expected development service has no running scrape target.
+          summary: Expected V2 production service has no running scrape target.
       - alert: KeepGoDevDiscoveryStale
         expr: |
           (time() - prometheus_sd_file_mtime_seconds{filename="/etc/prometheus/targets/development.json"} > 180)
           or absent(prometheus_sd_file_mtime_seconds{filename="/etc/prometheus/targets/development.json"})
         for: 2m
-        labels: {scope: development, environment: development, cluster: keepgo-v2, severity: warning, signal: discovery_stale}
+        labels: {scope: development, environment: production, cluster: keepgo-v2, severity: warning, signal: discovery_stale}
         annotations:
-          summary: Development discovery file has not refreshed; inspect keepgo-dev-metrics.timer.
+          summary: V2 discovery file has not refreshed; inspect keepgo-dev-metrics.timer.

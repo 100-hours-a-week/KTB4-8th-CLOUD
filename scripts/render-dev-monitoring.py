@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Reuse the existing HTTP/JVM dashboards and rules with an isolated development job."""
+"""Reuse the existing HTTP/JVM dashboards and rules with an isolated job for the V2 ECS cluster.
+
+The job, file and rule names still say "dev"; V2 became production on 2026-10-23, so labels and titles say
+production while the names stay until the V1 instance is relabeled as development.
+"""
 import argparse
 import copy
 import json
@@ -22,9 +26,9 @@ def artifacts():
     for filename in ("application-http", "backend-runtime"):
         board = copy.deepcopy(original[f"monitoring/grafana/dashboards/{filename}.json"])
         board["uid"] += "-dev"
-        board["title"] = "[DEV] " + board["title"]
-        board["tags"] += ["development", "keepgo-v2"]
-        board["description"] += " Development only; production queries remain unchanged."
+        board["title"] = "[PROD V2] " + board["title"]
+        board["tags"] += ["production", "keepgo-v2"]
+        board["description"] += " V2 ECS production (keepgo-v2) only; V1 queries remain unchanged."
         for panel in board["panels"]:
             for target in panel["targets"]:
                 target["expr"] = expr_dev(target["expr"])
@@ -33,9 +37,9 @@ def artifacts():
     group = relay["groups"][0]
     group["name"] = "keepgo-development-relay"
     rule = group["rules"][0]
-    rule.update(uid="keepgo-development", title="[DEV] KeepGo application signal")
-    rule["labels"].update(environment="development", cluster="keepgo-v2")
-    rule["annotations"]["summary"] = "[DEV] Development monitoring signal. Check service/signal labels and the development runbook."
+    rule.update(uid="keepgo-development", title="[PROD V2] KeepGo application signal")
+    rule["labels"].update(environment="production", cluster="keepgo-v2")
+    rule["annotations"]["summary"] = "[PROD V2] Production ECS monitoring signal. Check service/signal labels and the alert runbook."
     rule["data"][0]["model"]["expr"] = expr_dev(rule["data"][0]["model"]["expr"]).replace('scope="application"','scope="development"')
     result["monitoring/grafana/provisioning/alerting/development.json"] = json.dumps(relay, indent=2) + "\n"
     for kind in ("recording", "alerts"):
@@ -51,30 +55,30 @@ def artifacts():
           unless on (environment, cluster, service, instance)
           (keepgo_observability_info{job="application-dev",contract="1",capability="http"} == 1)
 ''' + text[end:]
-            text = text.replace("Registered HTTP metrics contract is incomplete; check capability, traffic_class, count and histogram.", "Development HTTP capability is missing. Counters may be absent before the first request.")
+            text = text.replace("Registered HTTP metrics contract is incomplete; check capability, traffic_class, count and histogram.", "V2 HTTP capability is missing. Counters may be absent before the first request.")
             text += '''
       - alert: KeepGoDevScrapeDown
         expr: up{job="application-dev"} == 0
         for: 3m
         labels: {scope: development, severity: warning, signal: scrape_down}
         annotations:
-          summary: Development metrics endpoint is unreachable for 3 minutes.
+          summary: V2 production metrics endpoint is unreachable for 3 minutes.
       - alert: KeepGoDevTargetMissing
         expr: |
-          absent(up{job="application-dev",environment="development",cluster="keepgo-v2",service="backend"})
-          or absent(up{job="application-dev",environment="development",cluster="keepgo-v2",service="ai-api"})
+          absent(up{job="application-dev",environment="production",cluster="keepgo-v2",service="backend"})
+          or absent(up{job="application-dev",environment="production",cluster="keepgo-v2",service="ai-api"})
         for: 5m
         labels: {scope: development, severity: warning, signal: target_missing}
         annotations:
-          summary: Expected development service has no running scrape target.
+          summary: Expected V2 production service has no running scrape target.
       - alert: KeepGoDevDiscoveryStale
         expr: |
           (time() - prometheus_sd_file_mtime_seconds{filename="/etc/prometheus/targets/development.json"} > 180)
           or absent(prometheus_sd_file_mtime_seconds{filename="/etc/prometheus/targets/development.json"})
         for: 2m
-        labels: {scope: development, environment: development, cluster: keepgo-v2, severity: warning, signal: discovery_stale}
+        labels: {scope: development, environment: production, cluster: keepgo-v2, severity: warning, signal: discovery_stale}
         annotations:
-          summary: Development discovery file has not refreshed; inspect keepgo-dev-metrics.timer.
+          summary: V2 discovery file has not refreshed; inspect keepgo-dev-metrics.timer.
 '''
         result[f"monitoring/prometheus/rules/development-{kind}.yml"] = text
     return result

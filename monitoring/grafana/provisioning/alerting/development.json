@@ -9,18 +9,18 @@
       "rules": [
         {
           "uid": "keepgo-development",
-          "title": "[DEV] KeepGo application signal",
+          "title": "[PROD V2] KeepGo application signal",
           "condition": "B",
           "for": "0s",
           "noDataState": "OK",
           "execErrState": "Alerting",
           "labels": {
             "source": "grafana",
-            "environment": "development",
+            "environment": "production",
             "cluster": "keepgo-v2"
           },
           "annotations": {
-            "summary": "[DEV] Development monitoring signal. Check service/signal labels and the development runbook."
+            "summary": "[PROD V2] Production ECS monitoring signal. Check service/signal labels and the alert runbook."
           },
           "data": [
             {

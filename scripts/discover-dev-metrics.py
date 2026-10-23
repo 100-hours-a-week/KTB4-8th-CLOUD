@@ -48,7 +48,7 @@ def discover(read=aws):
                     addresses.add(f"{address}:{port}")
         if addresses:
             targets.append({"targets": sorted(addresses), "labels": {
-                "environment": "development", "cluster": "keepgo-v2", "service": name,
+                "environment": "production", "cluster": "keepgo-v2", "service": name,
                 "metrics_contract": "v1", "__metrics_path__": path}})
     return targets
 

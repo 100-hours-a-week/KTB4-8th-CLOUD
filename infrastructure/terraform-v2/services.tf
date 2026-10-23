@@ -3,7 +3,7 @@ locals {
   # 호스트그룹(pool), 이미지 저장소, 포트, CPU, 메모리, Task 개수 범위
   # 백엔드는 Caffeine 캐시·로컬 업로드 때문에 Stateless화 전까지 Task 1개로 고정한다
   services = {
-    backend = { pool = "backend", repository = "keepgo-backend", port = 8080, cpu = 1024, memory = 1536, reservation = 1024, min = 1, max = 1, stop = 30, alb = true }
+    backend = { pool = "backend", repository = "keepgo-backend", port = 8080, cpu = 512, memory = 1536, reservation = 1024, min = 1, max = 1, stop = 30, alb = true }
     ai-api  = { pool = "backend", repository = "keepgo-ai", port = 8000, cpu = 512, memory = 768, reservation = 512, min = 1, max = 4, stop = 30, alb = false }
     sse     = { pool = "sse", repository = "keepgo-backend", port = 8080, cpu = 512, memory = 1024, reservation = 512, min = 1, max = 4, stop = 120, alb = true }
     worker  = { pool = "worker", repository = "keepgo-backend", port = null, cpu = 1024, memory = 1536, reservation = 1024, min = 1, max = 4, stop = 120, alb = false }
@@ -20,6 +20,22 @@ locals {
 data "aws_ecr_repository" "app" {
   for_each = toset([for service in local.services : service.repository])
   name     = each.key
+}
+
+# 현재 배포된 이미지는 중앙 CD가 SSM에 기록
+# tfvars 태그 대신 이 값을 사용해 설정만 바꾸는 apply가 코드를 옛버전으로 되돌리지 않게 한다.
+data "aws_ssm_parameter" "deployed" {
+  for_each = { backend = "backend", ai-api = "ai", frontend = "frontend" }
+  name     = "/keepgo/v2-dev/deployments/${each.value}"
+}
+locals {
+  deployed = { for key, param in data.aws_ssm_parameter.deployed : key => jsondecode(nonsensitive(param.value)) }
+
+  deployed_image = {
+    for key, d in local.deployed : key => (
+      d.phase == "succeeded" ? d.image : "${split("@", d.image)[0]}@${d.previous_digest}"
+    )
+  }
 }
 
 resource "aws_cloudwatch_log_group" "app" {
@@ -62,6 +78,7 @@ locals {
     AI_SERVER_API_ADDRESS                                         = "http://ai-api.${aws_service_discovery_private_dns_namespace.main.name}:8000"
     FRONTEND_SERVER_ADDRESS                                       = local.web_origin
     SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECTURI = "${local.web_origin}/login/oauth2/code/google"
+    GOOGLE_LOGIN_CLIENT_ID                                        = "365953128391-vv6cqktt3lfao0djcpl54a5cvq5hko0e.apps.googleusercontent.com"
     JAVA_TOOL_OPTIONS                                             = "-XX:MaxRAMPercentage=65.0"
     LOGGING_LEVEL_ROOT                                            = "INFO"
     SERVER_FORWARD_HEADERS_STRATEGY                               = "native"
@@ -72,9 +89,16 @@ locals {
     SPRING_SQL_INIT_MODE                                          = "always"
     SPRING_SQL_INIT_CONTINUE_ON_ERROR                             = "true"
     # 아래는 SQS·Redis 코드가 들어오면 쓴다. 지금 넣어 둬도 앱이 읽지 않으면 영향 없다.
-    REDIS_HOST                 = aws_elasticache_replication_group.main.primary_endpoint_address
-    REDIS_PORT                 = "6379"
-    REDIS_SSL_ENABLED          = "true"
+    REDIS_HOST = aws_elasticache_replication_group.main.primary_endpoint_address
+    REDIS_PORT = "6379"
+    # Spring Boot가 읽는 이름으로 설정. TLS가 없으면 접속 타임아웃
+    SPRING_DATA_REDIS_SSL_ENABLED = "true"
+    # 토큰 블랙리스트 RT 해시 채팅 요청 저장소와 추천 작업 상태를 Redis로 이전. 배포해도 로그인 유지
+    EPHEMERAL_DATABASE = "redis"
+    # 프로필 이미지는 S3에 저장한다. local은 컨테이너 디스크라 배포 때마다 사라짐
+    FILE_STORAGE_PROVIDER      = "s3"
+    FILE_STORAGE_S3_BUCKET     = aws_s3_bucket.uploads.bucket
+    FILE_STORAGE_S3_REGION     = local.region
     SQS_SYNC_QUEUE_URL         = aws_sqs_queue.main["sync"].url
     SQS_ANALYSIS_QUEUE_URL     = aws_sqs_queue.main["analysis"].url
     SQS_NOTIFICATION_QUEUE_URL = aws_sqs_queue.main["notification"].url
@@ -91,8 +115,8 @@ locals {
       EMBEDDING_PROVIDER     = "google"
       CHROMA_PATH            = "/app/chroma"
       LANGSMITH_TRACING      = "true"
-      LANGSMITH_WORKSPACE_ID = "3839065b-21f0-4891-857e-e81695ab40e5"
-      LANGSMITH_PROJECT      = "keepgo"
+      LANGSMITH_WORKSPACE_ID = "7c8ee26f-acab-4d46-98cb-8973264080fe"
+      LANGSMITH_PROJECT      = "keepgo_local"
     }
   }
 
@@ -145,8 +169,9 @@ resource "aws_ecs_task_definition" "app" {
 
     # 2) 앱 컨테이너
     [{
-      name              = each.key
-      image             = "${data.aws_ecr_repository.app[each.value.repository].repository_url}:${var.image_tags[each.key]}"
+      name = each.key
+      # CD가 배포한 이미지를 따른다. SSM 기록이 없는 서비스(sse나 worker를 처음 킬때)만 tfvars 태그를 쓴다.
+      image             = lookup(local.deployed_image, each.key, "${data.aws_ecr_repository.app[each.value.repository].repository_url}:${var.image_tags[each.key]}")
       essential         = true
       cpu               = each.value.cpu
       memory            = each.value.memory
@@ -171,6 +196,11 @@ resource "aws_ecs_task_definition" "app" {
         contains(["backend", "worker"], each.key) ? [for env, field in local.db_secret_env : {
           name      = env
           valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:${field}::"
+        }] : [],
+        # ai api만 : v2 전용 Secret의 LangSmith 키
+        each.key == "ai-api" ? [for key in local.v2_ai_secret_keys : {
+          name      = key
+          valueFrom = "${data.aws_secretsmanager_secret.v2_ai.arn}:${key}::"
         }] : []
       )
 

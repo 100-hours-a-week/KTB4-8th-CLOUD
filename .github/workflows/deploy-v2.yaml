@@ -1,8 +1,13 @@
-name: Deploy V2 development
+name: Deploy V2
 
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: 'V2 환경. v2-dev는 GitHub Environment dev, v2-prod는 v2-prod를 쓴다'
+        type: choice
+        options: [v2-dev, v2-prod]
+        default: v2-dev
       group:
         description: 'V2 service group'
         type: choice
@@ -25,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-v2-dev-${{ inputs.group }}
+  group: deploy-${{ inputs.environment }}-${{ inputs.group }}
   cancel-in-progress: false
 
 jobs:
@@ -33,7 +38,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
-    environment: dev
+    # 환경마다 배포 Role 변수와 OIDC subject(environment:dev / environment:v2-prod)가 다르다.
+    environment: ${{ inputs.environment == 'v2-prod' && 'v2-prod' || 'dev' }}
     permissions:
       contents: read
       actions: read
@@ -48,14 +54,22 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      # 운영은 개발 스위치를 따르지 않는다. 비어 있으면 꺼진 것으로 본다.
       - name: Check V2 execution switch
         env:
+          TARGET_ENV: ${{ inputs.environment }}
           EXECUTE: ${{ inputs.execute }}
           RECOVER: ${{ inputs.recover }}
-          ENABLED: ${{ vars.V2_CD_ENABLED }}
+          DEV_ENABLED: ${{ vars.V2_CD_ENABLED }}
+          PROD_ENABLED: ${{ vars.V2_PROD_CD_ENABLED }}
         run: |
-          if [[ "$EXECUTE" == true && "$RECOVER" != true && "$ENABLED" != true ]]; then
-            echo 'V2_CD_ENABLED must be true before deployments can change AWS' >&2
+          if [[ "$TARGET_ENV" == v2-prod ]]; then
+            enabled="$PROD_ENABLED"; switch=V2_PROD_CD_ENABLED
+          else
+            enabled="$DEV_ENABLED"; switch=V2_CD_ENABLED
+          fi
+          if [[ "$EXECUTE" == true && "$RECOVER" != true && "$enabled" != true ]]; then
+            echo "$switch must be true before deployments can change AWS" >&2
             exit 1
           fi
       - name: Configure V2 AWS credentials
@@ -65,12 +79,13 @@ jobs:
           aws-region: ap-northeast-2
       - name: Deploy or recover V2 service
         env:
+          TARGET_ENV: ${{ inputs.environment }}
           GROUP: ${{ inputs.group }}
           EXECUTE: ${{ inputs.execute }}
           RECOVER: ${{ inputs.recover }}
           RETRY_FAILED: ${{ inputs.retry_failed }}
         run: |
-          args=(--group "$GROUP")
+          args=(--environment "$TARGET_ENV" --group "$GROUP")
           if [[ "$EXECUTE" == true ]]; then args+=(--execute); fi
           if [[ "$RECOVER" == true ]]; then args+=(--recover); fi
           if [[ "$RETRY_FAILED" == true ]]; then args+=(--retry-failed); fi
@@ -79,4 +94,4 @@ jobs:
         if: failure() && inputs.execute
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: bash scripts/notify-discord.sh "V2 개발 배포 실패" "ECS 배포와 복구 결과를 확인하세요. 중단된 배포는 recover로 복구해야 합니다."
+        run: bash scripts/notify-discord.sh "V2 배포 실패 (${{ inputs.environment }})" "ECS 배포와 복구 결과를 확인하세요. 중단된 배포는 recover로 복구해야 합니다."

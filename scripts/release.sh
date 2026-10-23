@@ -17,11 +17,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # The central entrypoint supports V2 without changing the V1 manifest contract.
 case "${RELEASE_TARGET:-production}" in
   production) ;;
-  v2-dev)
+  v2-dev|v2-prod)
     if [[ -n "${DRY_RUN:-}" ]]; then
-      exec python3 scripts/v2_release.py
+      exec python3 scripts/v2_release.py --environment "${RELEASE_TARGET}"
     else
-      exec python3 scripts/v2_release.py --execute
+      exec python3 scripts/v2_release.py --environment "${RELEASE_TARGET}" --execute
     fi
     ;;
   *) echo "Unknown RELEASE_TARGET" >&2; exit 2 ;;

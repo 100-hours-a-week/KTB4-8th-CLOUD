@@ -104,6 +104,9 @@ services:
       FRONTEND_SERVER_ADDRESS: https://keepgo.kr
       # 구글 로그인 OAuth 클라이언트 ID. 비밀값이 아니며 V2 작업 정의와 같은 값이다. secret은 backend.env로 받는다
       GOOGLE_LOGIN_CLIENT_ID: 365953128391-vv6cqktt3lfao0djcpl54a5cvq5hko0e.apps.googleusercontent.com
+      # Redis 의존성이 이미지에 들어 있지만 V1은 Redis 없이 메모리 저장소(EPHEMERAL_DATABASE 기본 caffeine)를 쓴다.
+      # 켜 두면 localhost:6379 연결 실패로 /actuator/health가 DOWN이 되어 배포가 되돌려진다
+      MANAGEMENT_HEALTH_REDIS_ENABLED: "false"
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
       # BE application.yaml의 root 기본값이 TRACE다. 출력이 막히면 앱 전체가 멈춘다
       # (troubleshooting/2026-10-01-backend-attach-sighup-hang.md). 패키지별 상향은 BE 설정에서 한다

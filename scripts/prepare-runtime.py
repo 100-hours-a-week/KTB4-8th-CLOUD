@@ -27,7 +27,11 @@ BACKEND_UID = 10001  # BE Dockerfile의 app 사용자(uid/gid 10001)
 # 없으면 컨테이너가 뜨지 않거나 DB에 붙지 못한다
 BACKEND_REQUIRED = ["DB_USERNAME", "DB_PASSWORD"]
 # 없으면 뜨기는 하지만 해당 기능이 실패한다 (Google 값이 없으면 yaml 기본값으로 붙는다)
-BACKEND_OPTIONAL = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "VWORLD_API_KEY"]
+# KAKAO_REST_API_KEY는 BE 장소 검색(KakaoPlaceSearch)이 쓴다. 이 키를 요구하는 BE 이미지는 없으면 기동하지 못한다.
+# 이전 이미지는 쓰지 않으므로 필수로 두지 않는다. BE Secret에 없으면 FE Secret 값을 같이 쓴다
+BACKEND_OPTIONAL = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "VWORLD_API_KEY", "KAKAO_REST_API_KEY"]
+# BE Secret에 없을 때 FE Secret에서 가져오는 키
+BACKEND_FROM_FRONTEND = ["KAKAO_REST_API_KEY"]
 # NAVER 키가 없으면 AI는 뜨지만 지도·주소 요청이 모두 실패한다. main의 deploy.sh도 필수로 검사했다(TD-018)
 AI_REQUIRED = ["GOOGLE_API_KEY", "NAVER_MAP_CLIENT_ID", "NAVER_MAP_CLIENT_SECRET"]
 # AI main(8bd3c32~)은 SENTRY_DSN이 있을 때만 Sentry를 켜고, 운영 값은 인프라가 주입하기로 했다(TD-019)
@@ -116,6 +120,8 @@ def prepare():
     be = read_secret(BE_SECRET_ID)
     ai = read_secret(AI_SECRET_ID)
     fe = read_secret(FE_SECRET_ID)
+    # 같은 카카오 앱 키를 FE·BE가 같이 쓴다. BE Secret 값이 있으면 그 값을 우선한다
+    be = {**be, **{k: fe[k] for k in BACKEND_FROM_FRONTEND if not be.get(k) and fe.get(k)}}
 
     backend_env = env_lines(BE_SECRET_ID, be, BACKEND_REQUIRED, BACKEND_OPTIONAL, warnings)
     ai_env = env_lines(AI_SECRET_ID, ai, AI_REQUIRED, AI_OPTIONAL, warnings)

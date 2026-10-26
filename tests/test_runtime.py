@@ -105,6 +105,20 @@ class RuntimeTest(unittest.TestCase):
         self.prepare()  # 선택 키라 없어도 배포는 계속된다
         self.assertNotIn("SENTRY_DSN", (runtime.RUNTIME_DIR / "ai.env").read_text())
 
+    def test_backend_kakao_key_falls_back_to_frontend_secret(self):
+        self.prepare()  # BE Secret에 없으면 FE 값을 같이 쓴다
+        self.assertIn("KAKAO_REST_API_KEY=test-only-kakao-key\n", (runtime.RUNTIME_DIR / "backend.env").read_text())
+        self.assertNotIn("KAKAO_REST_API_KEY", self.data["Secret-v1-BE"])
+        self.data["Secret-v1-BE"]["KAKAO_REST_API_KEY"] = "test-only-be-kakao-key"
+        self.prepare()  # BE Secret 값이 우선한다
+        backend_env = (runtime.RUNTIME_DIR / "backend.env").read_text()
+        self.assertIn("KAKAO_REST_API_KEY=test-only-be-kakao-key\n", backend_env)
+        self.assertNotIn("test-only-kakao-key\n", backend_env)
+        self.data = secrets()
+        del self.data["Secret-v1-FE"]["KAKAO_REST_API_KEY"]
+        self.prepare()  # 둘 다 없어도 선택 키라 배포는 계속된다
+        self.assertNotIn("KAKAO_REST_API_KEY", (runtime.RUNTIME_DIR / "backend.env").read_text())
+
     def test_unchanged_files_keep_inode(self):
         self.prepare()
         path = runtime.JWT_DIR / "private_key.pem"

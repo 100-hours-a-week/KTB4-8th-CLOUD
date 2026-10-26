@@ -10,40 +10,12 @@ global:
 rule_files:
   - /etc/prometheus/rules/*.yml
 
-# Prometheus는 모니터링 EC2, exporter와 앱 수집 포트는 앱 EC2에 있다(TD-024).
-# app-host는 compose.monitoring.yaml의 extra_hosts가 앱 EC2 private IP로 연결한다.
+# V1 앱 EC2(keepgo-01)는 2026-10-27 중지했다. 그 EC2의 node·blackbox·service-health 수집과
+# application 타깃(app-host)을 뺐다. V2 ECS는 아래 application-dev job이 수집한다.
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: [prometheus:9090]
-  - job_name: node
-    static_configs:
-      - targets: [app-host:9100]
-  - job_name: blackbox
-    static_configs:
-      - targets: [app-host:9115]
-  - job_name: service-health
-    metrics_path: /probe
-    params:
-      module: [http_2xx]
-    static_configs:
-      - targets: ["http://web/healthz"]
-        labels: {service: web}
-      - targets: ["http://frontend:3000/"]
-        labels: {service: frontend}
-      # service-health 대상은 모두 앱 EC2의 blackbox가 Docker 내부 이름으로 호출한다.
-      # BE Actuator는 관리 포트 8081에만 있다. 8080에서는 health가 응답하지 않는다.
-      - targets: ["http://backend:8081/actuator/health"]
-        labels: {service: backend}
-      - targets: ["http://ai-api:8000/health"]
-        labels: {service: ai-api}
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: app-host:9115
   # 계약·기본 대시보드·알림은 미리 준비한다. 앱 구현 확인 후 아래 타깃만 활성화한다.
   # docs/monitoring-metrics-contract.md, monitoring/examples/application-targets.json 참고.
   - job_name: application

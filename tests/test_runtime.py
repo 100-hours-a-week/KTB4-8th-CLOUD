@@ -119,6 +119,14 @@ class RuntimeTest(unittest.TestCase):
         self.prepare()  # 둘 다 없어도 선택 키라 배포는 계속된다
         self.assertNotIn("KAKAO_REST_API_KEY", (runtime.RUNTIME_DIR / "backend.env").read_text())
 
+    def test_google_login_secret_is_passed_to_backend_only_when_present(self):
+        self.data["Secret-v1-BE"]["GOOGLE_LOGIN_CLIENT_SECRET"] = "test-only-login-secret"
+        self.prepare()
+        self.assertIn("GOOGLE_LOGIN_CLIENT_SECRET=test-only-login-secret\n", (runtime.RUNTIME_DIR / "backend.env").read_text())
+        self.data = secrets()
+        self.prepare()  # 선택 키라 없어도 배포는 계속된다
+        self.assertNotIn("GOOGLE_LOGIN_CLIENT_SECRET", (runtime.RUNTIME_DIR / "backend.env").read_text())
+
     def test_unchanged_files_keep_inode(self):
         self.prepare()
         path = runtime.JWT_DIR / "private_key.pem"

@@ -272,12 +272,23 @@ class RuntimeDeployTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["ai-api"])
     def test_frontend_env_change_recreates_only_frontend(self):
+        self.config["secrets"]["Secret-v1-BE"]["KAKAO_REST_API_KEY"] = "test-only-be-kakao-key"
+        self.save()
         self.establish()
         self.config["secrets"]["Secret-v1-FE"]["KAKAO_REST_API_KEY"] = "changed-kakao-key"
         self.save()
         result = self.run_deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([c[-1] for c in self.calls() if "up" in c], ["frontend"])
+        self.assertNotIn("changed-kakao-key", result.stdout + result.stderr)
+
+    def test_shared_kakao_key_change_recreates_backend_and_frontend(self):
+        self.establish()  # BE Secret에 키가 없어 FE 값을 같이 쓴다
+        self.config["secrets"]["Secret-v1-FE"]["KAKAO_REST_API_KEY"] = "changed-kakao-key"
+        self.save()
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(c[-1] for c in self.calls() if "up" in c), ["backend", "frontend"])
         self.assertNotIn("changed-kakao-key", result.stdout + result.stderr)
 
 

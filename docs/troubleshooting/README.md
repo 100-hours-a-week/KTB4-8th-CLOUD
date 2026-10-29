@@ -15,6 +15,7 @@
 
 | 날짜 | 문제 | 영향 | 상태 |
 | --- | --- | --- | --- |
+| 2026-10-29 | [V1 중지 후에도 V1 수집 실패 알림이 계속 옴](2026-10-29-v1-stop-monitoring-not-applied.md) | 서비스 영향 없음. 10-27~10-29 Discord에 V1 수집 실패 알림 반복 | 해결 (모니터링 EC2 main 반영, runtime 파일 Git 제외) |
 | 2026-10-14 | [Terraform apply가 V2 Cloud OIDC 신뢰 조건을 덮어씀](2026-10-14-v2-oidc-trust-overwrite.md) | 중앙 CD의 AWS 인증 조건이 반복해서 불일치 | 해결 (Terraform 원본 반영, OIDC·AI 배포 성공) |
 | 2026-10-14 | [V2 Auto release의 workflow/job 잠금 충돌](2026-10-14-v2-release-concurrency-deadlock.md) | 수동 V2 조회가 러너 시작 전에 deadlock으로 취소 | 해결 (Cloud #100, 동일 입력 재검증) |
 | 2026-10-14 | [개발 CI 실패로 V2 배포 후보가 생성되지 않음](2026-10-14-v2-develop-ci-not-deployable.md) | BE 최신 이미지 미게시, FE 소스 검사 실패 | CI 연결 완료, BE 앱 수정·FE 준비 후속 |

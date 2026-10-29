@@ -50,7 +50,7 @@ sudo python3 /opt/keepgo/observability/scripts/discover-dev-metrics.py
 
 서비스별 RUNNING task의 실행 중인 앱 container만 선택한다. 종료된 jwt-files sidecar는 제외한다. task 주소는 승인한 app subnet 안인지 확인한다. API 오류·조회 중 교체는 마지막 성공 파일을 보존하고 다음 tick에 재시도한다. 정상적으로 task가 0개면 이전 주소를 제거한다.
 
-`development.json`은 runtime 생성 파일이다. 저장소의 빈 초기 파일로 덮어쓰지 않는다. 성공 시 mtime을 갱신하며 Prometheus의 `prometheus_sd_file_mtime_seconds`로 discovery 지연을 감시한다. 서비스가 없어지는 경우에는 `absent(up{...})` 경보가 별도로 발생한다.
+`development.json`은 runtime 생성 파일이라 Git에 두지 않는다(`.gitignore`). 저장소의 빈 파일로 덮어쓰지 않는다. 성공 시 mtime을 갱신하며 Prometheus의 `prometheus_sd_file_mtime_seconds`로 discovery 지연을 감시한다. 서비스가 없어지는 경우에는 `absent(up{...})` 경보가 별도로 발생한다.
 
 ## 검증과 적용 절차
 

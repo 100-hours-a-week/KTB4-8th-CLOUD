@@ -367,11 +367,13 @@ file discovery는 약 30초 주기로 반영된다. `up{job="application"}=1`, �
 
 ## 7. 변경·복구·인수 시험
 
-PG 변경은 별도 checkout의 검토한 커밋으로 이동한 후 설정 검사 → `up -d --wait` → Prometheus·Grafana `restart` 순서로 반영한다. 파일 내용만 변경되면 Compose가 자동 재생성하지 않기 때문에 재시작으로 Prometheus 설정과 Grafana provisioning을 다시 읽는다. 두 EC2의 observability checkout을 같은 커밋으로 맞춘다. blackbox 설정 변경 시 앱 EC2의 blackbox-exporter도 재시작한다. 앱 자동 배포는 PG와 exporter를 갱신하지 않는다.
+PG 변경은 별도 checkout을 **main의 검토한 커밋**으로 이동한 후 설정 검사 → `up -d --wait` → Prometheus·Grafana `restart` 순서로 반영한다. 파일 내용만 변경되면 Compose가 자동 재생성하지 않기 때문에 재시작으로 Prometheus 설정과 Grafana provisioning을 다시 읽는다. 두 EC2의 observability checkout을 같은 커밋으로 맞춘다. blackbox 설정 변경 시 앱 EC2의 blackbox-exporter도 재시작한다. 앱 자동 배포는 PG와 exporter를 갱신하지 않는다. prep 같은 작업 브랜치 커밋은 서버에 올리지 않는다.
+
+수집 대상을 빼는 변경(인프라 중지·삭제)은 main 병합만으로 끝나지 않는다. 모니터링 EC2 반영 후 `curl -s 'http://127.0.0.1:9090/api/v1/targets?state=active'`의 `scrapePool`로 실제 수집 대상을 확인해야 끝난다. 재시작 직후 `up` 조회에는 stale 표시 없이 남은 마지막 값이 5분 동안 보일 수 있다([2026-10-29 사례](troubleshooting/2026-10-29-v1-stop-monitoring-not-applied.md)).
 
 | 바뀐 파일 | 모니터링 EC2에서 할 일 |
 | --- | --- |
-| `monitoring/prometheus/targets/*.json` | checkout만. file discovery가 30초 안에 다시 읽는다 |
+| `monitoring/prometheus/targets/*.json` | checkout만. file discovery가 30초 안에 다시 읽는다. `development.json`은 timer가 만드는 runtime 파일이라 Git에 없다 |
 | `prometheus.yml`, `rules/*.yml` | checkout 후 `$DC restart prometheus` |
 | Grafana 대시보드·provisioning | checkout 후 `$DC restart grafana` |
 | `compose.monitoring.yaml` | checkout 후 `$DC up -d --wait` |
@@ -384,7 +386,21 @@ DC="docker compose --env-file $E -f compose.monitoring.yaml";
 $DC config --quiet && $DC restart prometheus;
 ```
 
-checkout의 파일을 직접 고치지 않는다. 2026-10-02 `application.json`에 backend가 수동으로 추가돼 있어 checkout이 `Your local changes … would be overwritten`으로 멈췄다. `git status --short`로 바뀐 파일을 확인하고 `git stash push -m <이름>`으로 보관한 뒤 checkout했다. 같은 내용이 Git에 들어간 것을 확인한 뒤 `git stash drop`으로 지웠다.
+checkout과 재시작은 `&&`로 잇는다. `;`로만 이으면 checkout이 실패해도 재시작이 돌아 성공한 것처럼 보인다.
+
+```sh
+git checkout --detach COMMIT && $DC restart prometheus grafana;
+```
+
+checkout의 파일을 직접 고치지 않는다. 2026-10-02 `application.json`에 backend가 수동으로 추가돼 있어 checkout이 `Your local changes … would be overwritten`으로 멈췄다. `git status --short`로 바뀐 파일을 확인하고 `git stash push -m <이름>`으로 보관한 뒤 checkout했다. 같은 내용이 Git에 들어간 것을 확인한 뒤 `git stash drop`으로 지웠다. 2026-10-29에도 dev 모니터링 파일을 checkout에 직접 배치해 같은 이유로 멈췄다. 이때는 막힌 파일을 tar로 백업하고 `git show COMMIT:파일 | cmp - 파일`로 파일마다 비교한 뒤 `git stash push -u`로 보관했다.
+
+`targets/development.json`을 Git에서 뺀 커밋으로 **처음 옮길 때만** 이 파일이 checkout을 막을 수 있다. timer가 내용을 바꿔 두었기 때문이다. 이때는 파일을 되돌리고 바로 checkout한 뒤 timer 서비스를 한 번 실행한다. 이후로는 checkout이 이 파일을 건드리지 않는다.
+
+```sh
+T=monitoring/prometheus/targets/development.json;
+git checkout -- $T && git checkout --detach COMMIT;
+systemctl start keepgo-dev-metrics.service;
+```
 
 PG 복구는 같은 checkout을 이전 검토 커밋으로 돌리고 동일 과정을 수행한다. Grafana 메이저 버전 업그레이드는 SQLite DB migration을 수반할 수 있어 사전에 볼륨 백업이 필요하고, 바이너리 downgrade만으로 복구를 보장하지 않는다. `down -v`는 데이터를 삭제하므로 일반 재배포에 사용하지 않는다.
 

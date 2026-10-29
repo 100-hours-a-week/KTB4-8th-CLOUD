@@ -21,3 +21,6 @@ __pycache__/
 *.log
 *.tfstate
 *.tfstate.*
+
+# discover-dev-metrics.py가 모니터링 EC2에서 30초마다 다시 쓰는 runtime 파일
+/monitoring/prometheus/targets/development.json

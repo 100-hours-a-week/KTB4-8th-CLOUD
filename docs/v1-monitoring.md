@@ -238,7 +238,7 @@ aws ssm start-session --region ap-northeast-2 --target MONITORING_INSTANCE_ID \
 
 CloudShell에서 긴 줄은 복사할 때 자동 줄바꿈으로 끊길 수 있어 값을 변수로 나눴다.
 
-**① EIP와 스택 갱신 (CloudShell):** Elastic IP는 콘솔에서 할당해 모니터링 EC2에 연결한다(현재 `3.34.14.66`, 이름 "for grafana"). 스택 밖 자원이다. 스택 갱신은 443 인바운드만 추가한다. 현재 인스턴스의 AMI를 그대로 넘겨 인스턴스 교체를 막고, 변경 세트를 먼저 확인한다.
+**① EIP와 스택 갱신 (CloudShell):** Elastic IP는 콘솔에서 할당해 모니터링 EC2에 연결한다(현재 `15.164.83.230`, 이름 "for grafana", 태그 `Keep=grafana-dns`. 처음 IP `3.34.14.66`은 11-04에 반납돼 바뀌었다 — [사례](troubleshooting/2026-11-04-grafana-eip-released.md)). 스택 밖 자원이다. 스택 갱신은 443 인바운드만 추가한다. 현재 인스턴스의 AMI를 그대로 넘겨 인스턴스 교체를 막고, 변경 세트를 먼저 확인한다.
 
 ```sh
 cd ~/keepgo-cloud && git pull -q
@@ -265,7 +265,7 @@ cf describe-stacks --stack-name $S --query 'Stacks[0].Outputs' --output table
 
 **`deploy --no-execute-changeset`은 변경 세트만 만들고 적용하지 않는다.** 변경이 있다면 `execute-change-set`까지 실행하고 스택 상태가 `UPDATE_COMPLETE`인지 확인한다. EIP가 붙으면 기존 자동 공인 IP는 사라지지만, SSM·Discord 아웃바운드는 EIP로 그대로 나간다.
 
-**② DNS:** `keepgo.kr`은 가비아 DNS다. `grafana` A 레코드 → EIP(`3.34.14.66`)를 추가한다(TTL 300). 모니터링 EC2는 보안 그룹이 UDP 53 아웃바운드를 막아 `dig @8.8.8.8`이 timeout이므로, `@` 없이 VPC DNS로 확인한다.
+**② DNS:** `keepgo.kr`은 가비아 DNS다. `grafana` A 레코드 → EIP(현재 `15.164.83.230`)를 추가한다(TTL 300). 모니터링 EC2는 보안 그룹이 UDP 53 아웃바운드를 막아 `dig @8.8.8.8`이 timeout이므로, `@` 없이 VPC DNS로 확인한다.
 
 ```sh
 dig +short grafana.keepgo.kr

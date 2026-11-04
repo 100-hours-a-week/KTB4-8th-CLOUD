@@ -24,3 +24,4 @@ __pycache__/
 
 # discover-dev-metrics.py가 모니터링 EC2에서 30초마다 다시 쓰는 runtime 파일
 /monitoring/prometheus/targets/development.json
+/monitoring/prometheus/targets/v2-dev.json

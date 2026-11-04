@@ -1,0 +1,47 @@
+rule_files:
+  - ../../monitoring/prometheus/rules/v2-dev-recording.yml
+  - ../../monitoring/prometheus/rules/v2-dev-alerts.yml
+evaluation_interval: 30s
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="application-v2-dev",environment="development",cluster="keepgo-v2-dev",service="backend",instance="be:8081",metrics_contract="v1"}'
+        values: '1+0x20'
+      - series: 'up{job="application-v2-dev",environment="development",cluster="keepgo-v2-dev",service="ai-api",instance="ai:9464",metrics_contract="v1"}'
+        values: '1+0x20'
+      - series: 'keepgo_observability_info{job="application-v2-dev",environment="development",cluster="keepgo-v2-dev",service="backend",instance="be:8081",contract="1",capability="http"}'
+        values: '1+0x20'
+      - series: 'keepgo_observability_info{job="application-v2-dev",environment="development",cluster="keepgo-v2-dev",service="ai-api",instance="ai:9464",contract="1",capability="http"}'
+        values: '1+0x20'
+      - series: 'keepgo_http_requests_total{job="application-v2-dev",environment="development",cluster="keepgo-v2-dev",service="ai-api",instance="ai:9464",metrics_contract="v1",route="/v1/extract",method="POST",status="200",traffic_class="generation"}'
+        values: '0+60x20'
+      - series: 'keepgo_http_requests_total{job="application",service="ai-api",instance="prod:9464",metrics_contract="v1",route="/v1/extract",method="POST",status="200",traffic_class="generation"}'
+        values: '0+60000x20'
+      - series: 'keepgo_http_requests_total{job="application-dev",environment="production",cluster="keepgo-v2",service="ai-api",instance="prod-v2:9464",metrics_contract="v1",route="/v1/extract",method="POST",status="200",traffic_class="generation"}'
+        values: '0+6000x20'
+    promql_expr_test:
+      - expr: keepgo_v2dev:http_requests:rate5m
+        eval_time: 5m
+        exp_samples:
+          - labels: 'keepgo_v2dev:http_requests:rate5m{environment="development",cluster="keepgo-v2-dev",service="ai-api",route="/v1/extract",method="POST",status="200",traffic_class="generation"}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: KeepGoV2DevHttpMetricsMissing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: KeepGoV2DevTargetMissing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: KeepGoV2DevScrapeDown
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'up{job="application-v2-dev",environment="development",cluster="keepgo-v2-dev",service="backend",instance="be:8081",metrics_contract="v1"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: KeepGoV2DevScrapeDown
+        exp_alerts:
+          - exp_labels: {alertname: KeepGoV2DevScrapeDown, job: application-v2-dev, environment: development, cluster: keepgo-v2-dev, service: backend, instance: 'be:8081', metrics_contract: v1, scope: v2-dev, severity: warning, signal: scrape_down}
+            exp_annotations: {summary: V2 development metrics endpoint is unreachable for 3 minutes.}

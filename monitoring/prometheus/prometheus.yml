@@ -35,7 +35,9 @@ scrape_configs:
         refresh_interval: 30s
 
   # V2 개발 클러스터(keepgo-v2-dev). 운영 job·규칙과 섞이지 않게 job과 대상 파일을 따로 둔다.
+  # dev만 해상도를 위해서 10초로 잠깐 바꾸겠습니다
   - job_name: application-v2-dev
+    scrape_interval: 10s
     sample_limit: 10000
     label_limit: 40
     file_sd_configs:

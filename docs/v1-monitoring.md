@@ -373,7 +373,7 @@ PG 변경은 별도 checkout을 **main의 검토한 커밋**으로 이동한 후
 
 | 바뀐 파일 | 모니터링 EC2에서 할 일 |
 | --- | --- |
-| `monitoring/prometheus/targets/*.json` | checkout만. file discovery가 30초 안에 다시 읽는다. `development.json`은 timer가 만드는 runtime 파일이라 Git에 없다 |
+| `monitoring/prometheus/targets/*.json` | checkout만. file discovery가 30초 안에 다시 읽는다. `development.json`(운영)·`v2-dev.json`(개발)은 timer가 만드는 runtime 파일이라 Git에 없다 |
 | `prometheus.yml`, `rules/*.yml` | checkout 후 `$DC restart prometheus` |
 | Grafana 대시보드·provisioning | checkout 후 `$DC restart grafana` |
 | `compose.monitoring.yaml` | checkout 후 `$DC up -d --wait` |

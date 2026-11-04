@@ -7,3 +7,6 @@
 *.tmp
 .idea/
 .vscode/
+
+# CI 검증용 values (helm lint·template에서만 쓴다)
+ci/

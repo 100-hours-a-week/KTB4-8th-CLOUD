@@ -1,12 +1,12 @@
-{{ include "app.fullname" . }} 배포 완료 (네임스페이스: {{ .Release.Namespace }}, 이미지: {{ include "app.image" . }})
+{{ include "keepgo-app.fullname" . }} 배포 완료 (네임스페이스: {{ .Release.Namespace }}, 이미지: {{ include "keepgo-app.image" . }})
 
 상태 확인:
-  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "app.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "keepgo-app.fullname" . }}
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
 {{- if .Values.service.enabled }}
 
 클러스터 안 주소:
-  http://{{ include "app.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ (index .Values.service.ports 0).port }}
+  http://{{ include "keepgo-app.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ (index .Values.service.ports 0).port }}
 
 통신 테스트:
   helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

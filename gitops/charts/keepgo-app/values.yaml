@@ -1,8 +1,13 @@
-# 공통 차트 기본값
-# 9개 중 7개가 Spring Boot 서비스라서 기본값은 Spring API 기준이다.
-# ai-api(FastAPI)·web(Next.js)·worker는 서비스별 values에서 필요한 부분만 덮어쓴다.
+# keepgo-app 공통 차트 기본값
+# 5-3(리소스·확장·보안 정책)과 5-4(배포 자동화) 위키를 기본값으로 담는다.
+# 기본값은 핵심 Spring API 기준이다. ai-api·web·worker는 서비스별 values에서 필요한 부분만 덮어쓴다.
+#
+# 값의 소유(5-4 7.4)
+#   각 팀   : image.tag, env, resources, replicaCount, 확장 임계값
+#   플랫폼팀 : probes 기본값, 종료 절차, strategy, securityContext, 공통 라벨, 배치 규칙
 
-# 리소스 이름. 비우면 릴리스 이름을 그대로 쓴다(예: helm install auth-api → auth-api).
+# 리소스 이름. 비우면 릴리스 이름을 그대로 쓴다(예: auth-api).
+# Pod Identity 연결이 ServiceAccount 이름 기준이므로 릴리스 이름을 바꾸면 Terraform 쪽도 바꿔야 한다.
 nameOverride: ""
 fullnameOverride: ""
 
@@ -10,16 +15,16 @@ fullnameOverride: ""
 component: api
 
 image:
-  # 필수. 예: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend
+  # 필수. 서비스별 ECR 저장소(5-4 4.3). 예: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-auth-api
   repository: ""
-  # 필수. latest 대신 커밋 SHA 등 고정 태그를 쓴다(Argo CD가 변경을 감지하려면 태그가 바뀌어야 한다).
+  # 필수. 커밋 SHA. latest는 쓰지 않는다(5-4 4.3).
   tag: ""
   pullPolicy: IfNotPresent
 
 # ECR은 노드 IAM 역할로 받으므로 보통 비워 둔다.
 imagePullSecrets: []
 
-# HPA·KEDA를 붙이면 Pod 개수는 그쪽이 정한다. 그때는 이 값을 무시하도록 바뀐다(Milestone 2).
+# HPA·KEDA를 붙이는 서비스는 차트가 replicas를 그리지 않게 바뀐다(5-4 6.4, 다음 단계).
 replicaCount: 1
 
 # 이미지의 ENTRYPOINT·CMD를 덮어쓸 때만 쓴다. 예: ai-api의 uvicorn 실행 명령
@@ -28,7 +33,7 @@ args: []
 
 # 컨테이너가 여는 포트. 이름은 Service·Probe에서 참조하므로 바꾸지 않는다.
 #   http       : 앱 트래픽(Spring 8080)
-#   management : 헬스·지표 전용(Spring Actuator 8081). 외부에는 열지 않는다.
+#   management : 헬스·지표 전용(Spring Actuator 8081). 외부에 노출하지 않는다(5-3 4.3).
 containerPorts:
   - name: http
     port: 8080
@@ -47,13 +52,19 @@ service:
   annotations: {}
 
 # 일반 환경변수. 이름: 값 형태의 맵이라 환경별 values에서 키 단위로 덮어쓸 수 있다.
+# 값을 바꾸면 Pod 정의가 바뀌어 자동으로 롤링 재시작된다(ConfigMap처럼 checksum이 필요 없다).
+# 기본값을 빼려면 서비스 values에서 null로 둔다.
 env:
   # application.yaml의 root 로그 기본값이 TRACE다. 로그가 쏟아지면 앱이 멈춘 적이 있어 INFO로 내린다.
   LOGGING_LEVEL: INFO
-  # 컨테이너 메모리 limit 대비 JVM 힙 비율. limit이 바뀌면 힙도 따라간다.
-  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
+  # 힙 상한을 컨테이너 메모리의 70%로 맞춘다. 나머지는 Metaspace·Thread Stack 등 Native 메모리용(5-3 3.2).
+  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0
   # TLS는 ALB에서 끝나므로 X-Forwarded-* 헤더로 원래 https 주소를 복원한다.
   SERVER_FORWARD_HEADERS_STRATEGY: native
+  # SIGTERM 후 진행 중인 요청을 끝내고 내려간다(5-3 4.5). preStop 10초 + 25초 < 종료 상한 40초
+  # (Spring 환경변수 규칙상 timeout-per-shutdown-phase는 하이픈 없이 TIMEOUTPERSHUTDOWNPHASE로 쓴다)
+  SERVER_SHUTDOWN: graceful
+  SPRING_LIFECYCLE_TIMEOUTPERSHUTDOWNPHASE: 25s
 
 # valueFrom 등 맵으로 표현하기 어려운 환경변수. 쿠버네티스 env 형식 그대로 쓴다.
 extraEnv: []
@@ -81,73 +92,60 @@ tmpDir:
   enabled: true
   sizeLimit: 256Mi
 
-# 헬스체크. 쿠버네티스(kubelet)가 직접 HTTP로 확인하므로 이미지에 curl이 없어도 된다.
-# Spring Boot는 쿠버네티스 위에서 /actuator/health/liveness·readiness를 자동으로 켠다.
+# 헬스체크(5-3 4.3·4.4). 쿠버네티스(kubelet)가 직접 HTTP로 확인하므로 이미지에 curl이 없어도 된다.
+# preset이 경로·포트·횟수 기본값을 정하고, 아래 startup/readiness/liveness에 적은 값만 덮어쓴다.
+#   spring  : management /actuator/health/liveness·readiness, startup 최대 150초
+#   fastapi : http /health/live·/health/ready, startup 최대 60초
+#   nextjs  : http /, startup 최대 60초
+# 예) worker는 Service가 없으므로 readiness를 끈다:  readiness: { enabled: false }
 probes:
-  # 앱이 다 뜰 때까지 기다리는 체크. 통과 전에는 liveness가 돌지 않아 느린 기동에도 재시작되지 않는다.
-  # 5초 × 30회 = 최대 150초 대기(V2의 startPeriod 90초보다 여유를 둠)
-  startup:
-    enabled: true
-    path: /actuator/health/liveness
-    port: management
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 30
-  # 트래픽을 받아도 되는지. 실패하면 Service에서 빠지기만 하고 재시작하지 않는다.
-  # /actuator/health 전체를 보면 Redis가 잠깐 끊겨도 모든 Pod가 빠지므로 readiness 그룹만 본다.
-  readiness:
-    enabled: true
-    path: /actuator/health/readiness
-    port: management
-    periodSeconds: 10
-    timeoutSeconds: 3
-    failureThreshold: 3
-  # 프로세스가 멈췄는지. 실패하면 컨테이너를 재시작하므로 외부 의존성(DB·Redis)은 보지 않는다.
-  liveness:
-    enabled: true
-    path: /actuator/health/liveness
-    port: management
-    periodSeconds: 10
-    timeoutSeconds: 3
-    failureThreshold: 3
+  preset: spring
+  startup: {}
+  readiness: {}
+  liveness: {}
 
-# 종료 처리
+# 종료 처리(5-3 4.5·4.6)
 # 1) preStop 동안 대기 → 그 사이 Service·ALB 대상에서 빠진다(새 요청이 안 들어오게).
 # 2) SIGTERM → 앱이 처리 중인 요청을 마무리한다.
 # 3) terminationGracePeriodSeconds가 지나면 강제 종료. preStop 시간도 여기에 포함된다.
-# SSE·worker는 연결·작업이 길어서 서비스별 values에서 늘린다(V2: API 30초, SSE·worker 120초).
+# 일반 API: 10초 + 요청 정리 30초. SSE·worker는 서비스별 values에서 늘린다.
 lifecycle:
   preStopSleepSeconds: 10
 terminationGracePeriodSeconds: 40
 
-# 배포 방식. 새 Pod가 준비된 뒤에 기존 Pod를 내려서 배포 중 처리 용량이 줄지 않게 한다.
+# 배포 방식(5-3 5.3). 핵심 API 기준: 새 Pod가 Ready가 된 뒤에 기존 Pod를 내린다.
+# worker는 쿠버네티스 기본값(25%/25%)을 쓰도록 서비스 values에서 덮어쓴다.
 strategy:
   type: RollingUpdate
   rollingUpdate:
-    maxSurge: 25%
+    maxSurge: 1
     maxUnavailable: 0
+
+# 이 시간 안에 새 Pod가 Ready가 안 되면 배포 실패(Progressing=False)로 표시되고
+# Argo CD가 Degraded로 알린다(5-4 9.1). Spring 기동 시간을 측정한 뒤 조정한다.
+progressDeadlineSeconds: 600
 
 # 롤백용으로 남길 이전 ReplicaSet 개수
 revisionHistoryLimit: 5
 
-# 요청량(requests)은 스케줄링·HPA 기준, 상한(limits)은 메모리만 건다.
-# CPU limit은 걸지 않는다(스로틀링으로 지연이 튀는 것을 막기 위해). 서비스별 실측 후 조정한다.
-resources:
-  requests:
-    cpu: 250m
-    memory: 768Mi
-  limits:
-    memory: 1Gi
+# 필수. 기본값을 두지 않는다(5-4 7.3). 빠지면 렌더링이 실패해 GitOps CI에서 걸린다.
+# 규칙(5-3 3.2)
+#   - requests.cpu, requests.memory, limits.memory 모두 필요
+#   - 메모리는 requests = limits (노드 메모리 오버커밋 방지)
+#   - CPU limit은 걸지 않는다 (스로틀링·Spring 기동 지연 방지)
+# 서비스별 초기값은 5-3 3.3 표를 따른다. 예) auth-api: cpu 250m, memory 768Mi
+resources: {}
 
 serviceAccount:
+  # 서비스마다 ServiceAccount를 만든다(5-4 7.2). AWS 권한은 EKS Pod Identity로 연결한다.
+  # Pod Identity는 Terraform의 association(네임스페이스 + ServiceAccount 이름 → IAM 역할)으로 붙으므로
+  # annotation이 필요 없다. 이름만 서로 맞추면 된다.
   create: true
-  # 비우면 리소스 이름을 쓴다.
+  # 비우면 리소스 이름(릴리스 이름)을 쓴다.
   name: ""
-  # IRSA를 쓸 때 IAM 역할을 여기에 붙인다. (Pod Identity를 쓰면 비워 둔다)
-  #   eks.amazonaws.com/role-arn: arn:aws:iam::<계정>:role/keepgo-dev-auth-api
   annotations: {}
   # 앱이 쿠버네티스 API를 쓰지 않으므로 토큰을 붙이지 않는다.
-  # AWS 권한(IRSA·Pod Identity)은 별도 토큰을 쓰므로 이 값과 무관하다.
+  # Pod Identity는 별도 토큰을 쓰므로 이 값과 무관하다.
   automountToken: false
 
 podAnnotations: {}
@@ -168,15 +166,28 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
-# 노드 배치. Karpenter NodePool의 Label·Taint는 A 담당 확정 후 환경별 values에 채운다.
+# 자원이 부족할 때 누구를 먼저 살릴지(5-3 6.6). 이름은 gitops/platform/priority-classes에 정의한다.
+#   keepgo-high    : auth-api, chat-api, recommend-api, ai-api, redis
+#   keepgo-default : member-api, youtube-api, wishlist-api (기본값)
+#   keepgo-low     : youtube-analysis-worker
+priorityClassName: keepgo-default
+
+# 노드 배치. Karpenter NodePool의 Label·Taint는 A 담당 확정 후 환경별 values에 채운다(5-3 6.3).
+#   Application NodePool: auth·member·youtube·wishlist·chat·recommend·ai-api
+#   Worker NodePool     : youtube-analysis-worker (Spot, Taint)
 nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# AZ에 Pod를 고르게 나눈다. 선택 라벨은 템플릿이 자동으로 채운다.
-# whenUnsatisfiable: ScheduleAnyway → 고르게 못 나눠도 일단 띄운다(dev처럼 노드가 적을 때 막히지 않게).
+# Pod 분산(5-3 6.6). 선택 라벨은 템플릿이 자동으로 채운다.
 topologySpread:
-  enabled: true
-  maxSkew: 1
-  topologyKey: topology.kubernetes.io/zone
-  whenUnsatisfiable: ScheduleAnyway
+  # 노드 기준 Soft: 노드 하나가 죽어도 Replica가 같이 내려가지 않게 고르게 나눈다.
+  # 못 나눠도 일단 띄운다(dev처럼 노드가 적을 때 막히지 않게).
+  node:
+    enabled: true
+    maxSkew: 1
+  # AZ 기준 Hard: 핵심 API(auth·chat·recommend·ai-api)만 2-AZ 확정 후 켠다.
+  # 조건을 못 맞추면 Pod가 Pending이 되므로 필요한 서비스에만 건다(5-3 6.7).
+  zone:
+    enabled: false
+    maxSkew: 1

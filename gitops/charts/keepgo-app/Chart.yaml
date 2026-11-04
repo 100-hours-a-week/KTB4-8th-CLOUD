@@ -1,7 +1,7 @@
-# KeepGo V3 공통 애플리케이션 차트
+# KeepGo V3 공통 애플리케이션 차트 (5-4 7장)
 # 9개 실행 단위(API·Worker·AI·Web)를 이 차트 하나로 배포하고, 서비스별 차이는 values로만 표현한다.
 apiVersion: v2
-name: app
+name: keepgo-app
 description: KeepGo V3 공통 애플리케이션 차트 (Deployment·Service·ServiceAccount)
 type: application
 # 차트 자체의 버전. 템플릿을 바꾸면 올린다.

@@ -1,22 +1,25 @@
-{{- $fullname := include "app.fullname" . -}}
+{{- $startup := include "keepgo-app.probe" (dict "root" . "kind" "startup") -}}
+{{- $readiness := include "keepgo-app.probe" (dict "root" . "kind" "readiness") -}}
+{{- $liveness := include "keepgo-app.probe" (dict "root" . "kind" "liveness") -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $fullname }}
+  name: {{ include "keepgo-app.fullname" . }}
   labels:
-    {{- include "app.labels" . | nindent 4 }}
+    {{- include "keepgo-app.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   strategy:
     {{- toYaml .Values.strategy | nindent 4 }}
   selector:
     matchLabels:
-      {{- include "app.selectorLabels" . | nindent 6 }}
+      {{- include "keepgo-app.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "app.labels" . | nindent 8 }}
+        {{- include "keepgo-app.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -25,8 +28,11 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      serviceAccountName: {{ include "app.serviceAccountName" . }}
+      serviceAccountName: {{ include "keepgo-app.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -36,7 +42,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: app
-          image: {{ include "app.image" . }}
+          image: {{ include "keepgo-app.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.command }}
           command:
@@ -69,23 +75,17 @@ spec:
           envFrom:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.probes.startup }}
-          {{- if .enabled }}
+          {{- with $startup }}
           startupProbe:
-            {{- include "app.httpProbe" . | nindent 12 }}
+            {{- . | nindent 12 }}
           {{- end }}
-          {{- end }}
-          {{- with .Values.probes.readiness }}
-          {{- if .enabled }}
+          {{- with $readiness }}
           readinessProbe:
-            {{- include "app.httpProbe" . | nindent 12 }}
+            {{- . | nindent 12 }}
           {{- end }}
-          {{- end }}
-          {{- with .Values.probes.liveness }}
-          {{- if .enabled }}
+          {{- with $liveness }}
           livenessProbe:
-            {{- include "app.httpProbe" . | nindent 12 }}
-          {{- end }}
+            {{- . | nindent 12 }}
           {{- end }}
           {{- if gt (int .Values.lifecycle.preStopSleepSeconds) 0 }}
           lifecycle:
@@ -95,7 +95,7 @@ spec:
                 seconds: {{ .Values.lifecycle.preStopSleepSeconds }}
           {{- end }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- include "keepgo-app.resources" . | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           {{- if or .Values.tmpDir.enabled .Values.secretFiles }}
@@ -139,15 +139,33 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.topologySpread.enabled }}
+      {{- if or .Values.topologySpread.node.enabled .Values.topologySpread.zone.enabled }}
+      # 배포 중에는 새 버전 Pod끼리만 비교한다(matchLabelKeys). 구버전 Pod 때문에 한쪽으로 몰리지 않게.
       topologySpreadConstraints:
-        - maxSkew: {{ .Values.topologySpread.maxSkew }}
-          topologyKey: {{ .Values.topologySpread.topologyKey }}
-          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+        {{- with .Values.topologySpread.node }}
+        {{- if .enabled }}
+        # 노드 기준 Soft
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              {{- include "app.selectorLabels" . | nindent 14 }}
-          # 배포 중에는 새 버전 Pod끼리만 비교한다(구버전 Pod 때문에 한쪽으로 몰리지 않게).
+              {{- include "keepgo-app.selectorLabels" $ | nindent 14 }}
           matchLabelKeys:
             - pod-template-hash
+        {{- end }}
+        {{- end }}
+        {{- with .Values.topologySpread.zone }}
+        {{- if .enabled }}
+        # AZ 기준 Hard (핵심 API만)
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "keepgo-app.selectorLabels" $ | nindent 14 }}
+          matchLabelKeys:
+            - pod-template-hash
+        {{- end }}
+        {{- end }}
       {{- end }}

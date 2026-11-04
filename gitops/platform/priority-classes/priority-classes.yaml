@@ -1,0 +1,29 @@
+# 서비스 우선순위(5-3 6.6 PriorityClass 초기안)
+# 노드 자원이 부족하면 값이 낮은 Pod부터 밀려나고, 높은 Pod가 먼저 자리를 받는다.
+# System 컴포넌트(Karpenter·CoreDNS·KEDA 등)는 쿠버네티스 기본 system-cluster-critical을 쓴다.
+# 클러스터 범위 리소스라 platform AppProject로만 배포한다(5-4 6.3).
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: keepgo-high
+value: 100000
+globalDefault: false
+description: "핵심 서비스: auth-api, chat-api, recommend-api, ai-api, redis"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: keepgo-default
+value: 10000
+globalDefault: false
+description: "일반 서비스: member-api, youtube-api, wishlist-api"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: keepgo-low
+value: 1000
+globalDefault: false
+# 낮은 등급은 다른 Pod를 밀어내지 않는다. 재처리로 복구되는 worker가 API를 쫓아내지 않게 한다.
+preemptionPolicy: Never
+description: "재처리 가능한 작업: youtube-analysis-worker"

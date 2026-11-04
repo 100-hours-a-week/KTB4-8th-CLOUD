@@ -1,6 +1,9 @@
-# kind 로컬 검증용 Mock API A
-# 실제 서비스 values와 같은 차트를 쓰되, 이미지·포트·헬스 경로만 Mock 앱에 맞게 덮어쓴다.
-# 설치: helm install mock-a charts/app -n mock --create-namespace -f values/local/mock-a.yaml
+# kind·CI 검증용 Mock A: nextjs 프리셋(3000 포트, / 경로)
+# 실제 서비스 values와 같은 차트를 쓰고, 이미지·포트·프리셋만 Mock 앱에 맞게 바꾼다.
+# helm install mock-a gitops/charts/keepgo-app -n mock --create-namespace \
+#   -f gitops/charts/keepgo-app/ci/mock-a-values.yaml
+
+component: web
 
 image:
   # 어떤 경로로 요청해도 고정 문구를 돌려주는 작은 HTTP 서버
@@ -8,39 +11,31 @@ image:
   tag: "1.0"
 
 args:
-  - -listen=:8080
+  - -listen=:3000
   - -text=mock-a
 
-# Mock은 관리 포트가 따로 없어 앱 포트 하나만 연다.
 containerPorts:
   - name: http
-    port: 8080
+    port: 3000
 
-# Spring 기본 헬스 경로 대신 앱 포트의 / 로 확인한다.
 probes:
-  startup:
-    path: /
-    port: http
-    failureThreshold: 6
-  readiness:
-    path: /
-    port: http
-  liveness:
-    path: /
-    port: http
+  preset: nextjs
 
-# Spring 전용 환경변수는 Mock에 필요 없으므로 비운다.
+# Spring 전용 환경변수는 Mock에 필요 없으므로 지운다.
 env:
   LOGGING_LEVEL: null
   JAVA_TOOL_OPTIONS: null
   SERVER_FORWARD_HEADERS_STRATEGY: null
+  SERVER_SHUTDOWN: null
+  SPRING_LIFECYCLE_TIMEOUTPERSHUTDOWNPHASE: null
   MOCK_NAME: mock-a
 
 replicaCount: 2
 
+# 메모리는 requests = limits (차트가 검사한다)
 resources:
   requests:
     cpu: 10m
-    memory: 16Mi
+    memory: 32Mi
   limits:
     memory: 32Mi

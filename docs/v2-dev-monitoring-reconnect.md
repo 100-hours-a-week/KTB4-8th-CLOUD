@@ -1,7 +1,7 @@
 # 새 V2 개발 서버 모니터링 연결
 
 - 처음 조사: **2026-11-03**. 그때는 아무것도 바꾸지 않고 할 일만 정리했다.
-- 진행: **2026-11-04**. 코드를 끝냈다. 남은 일은 main 병합과 모니터링 EC2 반영이다.
+- 완료: **2026-11-04**. main `eb5358e`(PR #230)를 모니터링 EC2에 반영했고 개발 BE·AI 수집을 확인했다.
 
 ## 1. 지금 상태 (11-04 조회)
 
@@ -45,18 +45,19 @@
 
 ## 3. 남은 일
 
-- [ ] `feat/v2-dev-monitoring` → main PR 생성·병합 (CI 통과 확인)
-- [ ] 모니터링 EC2를 병합된 main 커밋으로 옮긴다 (아래 4절)
-- [ ] `/api/v1/targets?state=active`에서 `application-dev` 2개, `application-v2-dev` 2개가 `up`인지 확인한다
-- [ ] Grafana `[DEV] KeepGo - Application HTTP` 대시보드에 개발 데이터가 보이는지 확인한다
-- [ ] `[DEV]` 시험 경보를 한 번 울리고 해제해서 Discord 전달을 확인한다
+- [x] `feat/v2-dev-monitoring` → main 병합 (PR #230, `eb5358e`)
+- [x] 모니터링 EC2를 `eb5358e`로 옮겼다 (아래 4절). 백업: `/opt/keepgo/development.json.bak-20261104`
+- [x] `/api/v1/targets?state=active`: `application-dev` 2개, `application-v2-dev` 2개 모두 `up`
+- [x] 반영 직후 pending/firing 경보 0건. 개발 BE `http·jvm·db_pool`, AI `http` capability 수집. `keepgo-v2-dev-*` 규칙 19개 모두 `ok`
+- [ ] Grafana `[DEV] KeepGo - Application HTTP` 대시보드에 개발 데이터가 보이는지 눈으로 확인한다
+- [ ] (선택) `[DEV]` Prometheus 시험 경보로 Grafana relay → Discord 전달을 확인한다. 운영 relay와 같은 경로라 생략해도 된다
 - [ ] [컷오버 계획](v2-prod-cutover-plan.md) 5.4절을 실제 구조(V1 대신 새 V2 개발 환경)에 맞게 고친다
 
-## 4. 모니터링 EC2 반영 (main 병합 후)
+## 4. 모니터링 EC2 반영 (11-04 실행한 순서)
 
 `development.json`을 Git에서 빼는 커밋으로 **처음** 옮기는 것이라, 서버에서 바뀐 이 파일을 먼저 되돌려야 checkout이 된다([구성](v1-monitoring.md) 7절). checkout하면 이 파일이 지워지므로 바로 timer 서비스를 한 번 돌려 다시 만든다.
 
-모니터링 EC2 (SSM, `sudo -i` 후):
+모니터링 EC2 (SSM, `sudo -i` 후). `ssm-user`로 실행하면 git이 `dubious ownership`으로 멈춘다. `safe.directory`는 추가하지 않는다:
 
 ```sh
 cd /opt/keepgo/observability;
@@ -87,3 +88,13 @@ curl -s $U | grep -oE "$P";
 
 - 전송비: 모니터링 EC2는 2c에 있다. 개발 task가 2a에 뜨면 AZ 간 전송비가 붙지만 월 몇십 센트 수준이다([runbook](dev-monitoring-runbook.md) 계산 참고).
 - `infrastructure/dev-monitoring.json`(CloudFormation)은 운영 VPC 연결용으로만 쓰인다. 개발 VPC 연결은 Terraform 소유라 이 템플릿으로 스택을 새로 만들지 않는다.
+
+## 6. CloudWatch → Discord 중계도 같이 고쳤다
+
+같은 날 "운영 알림이 `[DEV]`로 온다"는 제보로 확인했다. 원인은 Grafana가 아니라 CloudWatch 중계 Lambda `keepgo-alerts-discord`였다.
+
+- 10-21에 만들 때 `keepgo-v2`가 개발이어서 `keepgo-v2-alerts`=`[DEV]`, `keepgo-v1-alerts`=`[PROD]`로 박혀 있었다.
+- 새 개발 주제 `keepgo-v2-dev-alerts`에는 구독이 없었다. 그래서 개발 CloudWatch 경보는 Discord에 오지 않았다.
+- `infrastructure/alerts-discord.yaml`을 고쳐 change set으로 적용했다(prep `2591375`): V1=`[V1]`, V2=`[PROD]`, V2 dev=`[DEV]` 구독 추가. Lambda·구독 교체 없음.
+- 시험 메시지 1건으로 `[DEV]` Discord 수신을 확인했다.
+- 이 템플릿은 아직 main에 없고 prep에만 있다.

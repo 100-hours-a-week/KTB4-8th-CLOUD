@@ -59,7 +59,7 @@ jobs:
             --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" check config /etc/prometheus/prometheus.yml
           # 등록 전 무트래픽·계측 누락·오류/지연·counter reset을 실제 PromQL 엔진으로 검사한다.
           docker run --rm -v "${PWD}:/repo:ro" -w /repo \
-            --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" test rules tests/prometheus/application.test.yml tests/prometheus/development.test.yml
+            --entrypoint /bin/promtool "$(jq -r .services.prometheus.image <<<"${monitoring}")" test rules tests/prometheus/application.test.yml tests/prometheus/development.test.yml tests/prometheus/v2-dev.test.yml
           docker run --rm -v "${PWD}/monitoring/blackbox:/etc/blackbox:ro" \
             "$(jq -r '.services["blackbox-exporter"].image' <<<"${exporters}")" --config.file=/etc/blackbox/blackbox.yml --config.check
           # Caddyfile 문법. adapt는 인증서를 요청하지 않는다.

@@ -10,6 +10,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = (ROOT / "infrastructure/alerts-discord.yaml").read_text(encoding="utf-8")
 V1, V2 = "arn:aws:sns:ap-northeast-2:1:keepgo-v1-alerts", "arn:aws:sns:ap-northeast-2:1:keepgo-v2-alerts"
+V2DEV = "arn:aws:sns:ap-northeast-2:1:keepgo-v2-dev-alerts"
 
 
 def load_relay():
@@ -18,7 +19,7 @@ def load_relay():
     code = "\n".join(line[10:] for line in block.splitlines())
     module = types.ModuleType("relay")
     with mock.patch.dict(sys.modules, {"boto3": types.ModuleType("boto3")}), \
-            mock.patch.dict(os.environ, {"LABELS": json.dumps({V1: "PROD", V2: "DEV"}), "AWS_REGION": "ap-northeast-2"}):
+            mock.patch.dict(os.environ, {"LABELS": json.dumps({V1: "V1", V2: "PROD", V2DEV: "DEV"}), "AWS_REGION": "ap-northeast-2"}):
         exec(compile(code, "alerts-discord-inline", "exec"), module.__dict__)
     return module, code
 
@@ -42,11 +43,13 @@ class AlertsDiscordTest(unittest.TestCase):
 
     def test_alarm_and_recovery_are_labeled_by_topic(self):
         fired = relay.embed(record(V2, alarm("ALARM", "OK")))
-        self.assertEqual(fired["title"], "[DEV] 🚨 경보 keepgo-v2-rds-storage")
+        self.assertEqual(fired["title"], "[PROD] 🚨 경보 keepgo-v2-rds-storage")
         self.assertEqual(fired["color"], relay.COLORS["ALARM"])
         self.assertIn("#alarmsV2:alarm/keepgo-v2-rds-storage", fired["url"])
         recovered = relay.embed(record(V1, alarm("OK", "ALARM", "keepgo-v1-ec2-disk")))
-        self.assertEqual(recovered["title"], "[PROD] ✅ 복구 keepgo-v1-ec2-disk")
+        self.assertEqual(recovered["title"], "[V1] ✅ 복구 keepgo-v1-ec2-disk")
+        dev = relay.embed(record(V2DEV, alarm("ALARM", "OK", "keepgo-v2-dev-backend-memory")))
+        self.assertEqual(dev["title"], "[DEV] 🚨 경보 keepgo-v2-dev-backend-memory")
 
     def test_insufficient_data_noise_is_dropped(self):
         self.assertIsNone(relay.embed(record(V2, alarm("INSUFFICIENT_DATA", "OK"))))
@@ -58,12 +61,12 @@ class AlertsDiscordTest(unittest.TestCase):
                  "resources": ["arn:aws:ecs:ap-northeast-2:1:service/keepgo-v2/keepgo-v2-backend"],
                  "detail": {"eventName": "SERVICE_DEPLOYMENT_FAILED", "deploymentId": "ecs-svc/1", "reason": "circuit breaker"}}
         result = relay.embed(record(V2, event))
-        self.assertEqual(result["title"], "[DEV] 🚨 배포 실패·롤백 keepgo-v2-backend")
+        self.assertEqual(result["title"], "[PROD] 🚨 배포 실패·롤백 keepgo-v2-backend")
         self.assertEqual(result["description"], "circuit breaker")
 
     def test_unknown_message_is_forwarded_truncated(self):
         result = relay.embed(record(V1, "x" * 3000, subject="hello"))
-        self.assertEqual(result["title"], "[PROD] hello")
+        self.assertEqual(result["title"], "[V1] hello")
         self.assertEqual(len(result["description"]), 1500)
 
     def test_handler_posts_once_and_skips_empty(self):
@@ -74,6 +77,16 @@ class AlertsDiscordTest(unittest.TestCase):
             body = post.call_args.args[0]
             self.assertEqual(body["username"], "CloudWatch")
             self.assertEqual(len(body["embeds"]), 1)
+
+
+class TemplateLabelsTest(unittest.TestCase):
+    def test_every_topic_is_subscribed_labeled_and_allowed(self):
+        defaults = dict(re.findall(r"\n  (\w+):\n    Type: String\n    Default: (\S+)", TEMPLATE))
+        self.assertEqual((defaults["V1Label"], defaults["V2Label"], defaults["V2DevLabel"]), ("V1", "PROD", "DEV"))
+        for name in ("V1", "V2", "V2Dev"):
+            self.assertIn(f'"${{{name}TopicArn}}": "${{{name}Label}}"', TEMPLATE)
+            self.assertIn(f"  {name}Subscription:\n", TEMPLATE)
+            self.assertIn(f"  {name}Invoke:\n", TEMPLATE)
 
 
 if __name__ == "__main__":

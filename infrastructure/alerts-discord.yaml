@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  KeepGo CloudWatch 경보 → Discord 중계. V1·V2 경보 SNS 토픽을 Lambda가 구독해 Discord 메시지로 바꾼다.
+  KeepGo CloudWatch 경보 → Discord 중계. V1·V2 운영·V2 개발 경보 SNS 토픽을 Lambda가 구독해 Discord 메시지로 바꾼다.
   SNS는 Discord를 직접 호출하지 못한다. 웹훅 URL은 SSM SecureString에만 두고 템플릿·파라미터에 넣지 않는다.
-  V2 토픽은 Terraform 소유다. 구독만 이 스택이 추가하며 Terraform은 자기 state에 없는 구독을 지우지 않는다.
+  V2 토픽 2개는 Terraform 소유다. 구독만 이 스택이 추가하며 Terraform은 자기 state에 없는 구독을 지우지 않는다.
 
 Parameters:
   WebhookParameterName:
@@ -15,12 +15,18 @@ Parameters:
     Default: arn:aws:sns:ap-northeast-2:602601433533:keepgo-v1-alerts
   V1Label:
     Type: String
-    Default: PROD
-    Description: V1 경보 앞에 붙일 표시. V1/V2 역할을 바꾸면 이 값과 V2Label을 바꾼다.
+    Default: V1
+    Description: 경보 앞에 붙일 표시. 2026-10-23부터 V2(keepgo-v2)가 운영이고 V1은 꺼져 있다.
   V2TopicArn:
     Type: String
     Default: arn:aws:sns:ap-northeast-2:602601433533:keepgo-v2-alerts
   V2Label:
+    Type: String
+    Default: PROD
+  V2DevTopicArn:
+    Type: String
+    Default: arn:aws:sns:ap-northeast-2:602601433533:keepgo-v2-dev-alerts
+  V2DevLabel:
     Type: String
     Default: DEV
 
@@ -73,7 +79,7 @@ Resources:
       Environment:
         Variables:
           WEBHOOK_PARAMETER: !Ref WebhookParameterName
-          LABELS: !Sub '{"${V1TopicArn}": "${V1Label}", "${V2TopicArn}": "${V2Label}"}'
+          LABELS: !Sub '{"${V1TopicArn}": "${V1Label}", "${V2TopicArn}": "${V2Label}", "${V2DevTopicArn}": "${V2DevLabel}"}'
       Code:
         ZipFile: |
           # 흐름: SNS 레코드 → 경보/ECS 이벤트/기타 판별 → Discord embed → 웹훅 POST. 실패는 예외로 SNS 재시도에 맡긴다.
@@ -170,6 +176,13 @@ Resources:
       Protocol: lambda
       Endpoint: !GetAtt Relay.Arn
 
+  V2DevSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref V2DevTopicArn
+      Protocol: lambda
+      Endpoint: !GetAtt Relay.Arn
+
   V1Invoke:
     Type: AWS::Lambda::Permission
     Properties:
@@ -185,6 +198,14 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: sns.amazonaws.com
       SourceArn: !Ref V2TopicArn
+
+  V2DevInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Relay
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref V2DevTopicArn
 
   # 중계가 실패하면 Discord에는 아무것도 오지 않는다. 이 경보만은 V1 이메일 구독으로 받는다.
   RelayErrors:

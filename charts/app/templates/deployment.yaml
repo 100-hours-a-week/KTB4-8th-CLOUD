@@ -1,0 +1,153 @@
+{{- $fullname := include "app.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "app.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: app
+          image: {{ include "app.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.containerPorts }}
+          ports:
+            {{- range . }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: TCP
+            {{- end }}
+          {{- end }}
+          {{- if or .Values.env .Values.extraEnv }}
+          env:
+            {{- /* 맵은 키 이름 순으로 그려져 렌더링 결과가 매번 같다(Argo CD Drift 방지) */}}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.probes.startup }}
+          {{- if .enabled }}
+          startupProbe:
+            {{- include "app.httpProbe" . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.probes.readiness }}
+          {{- if .enabled }}
+          readinessProbe:
+            {{- include "app.httpProbe" . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.probes.liveness }}
+          {{- if .enabled }}
+          livenessProbe:
+            {{- include "app.httpProbe" . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- if gt (int .Values.lifecycle.preStopSleepSeconds) 0 }}
+          lifecycle:
+            # 이미지에 sleep 명령이 없어도 되도록 쿠버네티스 기본 sleep 동작을 쓴다(1.30+).
+            preStop:
+              sleep:
+                seconds: {{ .Values.lifecycle.preStopSleepSeconds }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if or .Values.tmpDir.enabled .Values.secretFiles }}
+          volumeMounts:
+            {{- if .Values.tmpDir.enabled }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+            {{- range .Values.secretFiles }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.tmpDir.enabled .Values.secretFiles }}
+      volumes:
+        {{- if .Values.tmpDir.enabled }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpDir.sizeLimit }}
+        {{- end }}
+        {{- range .Values.secretFiles }}
+        - name: {{ .name }}
+          secret:
+            secretName: {{ .secretName }}
+            {{- with .items }}
+            items:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpread.maxSkew }}
+          topologyKey: {{ .Values.topologySpread.topologyKey }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "app.selectorLabels" . | nindent 14 }}
+          # 배포 중에는 새 버전 Pod끼리만 비교한다(구버전 Pod 때문에 한쪽으로 몰리지 않게).
+          matchLabelKeys:
+            - pod-template-hash
+      {{- end }}

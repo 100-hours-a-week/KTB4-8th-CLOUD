@@ -1,0 +1,182 @@
+# 공통 차트 기본값
+# 9개 중 7개가 Spring Boot 서비스라서 기본값은 Spring API 기준이다.
+# ai-api(FastAPI)·web(Next.js)·worker는 서비스별 values에서 필요한 부분만 덮어쓴다.
+
+# 리소스 이름. 비우면 릴리스 이름을 그대로 쓴다(예: helm install auth-api → auth-api).
+nameOverride: ""
+fullnameOverride: ""
+
+# 실행 단위 종류. 라벨(app.kubernetes.io/component)에만 쓰인다. api | worker | web
+component: api
+
+image:
+  # 필수. 예: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend
+  repository: ""
+  # 필수. latest 대신 커밋 SHA 등 고정 태그를 쓴다(Argo CD가 변경을 감지하려면 태그가 바뀌어야 한다).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# ECR은 노드 IAM 역할로 받으므로 보통 비워 둔다.
+imagePullSecrets: []
+
+# HPA·KEDA를 붙이면 Pod 개수는 그쪽이 정한다. 그때는 이 값을 무시하도록 바뀐다(Milestone 2).
+replicaCount: 1
+
+# 이미지의 ENTRYPOINT·CMD를 덮어쓸 때만 쓴다. 예: ai-api의 uvicorn 실행 명령
+command: []
+args: []
+
+# 컨테이너가 여는 포트. 이름은 Service·Probe에서 참조하므로 바꾸지 않는다.
+#   http       : 앱 트래픽(Spring 8080)
+#   management : 헬스·지표 전용(Spring Actuator 8081). 외부에는 열지 않는다.
+containerPorts:
+  - name: http
+    port: 8080
+  - name: management
+    port: 8081
+
+service:
+  # worker처럼 요청을 받지 않는 서비스는 false로 둔다.
+  enabled: true
+  type: ClusterIP
+  # 클러스터 안에서 부르는 포트. 예: http://auth-api.account/ → Pod의 http(8080)
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  annotations: {}
+
+# 일반 환경변수. 이름: 값 형태의 맵이라 환경별 values에서 키 단위로 덮어쓸 수 있다.
+env:
+  # application.yaml의 root 로그 기본값이 TRACE다. 로그가 쏟아지면 앱이 멈춘 적이 있어 INFO로 내린다.
+  LOGGING_LEVEL: INFO
+  # 컨테이너 메모리 limit 대비 JVM 힙 비율. limit이 바뀌면 힙도 따라간다.
+  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=65.0
+  # TLS는 ALB에서 끝나므로 X-Forwarded-* 헤더로 원래 https 주소를 복원한다.
+  SERVER_FORWARD_HEADERS_STRATEGY: native
+
+# valueFrom 등 맵으로 표현하기 어려운 환경변수. 쿠버네티스 env 형식 그대로 쓴다.
+extraEnv: []
+#  - name: POD_NAME
+#    valueFrom:
+#      fieldRef:
+#        fieldPath: metadata.name
+
+# ConfigMap·Secret 전체를 환경변수로 넣는다. Secret은 ExternalSecret이 만든 것을 가리킨다.
+envFrom: []
+#  - secretRef:
+#      name: auth-api-env
+
+# Secret을 파일로 붙인다. JWT PEM처럼 앱이 파일 경로로 읽는 값에 쓴다.
+secretFiles: []
+#  - name: jwt
+#    secretName: backend-jwt
+#    mountPath: /run/secrets
+#    items:                     # 생략하면 Secret의 모든 키가 파일이 된다
+#      - key: JWT_PUBLIC_KEY
+#        path: jwt_public_key.pem
+
+# 쓰기 가능한 /tmp. 루트 파일시스템을 읽기 전용으로 두므로 Tomcat·Python 임시 파일용으로 필요하다.
+tmpDir:
+  enabled: true
+  sizeLimit: 256Mi
+
+# 헬스체크. 쿠버네티스(kubelet)가 직접 HTTP로 확인하므로 이미지에 curl이 없어도 된다.
+# Spring Boot는 쿠버네티스 위에서 /actuator/health/liveness·readiness를 자동으로 켠다.
+probes:
+  # 앱이 다 뜰 때까지 기다리는 체크. 통과 전에는 liveness가 돌지 않아 느린 기동에도 재시작되지 않는다.
+  # 5초 × 30회 = 최대 150초 대기(V2의 startPeriod 90초보다 여유를 둠)
+  startup:
+    enabled: true
+    path: /actuator/health/liveness
+    port: management
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30
+  # 트래픽을 받아도 되는지. 실패하면 Service에서 빠지기만 하고 재시작하지 않는다.
+  # /actuator/health 전체를 보면 Redis가 잠깐 끊겨도 모든 Pod가 빠지므로 readiness 그룹만 본다.
+  readiness:
+    enabled: true
+    path: /actuator/health/readiness
+    port: management
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  # 프로세스가 멈췄는지. 실패하면 컨테이너를 재시작하므로 외부 의존성(DB·Redis)은 보지 않는다.
+  liveness:
+    enabled: true
+    path: /actuator/health/liveness
+    port: management
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# 종료 처리
+# 1) preStop 동안 대기 → 그 사이 Service·ALB 대상에서 빠진다(새 요청이 안 들어오게).
+# 2) SIGTERM → 앱이 처리 중인 요청을 마무리한다.
+# 3) terminationGracePeriodSeconds가 지나면 강제 종료. preStop 시간도 여기에 포함된다.
+# SSE·worker는 연결·작업이 길어서 서비스별 values에서 늘린다(V2: API 30초, SSE·worker 120초).
+lifecycle:
+  preStopSleepSeconds: 10
+terminationGracePeriodSeconds: 40
+
+# 배포 방식. 새 Pod가 준비된 뒤에 기존 Pod를 내려서 배포 중 처리 용량이 줄지 않게 한다.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 25%
+    maxUnavailable: 0
+
+# 롤백용으로 남길 이전 ReplicaSet 개수
+revisionHistoryLimit: 5
+
+# 요청량(requests)은 스케줄링·HPA 기준, 상한(limits)은 메모리만 건다.
+# CPU limit은 걸지 않는다(스로틀링으로 지연이 튀는 것을 막기 위해). 서비스별 실측 후 조정한다.
+resources:
+  requests:
+    cpu: 250m
+    memory: 768Mi
+  limits:
+    memory: 1Gi
+
+serviceAccount:
+  create: true
+  # 비우면 리소스 이름을 쓴다.
+  name: ""
+  # IRSA를 쓸 때 IAM 역할을 여기에 붙인다. (Pod Identity를 쓰면 비워 둔다)
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::<계정>:role/keepgo-dev-auth-api
+  annotations: {}
+  # 앱이 쿠버네티스 API를 쓰지 않으므로 토큰을 붙이지 않는다.
+  # AWS 권한(IRSA·Pod Identity)은 별도 토큰을 쓰므로 이 값과 무관하다.
+  automountToken: false
+
+podAnnotations: {}
+podLabels: {}
+
+# 보안 설정. Backend 이미지는 UID 10001(app)로 실행된다.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# 노드 배치. Karpenter NodePool의 Label·Taint는 A 담당 확정 후 환경별 values에 채운다.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# AZ에 Pod를 고르게 나눈다. 선택 라벨은 템플릿이 자동으로 채운다.
+# whenUnsatisfiable: ScheduleAnyway → 고르게 못 나눠도 일단 띄운다(dev처럼 노드가 적을 때 막히지 않게).
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: ScheduleAnyway

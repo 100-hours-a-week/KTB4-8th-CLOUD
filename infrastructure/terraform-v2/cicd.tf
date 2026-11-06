@@ -42,15 +42,12 @@ resource "aws_iam_role_policy" "github_deploy" {
       },
       # 새 Task Definition에 기존 실행·Task Role을 그대로 넘긴다.
       {
-        Effect    = "Allow"
-        Action    = "iam:PassRole"
-        Resource  = concat(
+        Effect = "Allow"
+        Action = "iam:PassRole"
+        Resource = concat(
           [for role in aws_iam_role.exec : role.arn],
           [for role in aws_iam_role.task : role.arn],
-          [
-            "arn:aws:iam::${var.aws_account_id}:role/${local.name}-frontend-exec",
-            "arn:aws:iam::${var.aws_account_id}:role/${local.name}-frontend-task",
-          ]
+          [aws_iam_role.frontend_exec.arn, aws_iam_role.frontend_task.arn],
         )
         Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } }
       },
@@ -80,10 +77,6 @@ resource "aws_iam_role_policy" "github_deploy" {
 import {
   to = aws_iam_role_policy.cloud_v2_dev_cd
   id = "keepgo-v2-github-deploy:cloud-v2-dev-cd"
-}
-
-data "aws_ecr_repository" "frontend_cd" {
-  name = "keepgo-web"
 }
 
 resource "aws_iam_role_policy" "cloud_v2_dev_cd" {
@@ -119,7 +112,7 @@ resource "aws_iam_role_policy" "cloud_v2_dev_cd" {
         Sid      = "VerifyPublishedImages"
         Effect   = "Allow"
         Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
-        Resource = [data.aws_ecr_repository.app["keepgo-backend"].arn, data.aws_ecr_repository.app["keepgo-ai"].arn, data.aws_ecr_repository.frontend_cd.arn]
+        Resource = [data.aws_ecr_repository.app["keepgo-backend"].arn, data.aws_ecr_repository.app["keepgo-ai"].arn, data.aws_ecr_repository.frontend.arn]
       },
       {
         Sid    = "PersistV2DeploymentState"

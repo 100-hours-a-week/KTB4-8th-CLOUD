@@ -79,9 +79,20 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           {{- end }}
-          {{- with .Values.envFrom }}
+          {{- $esEnv := list }}
+          {{- range .Values.externalSecrets.items }}
+          {{- if .asEnv }}
+          {{- $esEnv = append $esEnv (dict "secretRef" (dict "name" (printf "%s-%s" (include "keepgo-app.fullname" $) .name))) }}
+          {{- end }}
+          {{- end }}
+          {{- if or .Values.envFrom $esEnv }}
           envFrom:
+            {{- with .Values.envFrom }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- with $esEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           {{- with $startup }}
           startupProbe:
@@ -106,7 +117,7 @@ spec:
             {{- include "keepgo-app.resources" . | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.tmpDir.enabled .Values.secretFiles .Values.configFiles.files .Values.extraVolumes }}
+          {{- if or .Values.tmpDir.enabled .Values.secretFiles .Values.configFiles.files .Values.extraVolumes (include "keepgo-app.esFiles" .) }}
           volumeMounts:
             {{- if .Values.tmpDir.enabled }}
             - name: tmp
@@ -126,8 +137,15 @@ spec:
             - name: {{ .name }}
               mountPath: {{ .mountPath }}
             {{- end }}
+            {{- range .Values.externalSecrets.items }}
+            {{- if .asFiles }}
+            - name: es-{{ .name }}
+              mountPath: {{ .asFiles.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
           {{- end }}
-      {{- if or .Values.tmpDir.enabled .Values.secretFiles .Values.configFiles.files .Values.extraVolumes }}
+      {{- if or .Values.tmpDir.enabled .Values.secretFiles .Values.configFiles.files .Values.extraVolumes (include "keepgo-app.esFiles" .) }}
       volumes:
         {{- if .Values.tmpDir.enabled }}
         - name: tmp
@@ -152,6 +170,17 @@ spec:
         - name: {{ .name }}
           emptyDir:
             sizeLimit: {{ .sizeLimit }}
+        {{- end }}
+        {{- range .Values.externalSecrets.items }}
+        {{- if .asFiles }}
+        - name: es-{{ .name }}
+          secret:
+            secretName: {{ printf "%s-%s" (include "keepgo-app.fullname" $) .name }}
+            {{- with .asFiles.items }}
+            items:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+        {{- end }}
         {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}

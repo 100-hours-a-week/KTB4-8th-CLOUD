@@ -5,7 +5,7 @@ name: keepgo-app
 description: KeepGo V3 공통 애플리케이션 차트 (Deployment·Service·HPA/KEDA·PDB·ExternalSecret·NetworkPolicy·HTTPRoute·PodMonitor)
 type: application
 # 차트 자체의 버전. 템플릿을 바꾸면 올린다.
-version: 0.2.0
+version: 0.3.0
 # 앱 버전은 서비스마다 다르므로 image.tag로 받는다. 여기 값은 표시용이다.
 appVersion: "0.0.0"
 kubeVersion: ">=1.30.0-0"

@@ -155,12 +155,43 @@ externalSecrets:
   storeRef:
     kind: SecretStore
     name: aws-secrets-manager
+  # 만들어지는 Secret 이름은 "<서비스>-<name>"(예: auth-api-env)
   items: []
-  #  - name: backend-env                 # 만들 Secret 이름
+  #  - name: env
+  #    asEnv: true                       # 모든 키를 환경변수로
   #    data:
   #      - secretKey: GOOGLE_CLIENT_SECRET
   #        remoteRef: { key: keepgo/dev3/backend, property: GOOGLE_CLIENT_SECRET }
-  #    # 또는 비밀 하나의 모든 키를 그대로: dataFrom: [{ extract: { key: keepgo/dev3/backend } }]
+  #  - name: jwt
+  #    asFiles:                          # 파일로 마운트
+  #      mountPath: /run/secrets/jwt
+  #      items: [{ key: JWT_PUBLIC_KEY, path: jwt_public_key.pem }]
+  #    data:
+  #      - secretKey: JWT_PUBLIC_KEY
+  #        remoteRef: { key: keepgo/dev3/backend, property: JWT_PUBLIC_KEY }
+  #    # 비밀 하나의 모든 키를 그대로 받으려면: dataFrom: [{ extract: { key: keepgo/dev3/backend } }]
+
+# DB 스키마 마이그레이션 Job(5-4 8.3). Argo CD PreSync로 새 버전보다 먼저 실행된다.
+# 지금 backend에는 Flyway 스크립트(db/migration)가 없어 모든 서비스에서 꺼 둔다.
+migration:
+  enabled: false
+  # 비우면 앱 이미지와 같은 이미지·태그를 쓴다. CI가 같은 커밋으로 만든 마이그레이션 이미지를 쓰려면 채운다.
+  image:
+    repository: ""
+    tag: ""
+  command: []
+  args: []
+  env: {}
+  # DDL 권한 DB 계정을 담은 externalSecrets.items[].name. 이 항목은 PreSync로 먼저 만들어진다.
+  externalSecret: ""
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 512Mi
 
 # 앱이 파일로 읽는 설정(파일 이름: 내용). ConfigMap으로 만들어 mountPath에 붙인다.
 configFiles:

@@ -159,3 +159,12 @@ HPA 확장 속도(behavior). HPA와 KEDA가 같은 값을 쓴다.
 {{- toYaml . -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+파일로 붙일 ExternalSecret이 하나라도 있으면 "true"
+*/}}
+{{- define "keepgo-app.esFiles" -}}
+{{- range .Values.externalSecrets.items -}}
+{{- if .asFiles -}}true{{- end -}}
+{{- end -}}
+{{- end -}}

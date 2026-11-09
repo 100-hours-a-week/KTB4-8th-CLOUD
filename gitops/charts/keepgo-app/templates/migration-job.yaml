@@ -1,0 +1,81 @@
+{{- /*
+DB 스키마 마이그레이션(5-4 8.3). Argo CD PreSync Hook이라 새 버전 Pod보다 먼저 한 번만 실행되고,
+실패하면 sync가 멈춰 새 버전이 배포되지 않는다.
+DDL 권한 계정은 이 Job에만 준다: migration.externalSecret에 적은 ExternalSecret 항목도 PreSync로 먼저 만든다.
+앱 Pod는 SPRING_FLYWAY_ENABLED=false로 기동 시 마이그레이션을 하지 않는다.
+*/}}
+{{- $m := .Values.migration }}
+{{- if $m.enabled }}
+{{- if not $m.command }}
+{{- fail "migration.command가 필요합니다" }}
+{{- end }}
+{{- $name := include "keepgo-app.fullname" . }}
+{{- $image := include "keepgo-app.image" . }}
+{{- if $m.image.repository }}
+{{- $image = printf "%s:%s" $m.image.repository (toString (required "migration.image.tag 값이 필요합니다" $m.image.tag)) }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-migration
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ $m.backoffLimit }}
+  activeDeadlineSeconds: {{ $m.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}-migration
+        app.kubernetes.io/part-of: keepgo
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "keepgo-app.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migration
+          image: {{ $image }}
+          command:
+            {{- toYaml $m.command | nindent 12 }}
+          {{- with $m.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $m.env }}
+          env:
+            {{- range $k, $v := . }}
+            - name: {{ $k }}
+              value: {{ $v | toString | quote }}
+            {{- end }}
+          {{- end }}
+          {{- with $m.externalSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ printf "%s-%s" $name . }}
+          {{- end }}
+          resources:
+            {{- toYaml $m.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $.Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+{{- end }}

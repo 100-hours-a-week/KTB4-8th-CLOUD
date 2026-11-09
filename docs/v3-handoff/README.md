@@ -16,7 +16,8 @@ V3(EKS 전환) 개발 문서와 인수인계 사항을 모은다. 새 세션이�
 | --- | --- | --- |
 | 2026-11-09 | [Claude 인수인계](2026-11-09-claude-handoff.md) | V3 EKS 전환 B 담당 범위, 결정 사항, 진행 상태, 다음 할 일(RBAC·공통 Helm Chart) |
 | 2026-11-09 | [A파트 구축 기록](partA.md) | A 담당(Terraform·EKS·노드·Karpenter·LBC·Gateway·NetworkPolicy) 실제 구축 내용 |
-| 2026-11-10 | [B파트 구현 기록](2026-11-10-partB-k8s-implementation.md) | B 담당 WBS 21개 구현 결과, 가정 20개·결정 17개(트레이드오프), kind 검증 결과, 전환 Runbook. 인수인계 §7의 "Chart 미구현"·"DBMS 확인 필요"는 여기서 갱신 |
+| 2026-11-10 | [B파트 구현 기록](2026-11-10-partB-k8s-implementation.md) | B 담당 WBS 21개 구현 결과, 가정 20개·결정 21개(트레이드오프), kind 검증 결과, 전환 Runbook. 인수인계 §7의 "Chart 미구현"·"DBMS 확인 필요"는 여기서 갱신 |
+| 2026-11-10 | [B파트 Runbook](2026-11-10-partB-runbook.md) | 배포·롤백, 장애별 감지 → 자동 동작 → 사람 조치, 권한 문제 |
 | 2026-11-10 | [B파트 사용자 할 일](2026-11-10-partB-user-todo.md) | 사람이 해야 하는 일: A와 맞출 값, IAM·Secret, 개발팀 요청, gitops 저장소 이동, dev EKS 적용·검증, prod 전환 |
 
 ## 설계 사본(위키 스냅샷)

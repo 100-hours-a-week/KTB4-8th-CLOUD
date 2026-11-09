@@ -32,6 +32,7 @@ git push origin feat/v1-central-cd-prep                                  # 이 �
 | 9 | dev RDS 주소·인스턴스 | placeholder, db.t4g.micro | `spring-dev.yaml` DB_HOST, `scripts/budget.yaml` |
 | 10 | prod RDS 상향 | 전환 전 db.t4g.small 이상 | 구현 기록 §7 |
 | 11 | Prometheus 스택 | kube-prometheus-stack, `monitoring`, `release: kube-prometheus-stack` | `spring-<env>.yaml` metrics, SSE·AI 트리거 serverAddress |
+| 12a | Alertmanager `alertmanagerConfigMatcherStrategy.type: None` | B의 AlertmanagerConfig 하나가 모든 팀 Namespace 알림을 받도록(구현 기록 D18) | A의 kube-prometheus-stack values |
 | 12 | prod Gateway·도메인 | `keepgo-prod-gateway`, `keepgo.kr`·`api.keepgo.kr` | `spring-prod.yaml`, web `values-prod.yaml` |
 
 ### A가 만들 IAM(Pod Identity association 포함)
@@ -85,6 +86,7 @@ git push https://github.com/100-hours-a-week/keepgo-gitops.git gitops-export:mai
 - [ ] GitHub App 생성: keepgo-gitops에 Contents·Pull requests 쓰기. 앱 ID·키를 앱 저장소 3개와 keepgo-gitops의 Secret(`GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY`)에
 - [ ] keepgo-gitops → Settings → Actions → Access: 조직 저장소에서 재사용 workflow 호출 허용
 - [ ] A에 요청: GitHub OIDC 역할 2개 — ECR push(앱 저장소용, `ECR_PUSH_ROLE_ARN`), ECR 조회·태그 추가(promote-prod용, `ECR_PROMOTE_ROLE_ARN`). ECR tag immutability·push 스캔 켜기, lifecycle에서 `prod-*` 최근 N개 보존
+- [ ] 프런트 저장소 변수(vars) 확인: `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_NAVER_MAP_CLIENT_ID`, `NEXT_PUBLIC_CLARITY_PROJECT_ID`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, Secret `SENTRY_AUTH_TOKEN`(V2 CI가 쓰는 것과 같음)
 - [ ] 앱 저장소 3개에 `gitops/docs/ci-callers/<스택>.yaml`을 `.github/workflows/deploy-dev.yaml`로 복사(기존 V2 배포와 겹치지 않게 전환 시점에)
 - [ ] 첫 차트 태그: `git tag keepgo-app-0.3.0 && git push origin keepgo-app-0.3.0`(이후는 chart-release workflow가 만든다)
 - [ ] (선택) ECR `keepgo-charts` 저장소 만들고 변수 `CHART_OCI_REPO`, Secret `CHART_PUSH_ROLE_ARN` 설정
@@ -104,11 +106,16 @@ kubectl -n argocd create secret generic argocd-dex-github \
 kubectl -n argocd label secret argocd-dex-github app.kubernetes.io/part-of=argocd
 kubectl -n argocd patch secret argocd-notifications-secret \
   --type merge -p '{"stringData":{"discord-webhook-url":"<Discord webhook URL>"}}'
-# 저장소 자격 증명(GitHub App) 등록 후
+# 알림 webhook(Alertmanager → Discord, 구현 기록 D18)
+kubectl -n monitoring create secret generic keepgo-alert-discord --from-literal=url=<Discord webhook URL>
+# 저장소 자격 증명(private keepgo-gitops). GitHub App으로 등록한다
+argocd login --port-forward --port-forward-namespace argocd --plaintext --username admin   --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
+argocd repo add https://github.com/100-hours-a-week/keepgo-gitops.git --port-forward --port-forward-namespace argocd   --github-app-id <App ID> --github-app-installation-id <설치 ID> --github-app-private-key-path <키 파일>
 kubectl apply -f argocd/bootstrap/project.yaml -f argocd/bootstrap/root-dev.yaml   # root 전용 프로젝트 먼저
 ```
 
 - [ ] GitHub OAuth App 생성(callback `https://<argocd 주소>/api/dex/callback`)
+- [ ] SSO가 동작하면 admin 계정 끄기(`configs.cm.admin.enabled: "false"`) 또는 비밀번호 교체
 - [ ] Argo CD 접속 경로 결정(지금은 port-forward. 외부 노출하려면 Gateway allowedRoutes에 argocd 추가 + HTTPRoute — A와 합의)
 
 ### 4.2 dev EKS에서만 확인할 수 있는 것
@@ -127,6 +134,8 @@ kubectl apply -f argocd/bootstrap/project.yaml -f argocd/bootstrap/root-dev.yaml
 | 10 | 장애 | `scripts/v3-local/chaos.sh pod-kill|readiness-fail|image-pull` | 5-4 9.2 표대로 동작, selfHeal로 복구 |
 | 11 | 롤백 | GitOps 태그 커밋 revert | 이전 태그로 동기화, Discord 알림 |
 | 12 | 대시보드 | Grafana `KeepGo V3` 폴더 | 패널에 값이 나옴(SSE·AI 패널은 지표 생긴 뒤) |
+| 13 | 알림 전달 | Pod 하나를 일부러 CrashLoop(`chaos.sh readiness-fail` 등) | 10분 안에 Discord에 `KeepgoReplicasUnavailable`, 복구 후 resolved |
+| 14 | Secret 반영 | Secrets Manager 값 변경 → `podAnnotations.secret-rev` 변경 PR | 롤링 재시작 후 새 값(Runbook §3.6) |
 
 - [ ] 결과를 [구현 기록](2026-11-10-partB-k8s-implementation.md) §6에 추가(설계/구현/검증 구분 유지)
 
@@ -139,6 +148,13 @@ kubectl apply -f argocd/bootstrap/project.yaml -f argocd/bootstrap/root-dev.yaml
 - [ ] Gateway·도메인·인증서(A)
 - [ ] prod Argo CD 설치 → `bootstrap/project.yaml` + `root-prod.yaml`
 
-## 6. 위키 반영
+## 6. 측정한 뒤 정할 것(지금은 보류, 구현 기록 D19·D20)
+
+- [ ] dev 야간·주말 축소(5-4 5.1): dev EKS 비용을 본 뒤 KEDA cron(앱) 또는 NodePool 한도(A)
+- [ ] Worker `karpenter.sh/do-not-disrupt`·`ephemeral-storage`: SQS 코드가 생긴 뒤 작업 시간·디스크 사용량을 재고
+- [ ] HPA·KEDA 목표값, maxReplicas, Hikari 풀 크기: 부하 테스트(§4.2 #8) 결과로 values 조정
+- [ ] "빌드는 됐는데 오래 미반영" 알림(배포 충돌 backlog): 필요하면 Argo CD 앱의 이미지 태그와 ECR 최신 태그 비교 알림 추가
+
+## 7. 위키 반영
 
 - [ ] 구현 기록 §10의 제안을 위키에 반영하고 `design-snapshot/`을 다시 복사

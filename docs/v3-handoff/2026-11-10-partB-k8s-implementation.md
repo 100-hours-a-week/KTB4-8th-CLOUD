@@ -9,7 +9,7 @@
 
 | 구분 | 상태 |
 |---|---|
-| 설계 | 위키 5-2·5-3·5-4를 그대로 코드로 옮김. 위키에 없는 선택 17건은 §5 결정 기록 |
+| 설계 | 위키 5-2·5-3·5-4를 그대로 코드로 옮김. 위키에 없는 선택 21건은 §5 결정 기록 |
 | 구현 | WBS 21개 중 코드·문서로 할 수 있는 것 전부(§3) |
 | 검증 | 정적 검증 전부 통과, kind(Kubernetes 1.37.0)에서 Argo CD 전체 동기화·RBAC·NetworkPolicy 확인(§6) |
 | 미검증 | AWS가 있어야 하는 것(ALB·Pod Identity·ExternalSecret·SQS KEDA·Karpenter 배치·부하·장애): dev EKS에서 [사용자 할 일](2026-11-10-partB-user-todo.md) §4 |
@@ -67,10 +67,10 @@ gitops/
 | 15 | KEDA SQS | worker values | 구현(SQS 미검증, 앱에 SQS 코드 없음) |
 | 16 | KEDA SSE·AI 지표 | chat·recommend·ai values(가정 지표 + CPU) | 구현(지표 계측 대기) |
 | 17 | Graceful·SSE 재연결 | 종료 시간·deregistration delay | 구현(앱 쪽은 개발팀) |
-| 18 | 지표·대시보드·알림 | PodMonitor·PrometheusRule·대시보드·Argo CD 알림 | 구현(수집 미검증) |
+| 18 | 지표·대시보드·알림 | PodMonitor·PrometheusRule·Discord 전달(AlertmanagerConfig)·대시보드·Argo CD 알림 | 구현(수집·전송 미검증) |
 | 19 | 부하·장애·롤백 | `tests/v3/load/*.js`, `chaos.sh` | 도구만(실행은 사용자) |
 | 20 | prod values·전환 | values-prod, 전환 Runbook(§8) | 구현(실행은 사용자) |
-| 21 | 문서·Runbook | 이 문서, 사용자 할 일 | 구현 |
+| 21 | 문서·Runbook | 이 문서, [Runbook](2026-11-10-partB-runbook.md), 사용자 할 일 | 구현 |
 
 ## 4. 계약·가정 표
 
@@ -192,27 +192,57 @@ A·개발팀 확정값이 없어서 정한 값이다. 틀리면 "바꿀 곳"만 
 - 문제: impersonation을 켜면 **모든** 프로젝트에 배포 계정이 있어야 한다. root 앱을 `default` 프로젝트에 두자 "no matching service account" 오류로 동기화가 멈췄다.
 - 결정: `argocd/bootstrap/project.yaml`(argocd Namespace의 AppProject·Application·ApplicationSet만 허용, `argocd-platform-deployer`로 적용)을 root와 함께 사람이 한 번 적용한다.
 
+### D18. 알림 전달: monitoring Namespace의 AlertmanagerConfig 하나
+- 선택지: (a) 팀 Namespace마다 AlertmanagerConfig(웹훅 Secret 6벌, ESO 경로 추가) (b) monitoring에 하나 + A의 Alertmanager를 `alertmanagerConfigMatcherStrategy: None`으로
+- 결정: (b). B가 만든 `Keepgo*` 알림만 골라 서비스별로 묶어 Discord로 보낸다. 웹훅 주소는 한 곳에만 있다.
+- 감수: A의 Alertmanager 설정 하나에 의존한다. A가 바꾸지 않으면 팀 Namespace 알림이 전달되지 않는다(사용자 할 일 §1).
+
+### D19. dev 야간·주말 축소는 보류
+- 5-4 5.1은 dev를 "야간·주말 축소"한다고 했지만 방법이 없다. 선택지: KEDA cron 트리거(HPA 서비스를 모두 KEDA로 바꿔야 함), 외부 스케줄러가 replicas를 바꿈(GitOps·selfHeal과 충돌), A가 NodePool 한도를 시간대별로 조절.
+- 결정: 지금은 하지 않는다. dev는 이미 최소 1개이고, Pod가 줄면 Karpenter가 노드를 정리한다. dev EKS 비용을 실제로 본 뒤 KEDA cron(앱 쪽) 또는 노드 측(A) 중에서 정한다.
+
+### D20. Worker do-not-disrupt·임시 디스크는 측정 후
+- 5-3 6.5(긴 작업이 Consolidation으로 자주 끊기면 `karpenter.sh/do-not-disrupt`)와 5-3 2.4(임시 디스크를 쓰면 `ephemeral-storage`)는 "검토"·"쓰는 경우" 조건부다. 지금 Worker에는 SQS 코드가 없어 작업 시간·디스크 사용을 잴 수 없다.
+- 결정: 넣지 않는다. 필요해지면 worker values에 `podAnnotations`와 `resources`의 `ephemeral-storage`만 추가하면 된다(차트 수정 불필요). Worker 종료 상한 110초 < Worker NodePool 종료 유예 5분(partA)이라 Pod 종료가 노드 종료보다 먼저 끝난다.
+
+### D21. Secret 값이 바뀌었을 때 Pod 반영(5-4 7.6 "따로 정한다")
+- 선택지: (a) Reloader 같은 컨트롤러가 Secret 변경을 감지해 자동 재시작 (b) Git에서 `podAnnotations` 값을 바꿔 롤링 재시작
+- 결정: (b). 재시작이 Git 이력에 남고(배포 충돌 backlog의 "Secret 변경도 추적" 요구), 컨트롤러가 하나 줄어든다.
+- 감수: 비밀을 바꾼 뒤 사람이 PR을 하나 더 올려야 한다(Runbook §3.6). 비밀 교체가 잦아지면 (a)를 다시 본다.
+
+### V2 배포 충돌 backlog(`docs/backlog/v3-deployment-conflict-recovery.md`) 대응
+
+| backlog 요구 | 이번 구현 | 남은 것 |
+|---|---|---|
+| 앱 변경 경로를 GitOps 하나로 | 클러스터에 쓰는 것은 Argo CD뿐, CI는 ECR push + Git 커밋만(클러스터 권한 없음) | 실클러스터에서 CI 역할에 EKS 권한이 없는지 확인 |
+| Terraform과 Argo CD가 같은 리소스를 동시에 관리하지 않기 | 앱·팀 Namespace·KEDA·ESO = Argo CD, 노드·Gateway·LBC·Prometheus = A | A와 소유 범위 합의(사용자 할 일 §1) |
+| 사람·CI의 직접 변경 차단 | 팀 그룹은 조회만, 플랫폼 그룹도 앱 Deployment 쓰기 없음(rbac-check 52/52) | Access Policy 제거(A) |
+| HPA·KEDA·ESO 관리 범위 구분 | autoscaler가 있으면 replicas를 Git에 두지 않음, Secret은 ESO가 만들고 Argo CD는 ExternalSecret만 | — |
+| 외부 변경 감지·되돌림·재개 | selfHeal + OutOfSync 이력, 긴급 변경 절차(Runbook §3.10) | dev에서 실제 시연 |
+| 미반영·실패 상태 드러내기 | Argo CD 실패·Degraded·prod 배포 완료 Discord 알림(서비스·환경·이미지·커밋 링크) | "빌드 성공 후 오래 미반영" 감지(지속 시간 알림)는 미구현 |
+| Secret 변경 추적 | D21(Git annotation으로 재시작) | — |
+
 ## 6. 검증 결과
 
 검증은 "실제로 적용 가능한가"를 보는 것만 했다(사용자 지시). 시연성 검증(selfHeal·revert 데모, HPA 부하, 장애 재현, k6)은 스크립트만 남기고 실행하지 않았다.
 
 | # | 검증 | 방법 | 결과 |
 |---:|---|---|---|
-| 1 | 정적: 모든 YAML이 스키마상 적용 가능한지 | `gitops/scripts/validate.sh` — 서비스 9 × 환경 2 렌더링, kubeconform(Kubernetes 1.37.0 + CRD 스키마) | **통과**: 337개 리소스 유효, 오류 0 |
+| 1 | 정적: 모든 YAML이 스키마상 적용 가능한지 | `gitops/scripts/validate.sh` — 서비스 9 × 환경 2 렌더링, kubeconform(Kubernetes 1.37.0 + CRD 스키마) | **통과**: 339개 리소스 유효, 오류 0 |
 | 1-2 | 차트 규칙이 실제로 막는지 | 규칙 위반 값 14가지(태그 없음·latest·resources 없음·메모리 불일치·오타 키·HPA 0·min>max·KEDA 인증 역할 없음·HTTPRoute 경로 오류 등) | **통과**: 14건 모두 거부 |
 | 1-3 | DB 커넥션·Quota 예산 | `check-budget.py` | **통과**: dev 73/80, prod 92/170(가정 A9), Namespace 12개 모두 Quota 안 |
 | 2 | Argo CD로 전체 적용 | kind(노드 이미지 **v1.37.0**, EKS와 같은 버전) + 클러스터 안 Git 서버 + root 앱, impersonation 켬 | **통과**: Application 16개 전부 Synced·Healthy, 서비스 Pod 9개 Ready |
 | 2-2 | 배치 | 노드 라벨·Taint를 partA와 같게 | Argo CD·KEDA·ESO → system 노드, API·AI·Web 8개 → application 노드(a·c에 분산), worker → worker 노드 |
 | 2-3 | 보안 기준 | Namespace `pod-security.kubernetes.io/enforce: restricted` + 기본 차단 | 모든 Pod가 restricted 통과, 기본 차단 상태에서 kubelet Probe 정상 |
-| 3 | RBAC 권한표(5-2 2.3) | `rbac-check.sh` — 풀스택·AI·플랫폼 그룹, Argo CD 배포 계정 | **통과**: 49/49 |
-| 4 | NetworkPolicy | `np-check.sh` | **통과**: recommend/chat-api → ai-api 허용, account/auth-api → ai-api 차단 |
+| 3 | RBAC 권한표(5-2 2.3) | `rbac-check.sh` — 풀스택·AI·플랫폼 그룹, Argo CD 배포 계정(exec·attach·port-forward·Secret 거부 포함) | **통과**: 52/52 |
+| 4 | NetworkPolicy | `np-check.sh` + 수동 | **통과**: recommend/chat-api → ai-api 허용, account/auth-api → ai-api 차단, frontend/web → member-api 허용, ai-api → member-api 차단 |
 
 검증 중 발견해 고친 것
 
 | 발견 | 원인 | 조치 |
 |---|---|---|
 | root 앱 동기화 멈춤 | impersonation은 모든 프로젝트에 배포 계정 필요 | D17 bootstrap 프로젝트 |
-| RBAC 4건 `no`(HTTPRoute·Gateway·NodePool) | CRD가 없는 클러스터에서는 `kubectl auth can-i`가 판정하지 못함(권한 문제 아님) | 로컬에 Gateway API·Karpenter CRD 설치 후 49/49. dev EKS는 A가 CRD를 설치해 두었으므로 해당 없음 |
+| RBAC 4건 `no`(HTTPRoute·Gateway·NodePool) | CRD가 없는 클러스터에서는 `kubectl auth can-i`가 판정하지 못함(권한 문제 아님) | 로컬에 Gateway API·Karpenter CRD 설치 후 전부 통과. dev EKS는 A가 CRD를 설치해 두었으므로 해당 없음 |
 | KEDA `identityOwner: workload` | Pod Identity에서는 동작하지 않음(KEDA 문서) | D5 roleArn 방식 |
 | 같은 Namespace 두 서비스의 ExternalSecret 이름 충돌 | 공통 values | D8 이름 접두어 |
 | HPA 앱이 처음 1~2분 Degraded | metrics-server가 첫 지표를 모으기 전(정상) | 조치 없음. dev EKS 첫 배포 때도 같은 현상이 보일 수 있음 |

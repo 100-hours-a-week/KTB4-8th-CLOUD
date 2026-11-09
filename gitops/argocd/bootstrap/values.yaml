@@ -78,7 +78,7 @@ applicationSet:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { memory: 256Mi }
 
-# 배포 알림(5-4 6.6). 5-4는 Slack이지만 V2 운영 알림이 Discord라 Discord webhook을 쓴다(가정).
+# 배포 알림(5-4 6.6). 서비스·환경·이미지 태그·커밋 링크를 넣는다. 5-4는 Slack이지만 V2 운영 알림이 Discord라 Discord webhook을 쓴다(가정).
 # webhook 주소는 argocd-notifications-secret의 discord-webhook-url 키에 사람이 넣는다(사용자 할 일).
 notifications:
   enabled: true
@@ -97,19 +97,19 @@ notifications:
         discord:
           method: POST
           body: |
-            {"content": "❌ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 동기화 실패\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: {{ .app.status.operationState.syncResult.revision }}\n{{ .app.status.operationState.message }}"}
+            {"content": "❌ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 동기화 실패\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/keepgo-gitops/commit/{{ .app.status.operationState.syncResult.revision }}\n{{ .app.status.operationState.message }}"}
     template.keepgo-degraded: |
       webhook:
         discord:
           method: POST
           body: |
-            {"content": "⚠️ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 상태 Degraded\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: {{ .app.status.sync.revision }}"}
+            {"content": "⚠️ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 상태 Degraded\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/keepgo-gitops/commit/{{ .app.status.sync.revision }}"}
     template.keepgo-deployed: |
       webhook:
         discord:
           method: POST
           body: |
-            {"content": "✅ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 배포 완료\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: {{ .app.status.sync.revision }}"}
+            {"content": "✅ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 배포 완료\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/keepgo-gitops/commit/{{ .app.status.sync.revision }}"}
   triggers:
     trigger.keepgo-sync-failed: |
       - when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']

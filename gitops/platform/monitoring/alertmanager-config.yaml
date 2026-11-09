@@ -1,0 +1,38 @@
+# 서비스 알림 전달(5-5, WBS 18). keepgo-app 차트의 PrometheusRule 알림(KeepgoPodRestarting 등)을 Discord로 보낸다.
+# Prometheus·Alertmanager 설치는 A 담당이고, 여기서는 B가 만든 알림의 전달 경로만 둔다.
+#
+# [가정·A 계약]
+#   1) Alertmanager가 이 Namespace(monitoring)의 AlertmanagerConfig를 읽는다(kube-prometheus-stack 기본 selector).
+#   2) Alertmanager의 alertmanagerConfigMatcherStrategy.type = None.
+#      기본값(OnNamespace)이면 이 설정이 monitoring Namespace 알림에만 걸려, 팀 Namespace 알림이 오지 않는다.
+#   3) webhook 주소 Secret keepgo-alert-discord(키 url)는 사람이 만든다(Git에 두지 않음, 사용자 할 일).
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: keepgo-services
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: keepgo
+    release: kube-prometheus-stack
+spec:
+  route:
+    receiver: discord
+    # 같은 서비스·같은 알림은 묶어서 한 번에
+    groupBy: [alertname, namespace, service]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    matchers:
+      # keepgo-app 차트가 만든 알림만(이름이 Keepgo로 시작)
+      - name: alertname
+        matchType: "=~"
+        value: "Keepgo.*"
+  receivers:
+    - name: discord
+      discordConfigs:
+        - apiURL:
+            name: keepgo-alert-discord
+            key: url
+          sendResolved: true
+          title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} {{ .CommonLabels.namespace }}/{{ .CommonLabels.service }}'
+          message: '{{ range .Alerts }}{{ .Annotations.summary }} ({{ .Labels.severity }}){{ "\n" }}{{ end }}'

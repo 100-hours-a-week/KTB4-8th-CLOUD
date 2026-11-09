@@ -1,0 +1,18 @@
+{{- if .Values.networkPolicy.defaultDenyIngress }}
+{{- range $ns, $cfg := .Values.namespaces }}
+---
+# 기본 차단: 이 Namespace의 모든 Pod로 들어오는 통신을 막는다.
+# 허용은 서비스별 NetworkPolicy(keepgo-app 차트)가 더한다. NetworkPolicy는 더하기만 된다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: keepgo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+{{- end }}
+{{- end }}

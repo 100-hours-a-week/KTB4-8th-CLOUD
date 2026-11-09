@@ -1,0 +1,45 @@
+# 환경 이름. SecretStore IAM 역할 이름에 쓴다(dev3, prod).
+cluster: dev3
+
+# Argo CD가 팀 Namespace에 배포할 때 빌려 쓰는 계정(sync impersonation, 5-2 application-deployer)
+deployer:
+  serviceAccount: argocd-deployer
+  clusterRole: keepgo-application-deployer
+
+# 팀 조회 권한(5-2 service-observer)
+observer:
+  clusterRole: keepgo-service-observer
+
+# Pod 보안 기준. keepgo-app 차트는 restricted를 만족한다(비루트, 권한 상승 금지, seccomp).
+podSecurity: restricted
+
+# Namespace마다 AWS Secrets Manager 연결(External Secrets Operator)
+secretStore:
+  enabled: true
+  name: aws-secrets-manager
+  region: ap-northeast-2
+  # ESO 컨트롤러(Pod Identity)가 Namespace별 역할을 assume한다. 팀은 자기 경로의 비밀만 읽는다.
+  # [가정] 역할 이름 규칙. 첫 %s = cluster, 둘째 %s = namespace. 비우면 컨트롤러 역할을 그대로 쓴다.
+  roleArnFormat: "arn:aws:iam::602601433533:role/keepgo-%s-eso-%s"
+
+# Namespace 기본 차단: 들어오는 통신을 모두 막고, 서비스별 허용은 keepgo-app 차트가 연다.
+networkPolicy:
+  defaultDenyIngress: true
+
+# requests·limits를 빠뜨린 Pod(차트 밖에서 만든 것)의 기본값과 상한. keepgo-app은 항상 직접 적는다.
+limitRange:
+  defaultRequest:
+    cpu: 100m
+    memory: 128Mi
+  default:
+    memory: 128Mi
+  max:
+    memory: 2Gi
+
+# 팀 Namespace. quota = 합계(maxReplicas + maxSurge) x requests + 마이그레이션 Job + 여유(5-2 2.2).
+# 값은 환경별 values에서 정하고, gitops/scripts/check-budget.py가 부족하지 않은지 검사한다.
+namespaces: {}
+#  account:
+#    team: account
+#    observerGroups: [keepgo:fullstack-observers]
+#    quota: { requests.cpu: "2", requests.memory: 6Gi, limits.memory: 6Gi, pods: "10" }

@@ -1,0 +1,49 @@
+{{- range $ns, $cfg := .Values.namespaces }}
+{{- if $cfg.observerGroups }}
+---
+# 팀 조회 권한. ClusterRole을 RoleBinding으로 붙여 이 Namespace에서만 유효하다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: keepgo-service-observer
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: keepgo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $.Values.observer.clusterRole }}
+subjects:
+  {{- range $cfg.observerGroups }}
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: {{ . }}
+  {{- end }}
+{{- end }}
+---
+# Argo CD가 이 Namespace에 배포할 때 빌려 쓰는 계정(AppProject destinationServiceAccounts)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $.Values.deployer.serviceAccount }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: keepgo
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: keepgo-application-deployer
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: keepgo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $.Values.deployer.clusterRole }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $.Values.deployer.serviceAccount }}
+    namespace: {{ $ns }}
+{{- end }}

@@ -1,0 +1,27 @@
+# prod 클러스터. quota 근거 = 합계(max + surge) x requests (+ 마이그레이션 Job 여유)
+#   account  : auth 4 x (250m, 768Mi) + member 3 x (250m, 768Mi) = 1.75 CPU, 5.25Gi
+#   ingest   : youtube 3 x (250m, 768Mi) + worker 3 x (500m, 1Gi) = 2.25 CPU, 5.25Gi
+#   content  : wishlist 3 x (300m, 1Gi) = 0.9 CPU, 3Gi
+#   recommend: chat, recommend 각 4 x (300m, 1Gi) = 2.4 CPU, 8Gi
+#   ai       : 5 x (200m, 512Mi) = 1 CPU, 2.5Gi
+#   frontend : 5 x (100m, 256Mi) = 0.5 CPU, 1.25Gi
+cluster: prod
+namespaces:
+  account:
+    observerGroups: [keepgo:fullstack-observers]
+    quota: { requests.cpu: "2500m", requests.memory: 7Gi, limits.memory: 7Gi, pods: "12" }
+  ingest:
+    observerGroups: [keepgo:fullstack-observers]
+    quota: { requests.cpu: "3", requests.memory: 7Gi, limits.memory: 7Gi, pods: "10" }
+  content:
+    observerGroups: [keepgo:fullstack-observers]
+    quota: { requests.cpu: "1500m", requests.memory: 4Gi, limits.memory: 4Gi, pods: "6" }
+  recommend:
+    observerGroups: [keepgo:fullstack-observers]
+    quota: { requests.cpu: "3", requests.memory: 10Gi, limits.memory: 10Gi, pods: "12" }
+  ai:
+    observerGroups: [keepgo:ai-observers]
+    quota: { requests.cpu: "1500m", requests.memory: 3Gi, limits.memory: 3Gi, pods: "8" }
+  frontend:
+    observerGroups: [keepgo:fullstack-observers]
+    quota: { requests.cpu: "1", requests.memory: 2Gi, limits.memory: 2Gi, pods: "8" }

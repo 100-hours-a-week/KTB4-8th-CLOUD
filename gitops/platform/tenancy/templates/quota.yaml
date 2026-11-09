@@ -1,0 +1,35 @@
+{{- range $ns, $cfg := .Values.namespaces }}
+{{- with $cfg.quota }}
+---
+# 팀 Namespace 자원 총량(5-2 2.2). 최대 확장 + 롤링 배포 여유보다 작으면 확장·배포가 막힌다.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: keepgo-quota
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: keepgo
+spec:
+  hard:
+    {{- range $k, $v := . }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: keepgo-defaults
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: keepgo
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        {{- toYaml $.Values.limitRange.defaultRequest | nindent 8 }}
+      default:
+        {{- toYaml $.Values.limitRange.default | nindent 8 }}
+      max:
+        {{- toYaml $.Values.limitRange.max | nindent 8 }}
+{{- end }}

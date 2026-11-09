@@ -1,0 +1,16 @@
+{{- range $ns, $cfg := .Values.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: keepgo
+    keepgo.io/team: {{ $cfg.team | default $ns }}
+    pod-security.kubernetes.io/enforce: {{ $.Values.podSecurity }}
+    pod-security.kubernetes.io/warn: {{ $.Values.podSecurity }}
+  annotations:
+    # Namespace를 Git에서 지워도 안의 리소스까지 한꺼번에 지워지지 않게 한다.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/sync-wave: "-10"
+{{- end }}

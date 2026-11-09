@@ -1,0 +1,8 @@
+# 팀 Namespace 묶음(5-2 2.1~2.3, 5-1 "팀별 운영 환경을 반복적으로 제공")
+# Namespace 6개에 같은 정책(Quota·LimitRange·RBAC·SecretStore·기본 차단)을 값만 바꿔 찍어낸다.
+apiVersion: v2
+name: keepgo-tenancy
+description: KeepGo V3 팀 Namespace와 기본 정책(Quota·LimitRange·RoleBinding·SecretStore·NetworkPolicy)
+type: application
+version: 0.1.0
+kubeVersion: ">=1.30.0-0"

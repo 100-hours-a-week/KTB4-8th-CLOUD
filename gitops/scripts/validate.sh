@@ -60,7 +60,7 @@ for env in $ENVS; do
   join platform/rbac/*.yaml > "$OUT/$env/platform-rbac.yaml"
   join platform/priority-classes/*.yaml > "$OUT/$env/platform-priority-classes.yaml"
   join platform/monitoring/*.yaml > "$OUT/$env/platform-monitoring.yaml"
-  for f in argocd/projects/*.yaml argocd/platform/"$env"/*.yaml argocd/applicationsets/apps-"$env".yaml argocd/bootstrap/root-"$env".yaml; do
+  for f in argocd/projects/*.yaml argocd/platform/"$env"/*.yaml argocd/applicationsets/apps-"$env".yaml argocd/bootstrap/project.yaml argocd/bootstrap/root-"$env".yaml; do
     printf -- '---\n'; cat "$f"
   done > "$OUT/$env/argocd.yaml"
 done

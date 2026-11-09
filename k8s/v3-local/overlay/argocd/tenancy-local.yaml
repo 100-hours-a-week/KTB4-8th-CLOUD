@@ -1,0 +1,40 @@
+# argocd/platform/dev/tenancy.yaml과 같고, 로컬 override(local/values/tenancy.yaml)만 더한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-tenancy
+  namespace: argocd
+  labels:
+    keepgo.io/env: local
+    keepgo.io/team: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+    targetRevision: main
+    path: platform/tenancy
+    helm:
+      releaseName: keepgo-tenancy
+      valueFiles:
+        - values-dev.yaml
+        - ../../local/values/tenancy.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

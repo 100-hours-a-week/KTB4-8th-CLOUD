@@ -1,0 +1,30 @@
+# 로컬(kind) 전용: Spring 7개를 실제 이미지(ECR private) 대신 Mock으로 띄운다.
+# 바꾸는 것은 "AWS·실제 앱이 있어야 동작하는 부분"뿐이고, 배치·보안·Probe 포트·확장 구조는 dev 값 그대로 둔다.
+image:
+  repository: busybox
+  tag: "1.37"
+
+# busybox httpd로 앱 포트(8080)와 관리 포트(8081)를 열고 Spring Probe 경로에 200을 돌려준다.
+command: ["sh", "-c"]
+args:
+  - |
+    mkdir -p /tmp/www/actuator/health
+    echo '{"status":"UP"}' > /tmp/www/actuator/health/liveness
+    echo '{"status":"UP"}' > /tmp/www/actuator/health/readiness
+    echo "mock $HOSTNAME" > /tmp/www/index.html
+    httpd -p 8081 -h /tmp/www
+    exec httpd -f -p 8080 -h /tmp/www
+
+# kind 노드 메모리(8GB 공유)에 맞춘 작은 값. requests = limits 규칙은 그대로 지킨다.
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 32Mi
+
+# AWS Secrets Manager·ALB가 없다
+externalSecrets:
+  items: []
+httpRoute:
+  enabled: false

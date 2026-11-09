@@ -1,0 +1,12 @@
+# 로컬(kind) Argo CD 설치 override. gitops/argocd/bootstrap/values.yaml 뒤에 겹친다.
+# 외부 계정이 필요한 GitHub 로그인·Discord 알림만 끈다. impersonation·System 노드 배치·Application Health는 그대로 검증한다.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+configs:
+  cm:
+    url: https://localhost:8080
+  params:
+    # 로컬은 port-forward로만 접속
+    server.insecure: "true"

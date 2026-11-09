@@ -1,0 +1,42 @@
+# V3 로컬 검증 클러스터. A가 만든 dev EKS의 노드 구분을 라벨·Taint로 흉내 낸다(partA 4장, NodePool).
+#   system      : workload=system + NoSchedule  (System MNG: Argo CD·KEDA·ESO)
+#   application : workload=application, AZ a·c  (Application NodePool: API·AI·Web)
+#   worker      : workload=worker + NoSchedule  (Worker NodePool: 분석 Worker, [가정] Taint 키)
+# 노드 이미지는 kind 0.33 기본(EKS 1.37보다 낮을 수 있다. 문서의 버전 차이 참고).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: keepgo-v3
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      workload: system
+      topology.kubernetes.io/zone: ap-northeast-2a
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: workload
+              value: system
+              effect: NoSchedule
+  - role: worker
+    labels:
+      workload: application
+      topology.kubernetes.io/zone: ap-northeast-2a
+  - role: worker
+    labels:
+      workload: application
+      topology.kubernetes.io/zone: ap-northeast-2c
+  - role: worker
+    labels:
+      workload: worker
+      topology.kubernetes.io/zone: ap-northeast-2c
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: workload
+              value: worker
+              effect: NoSchedule

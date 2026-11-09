@@ -25,3 +25,6 @@ __pycache__/
 # discover-dev-metrics.py가 모니터링 EC2에서 30초마다 다시 쓰는 runtime 파일
 /monitoring/prometheus/targets/development.json
 /monitoring/prometheus/targets/v2-dev.json
+
+# V3 로컬 검증 임시 파일(키·push용 저장소)
+.v3-local/

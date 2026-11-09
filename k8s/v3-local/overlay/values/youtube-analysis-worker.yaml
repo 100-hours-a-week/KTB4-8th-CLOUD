@@ -1,0 +1,12 @@
+# 로컬(kind) 전용: SQS가 없으므로 CPU 트리거로 바꾼다(KEDA CPU 트리거는 최소 1개 필요).
+# worker 노드 Taint 허용·nodeSelector·PriorityClass·PDB 없음은 dev 값 그대로 검증한다.
+autoscaling:
+  minReplicas: 1
+  keda:
+    authentication:
+      enabled: false
+    triggers:
+      - type: cpu
+        metricType: Utilization
+        metadata:
+          value: "70"

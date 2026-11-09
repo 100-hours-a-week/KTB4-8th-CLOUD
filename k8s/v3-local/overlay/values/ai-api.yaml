@@ -1,0 +1,26 @@
+# 로컬(kind) 전용: ai-api Mock. 8000 포트 /health. NetworkPolicy(허용 대상만)는 dev 값 그대로 검증한다.
+image:
+  repository: busybox
+  tag: "1.37"
+command: ["sh", "-c"]
+args:
+  - |
+    mkdir -p /tmp/www
+    echo '{"status":"ok"}' > /tmp/www/health
+    exec httpd -f -p 8000 -h /tmp/www
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 32Mi
+externalSecrets:
+  items: []
+# Prometheus가 없으므로 CPU 트리거만
+autoscaling:
+  keda:
+    triggers:
+      - type: cpu
+        metricType: Utilization
+        metadata:
+          value: "70"

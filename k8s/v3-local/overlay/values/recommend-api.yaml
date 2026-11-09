@@ -1,0 +1,8 @@
+# 로컬(kind) 전용: Prometheus가 없으므로 CPU 트리거만
+autoscaling:
+  keda:
+    triggers:
+      - type: cpu
+        metricType: Utilization
+        metadata:
+          value: "70"

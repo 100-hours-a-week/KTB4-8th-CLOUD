@@ -1,0 +1,3 @@
+# 로컬(kind) 전용: AWS가 없으므로 SecretStore만 끈다. Namespace·Quota·LimitRange·RBAC·기본 차단은 dev 값 그대로.
+secretStore:
+  enabled: false

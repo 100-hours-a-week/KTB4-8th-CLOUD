@@ -1,0 +1,52 @@
+# 로컬 Argo CD가 읽을 Git 서버(soft-serve). GitHub에 올리지 않고 gitops 브랜치를 클러스터 안에서 동기화한다.
+# 읽기: http://git-server.git-server.svc.cluster.local:23232/gitops.git (익명 읽기)
+# 쓰기: up.sh가 port-forward 후 ssh(23231)로 push. 관리자 키는 up.sh가 Secret으로 넣는다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: git-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-server
+  namespace: git-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: git-server }
+  template:
+    metadata:
+      labels: { app: git-server }
+    spec:
+      nodeSelector:
+        workload: application
+      containers:
+        - name: soft-serve
+          image: charmcli/soft-serve:latest
+          env:
+            - name: SOFT_SERVE_INITIAL_ADMIN_KEYS
+              valueFrom:
+                secretKeyRef: { name: git-server-admin, key: authorized_key }
+          ports:
+            - { name: ssh, containerPort: 23231 }
+            - { name: http, containerPort: 23232 }
+          readinessProbe:
+            tcpSocket: { port: 23232 }
+            periodSeconds: 3
+          volumeMounts:
+            - { name: data, mountPath: /soft-serve }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: git-server
+  namespace: git-server
+spec:
+  selector: { app: git-server }
+  ports:
+    - { name: ssh, port: 23231, targetPort: ssh }
+    - { name: http, port: 23232, targetPort: http }

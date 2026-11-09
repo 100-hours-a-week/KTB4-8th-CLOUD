@@ -1,0 +1,20 @@
+# 로컬(kind) 전용: web Mock. 3000 포트 /
+image:
+  repository: busybox
+  tag: "1.37"
+command: ["sh", "-c"]
+args:
+  - |
+    mkdir -p /tmp/www
+    echo "web mock" > /tmp/www/index.html
+    exec httpd -f -p 3000 -h /tmp/www
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 32Mi
+externalSecrets:
+  items: []
+httpRoute:
+  enabled: false

@@ -1,0 +1,25 @@
+# 로컬(kind) 시작점. dev 구성을 그대로 쓰되, 서비스 ApplicationSet과 tenancy만 로컬 override를 더한 것으로 바꾼다.
+# up.sh가 repoURL을 클러스터 안 Git 서버로 바꿔 push한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-local
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: bootstrap
+  source:
+    repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+    targetRevision: main
+    path: .
+    directory:
+      recurse: true
+      include: "{argocd/projects/*.yaml,argocd/platform/dev/rbac.yaml,argocd/platform/dev/priority-classes.yaml,argocd/platform/dev/keda.yaml,argocd/platform/dev/external-secrets.yaml,argocd/platform/dev/monitoring.yaml,local/argocd/apps-local.yaml,local/argocd/tenancy-local.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

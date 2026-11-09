@@ -1,0 +1,71 @@
+# argocd/applicationsets/apps-dev.yaml과 같고, 마지막에 로컬 override 두 개를 더한다.
+#   local/values/<stack>.yaml      (spring 공통 Mock)
+#   local/values/<서비스>.yaml      (서비스별 Mock·트리거)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: apps-local
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        revision: main
+        directories:
+          - path: apps/account/*
+          - path: apps/ingest/*
+          - path: apps/content/*
+          - path: apps/recommend/*
+        values:
+          stack: spring
+    - git:
+        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        revision: main
+        directories:
+          - path: apps/ai/*
+          - path: apps/frontend/*
+        values:
+          stack: standalone
+  template:
+    metadata:
+      name: "{{.path.basename}}"
+      labels:
+        keepgo.io/env: local
+        keepgo.io/team: "{{index .path.segments 1}}"
+    spec:
+      project: "{{index .path.segments 1}}"
+      sources:
+        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+          targetRevision: main
+          path: charts/keepgo-app
+          helm:
+            releaseName: "{{.path.basename}}"
+            ignoreMissingValueFiles: true
+            valueFiles:
+              - $values/apps/_shared/{{.values.stack}}.yaml
+              - $values/apps/_shared/{{.values.stack}}-dev.yaml
+              - $values/{{.path.path}}/values.yaml
+              - $values/{{.path.path}}/values-dev.yaml
+              - $values/local/values/{{.values.stack}}.yaml
+              - $values/local/values/{{.path.basename}}.yaml
+        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{index .path.segments 1}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=false
+          - PruneLast=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

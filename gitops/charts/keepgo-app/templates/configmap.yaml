@@ -1,0 +1,19 @@
+{{- /*
+앱이 파일로 읽는 설정. 일반 환경변수는 env 맵을 쓴다.
+내용이 바뀌면 Pod annotation의 checksum이 바뀌어 롤링 재시작된다(5-4 7.6).
+*/}}
+{{- if .Values.configFiles.files }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "keepgo-app.fullname" . }}-config
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+data:
+  {{- range $file, $content := .Values.configFiles.files }}
+  {{ $file }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- end }}

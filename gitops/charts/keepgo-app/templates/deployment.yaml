@@ -26,9 +26,14 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.podAnnotations }}
+      {{- if or .Values.podAnnotations .Values.configFiles.files }}
       annotations:
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.configFiles.files }}
+        checksum/config: {{ toYaml . | sha256sum }}
+        {{- end }}
       {{- end }}
     spec:
       serviceAccountName: {{ include "keepgo-app.serviceAccountName" . }}
@@ -101,7 +106,7 @@ spec:
             {{- include "keepgo-app.resources" . | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if or .Values.tmpDir.enabled .Values.secretFiles }}
+          {{- if or .Values.tmpDir.enabled .Values.secretFiles .Values.configFiles.files .Values.extraVolumes }}
           volumeMounts:
             {{- if .Values.tmpDir.enabled }}
             - name: tmp
@@ -112,8 +117,17 @@ spec:
               mountPath: {{ .mountPath }}
               readOnly: true
             {{- end }}
+            {{- if .Values.configFiles.files }}
+            - name: config
+              mountPath: {{ .Values.configFiles.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- range .Values.extraVolumes }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+            {{- end }}
           {{- end }}
-      {{- if or .Values.tmpDir.enabled .Values.secretFiles }}
+      {{- if or .Values.tmpDir.enabled .Values.secretFiles .Values.configFiles.files .Values.extraVolumes }}
       volumes:
         {{- if .Values.tmpDir.enabled }}
         - name: tmp
@@ -128,6 +142,16 @@ spec:
             items:
               {{- toYaml . | nindent 14 }}
             {{- end }}
+        {{- end }}
+        {{- if .Values.configFiles.files }}
+        - name: config
+          configMap:
+            name: {{ include "keepgo-app.fullname" . }}-config
+        {{- end }}
+        {{- range .Values.extraVolumes }}
+        - name: {{ .name }}
+          emptyDir:
+            sizeLimit: {{ .sizeLimit }}
         {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}

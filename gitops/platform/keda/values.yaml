@@ -1,0 +1,45 @@
+# KEDA(kedacore/keda 2.21.0) 설치 값. argocd/platform/<env>/keda.yaml이 차트 버전을 고정하고 이 파일을 쓴다.
+# [가정] 설치 소유권 = B(Argo CD 경유). A와 합의 전까지의 가정이다.
+# System 노드(partA: workload=system 라벨 + NoSchedule Taint)에만 띄운다(5-3 6.3).
+
+nodeSelector:
+  workload: system
+tolerations:
+  - { key: workload, operator: Equal, value: system, effect: NoSchedule }
+
+# 클러스터 핵심 컴포넌트 우선순위(5-3 6.6 최상위)
+priorityClassName: system-cluster-critical
+
+# partA System 노드 자원 산정값
+resources:
+  operator:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 256Mi }
+  metricServer:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  webhooks:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+# KEDA 운영자는 EKS Pod Identity로 자기 역할을 받는다(association: keda/keda-operator).
+# 서비스별 지표 읽기 역할은 TriggerAuthentication의 roleArn으로 assume한다(keepgo-app 차트).
+podIdentity:
+  aws:
+    irsa:
+      enabled: false
+
+# KEDA 자체 지표(스케일러 오류·지연)를 Prometheus가 수집한다.
+prometheus:
+  operator:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: kube-prometheus-stack
+  metricServer:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: kube-prometheus-stack

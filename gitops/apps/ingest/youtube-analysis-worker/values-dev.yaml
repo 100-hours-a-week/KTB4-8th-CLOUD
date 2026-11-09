@@ -2,6 +2,10 @@
 autoscaling:
   maxReplicas: 2
   keda:
+    # [가정] KEDA가 assume할 큐 길이 읽기 역할(A가 IAM으로 만든다)
+    authentication:
+      podIdentity:
+        roleArn: arn:aws:iam::602601433533:role/keepgo-dev3-keda-youtube-analysis
     triggers:
       - type: aws-sqs-queue
         useAuthentication: true

@@ -56,10 +56,12 @@ autoscaling:
     #      awsRegion: ap-northeast-2
     authentication:
       enabled: false
+      # KEDA 운영자(Pod Identity)가 이 역할을 assume해 지표(SQS 큐 길이 등)를 읽는다.
+      # identityOwner: workload는 IRSA 주석을 읽는 방식이라 Pod Identity에서는 쓸 수 없다(KEDA 문서).
+      # 역할에는 이 서비스 지표에 필요한 권한만 둔다(예: sqs:GetQueueAttributes 대상 큐 하나).
       podIdentity:
         provider: aws
-        # 서비스 자기 ServiceAccount의 IAM 역할로 지표를 읽는다. KEDA 운영자에게 넓은 AWS 권한을 주지 않는다.
-        identityOwner: workload
+        roleArn: ""
   # 확장·축소 속도. JVM 기동 직후 CPU 급증으로 과잉 확장되지 않게 올라갈 때도 60초 지켜보고,
   # 내려갈 때는 5분 동안 낮게 유지돼야 1개씩 줄인다(5-3 5.4, SSE는 끊김 최소화).
   behavior:

@@ -58,7 +58,7 @@ autoscaling:
   keda:
     pollingInterval: 30
     cooldownPeriod: 300
-    # 서비스 자기 IAM 역할(Pod Identity)로 큐 길이를 읽는다 → 역할에 sqs:GetQueueAttributes 필요
+    # KEDA 운영자가 values-<env>.yaml의 roleArn 역할을 assume해 큐 길이를 읽는다(sqs:GetQueueAttributes)
     authentication:
       enabled: true
   behavior:

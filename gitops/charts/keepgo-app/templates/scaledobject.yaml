@@ -43,9 +43,11 @@ spec:
   triggers:
     {{- toYaml $triggers | nindent 4 }}
 {{- if $k.authentication.enabled }}
+{{- if and (eq $k.authentication.podIdentity.provider "aws") (not $k.authentication.podIdentity.roleArn) (not $k.authentication.podIdentity.identityOwner) }}
+{{- fail "autoscaling.keda.authentication.podIdentity.roleArn이 필요합니다(KEDA가 assume할 지표 읽기 역할)" }}
+{{- end }}
 ---
-# KEDA가 SQS 같은 AWS 지표를 읽을 때 쓰는 신원.
-# identityOwner: workload → 이 서비스의 ServiceAccount(Pod Identity로 연결된 IAM 역할)를 그대로 쓴다.
+# KEDA가 SQS 같은 AWS 지표를 읽을 때 쓰는 신원. KEDA 운영자가 roleArn 역할을 assume한다.
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:

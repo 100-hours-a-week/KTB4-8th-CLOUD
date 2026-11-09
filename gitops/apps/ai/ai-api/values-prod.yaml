@@ -1,0 +1,18 @@
+image:
+  tag: "6e9c5cf7b2993238b613804fb1a6fdd7bf04657b"
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 4
+
+topologySpread:
+  zone:
+    enabled: true
+
+# ECS와 같은 키를 쓴다(V2 Secret 그대로).
+externalSecrets:
+  items:
+    - name: env
+      asEnv: true
+      dataFrom:
+        - extract: { key: Secret-v1-AI }

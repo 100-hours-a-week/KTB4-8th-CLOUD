@@ -1,0 +1,54 @@
+# Spring 서비스 dev 공통. CI(build-and-bump)가 image.tag를 이 파일에 커밋한다.
+image:
+  # V2 운영 backend 이미지로 시작한다. 첫 V3 빌드부터 CI가 바꾼다.
+  tag: "503a23686080485cae89c0cae152a33e3aac8528"
+
+env:
+  # [가정] dev3 RDS(A 소유, Data 서브넷). 실제 주소가 나오면 바꾼다.
+  DB_HOST: keepgo-dev3-mysql.cluster-placeholder.ap-northeast-2.rds.amazonaws.com
+  # [가정] Redis StatefulSet(A 소유)이 data Namespace의 redis Service
+  REDIS_HOST: redis.data.svc.cluster.local
+  FRONTEND_SERVER_ADDRESS: https://dev3.keepgo.kr
+  SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECTURI: https://dev3.keepgo.kr/login/oauth2/code/google
+  # [가정] dev3 업로드 버킷
+  FILE_STORAGE_S3_BUCKET: keepgo-dev3-uploads
+  # [가정] dev3 SQS 큐(A 소유). 앱에 SQS 코드가 생기면 읽는다.
+  SQS_ANALYSIS_QUEUE_URL: https://sqs.ap-northeast-2.amazonaws.com/602601433533/keepgo-dev3-youtube-analysis
+
+# [가정] Secrets Manager 경로. 키 이름은 V2 Secret-v1-BE·RDS 관리 Secret과 같다.
+externalSecrets:
+  items:
+    - name: env
+      asEnv: true
+      data:
+        - { secretKey: GOOGLE_CLIENT_SECRET, remoteRef: { key: keepgo/dev3/backend, property: GOOGLE_CLIENT_SECRET } }
+        - { secretKey: GOOGLE_LOGIN_CLIENT_ID, remoteRef: { key: keepgo/dev3/backend, property: GOOGLE_LOGIN_CLIENT_ID } }
+        - { secretKey: GOOGLE_LOGIN_CLIENT_SECRET, remoteRef: { key: keepgo/dev3/backend, property: GOOGLE_LOGIN_CLIENT_SECRET } }
+        - { secretKey: VWORLD_API_KEY, remoteRef: { key: keepgo/dev3/backend, property: VWORLD_API_KEY } }
+        - { secretKey: DB_USERNAME, remoteRef: { key: keepgo/dev3/rds, property: username } }
+        - { secretKey: DB_PASSWORD, remoteRef: { key: keepgo/dev3/rds, property: password } }
+    - name: jwt
+      asFiles:
+        mountPath: /run/secrets/jwt
+        items:
+          - { key: JWT_PUBLIC_KEY, path: jwt_public_key.pem }
+          - { key: JWT_PRIVATE_KEY, path: jwt_private_key.pem }
+      data:
+        - { secretKey: JWT_PUBLIC_KEY, remoteRef: { key: keepgo/dev3/backend, property: JWT_PUBLIC_KEY } }
+        - { secretKey: JWT_PRIVATE_KEY, remoteRef: { key: keepgo/dev3/backend, property: JWT_PRIVATE_KEY } }
+
+# partA Gateway
+httpRoute:
+  parentRefs:
+    - { name: keepgo-dev3-gateway, namespace: gateway-system, sectionName: https }
+  hostnames:
+    - dev3.keepgo.kr
+
+networkPolicy:
+  # dev3-public-a·c(ALB가 놓인 서브넷)
+  gatewayCIDRs: [10.47.0.0/24, 10.47.1.0/24]
+
+metrics:
+  # [가정] kube-prometheus-stack 릴리스 이름(A 설치)
+  podMonitorLabels:
+    release: kube-prometheus-stack

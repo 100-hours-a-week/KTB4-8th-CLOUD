@@ -1,0 +1,17 @@
+# wishlist-api — 장소·이벤트·코스 보관함
+# 경로·포트 근거: KTB4-8th-BE 컨트롤러, 자원: 5-3 3.3, 확장: 5-3 5.2
+
+resources:
+  requests:
+    cpu: 300m
+    memory: 1Gi
+  limits:
+    memory: 1Gi
+
+autoscaling:
+  type: hpa
+
+httpRoute:
+  enabled: true
+  pathPrefixes:
+    - /api/v2/member/outing-wishlist

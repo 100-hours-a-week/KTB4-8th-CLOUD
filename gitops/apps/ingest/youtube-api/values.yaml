@@ -1,0 +1,19 @@
+# youtube-api — YouTube 연동·동기화 요청 접수
+# 경로·포트 근거: KTB4-8th-BE 컨트롤러, 자원: 5-3 3.3, 확장: 5-3 5.2
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 768Mi
+  limits:
+    memory: 768Mi
+
+autoscaling:
+  type: hpa
+
+httpRoute:
+  enabled: true
+  pathPrefixes:
+    - /api/v2/member/youtube-sync
+    - /api/v2/member/external-connections
+    - /api/v1/user/youtube-analyze

@@ -1,0 +1,54 @@
+# Spring 서비스 prod 공통. 태그는 promote-prod workflow가 PR로 바꾼다(5-4 5.2).
+image:
+  tag: "503a23686080485cae89c0cae152a33e3aac8528"
+
+env:
+  # [가정] prod EKS는 V2 VPC에 추가되고 V2 RDS를 그대로 쓴다(partA 4.1). 실제 주소로 바꾼다.
+  DB_HOST: keepgo-v2-mysql.placeholder.ap-northeast-2.rds.amazonaws.com
+  REDIS_HOST: redis.data.svc.cluster.local
+  # [가정] 웹과 API를 한 도메인(keepgo.kr)에서 제공
+  FRONTEND_SERVER_ADDRESS: https://keepgo.kr
+  SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECTURI: https://keepgo.kr/login/oauth2/code/google
+  FILE_STORAGE_S3_BUCKET: keepgo-prod-uploads
+  # [가정] V2 SQS 분석 큐를 그대로 쓴다(V2 worker는 꺼져 있어 소비자가 겹치지 않는다).
+  SQS_ANALYSIS_QUEUE_URL: https://sqs.ap-northeast-2.amazonaws.com/602601433533/keepgo-v2-analysis
+
+# ECS와 병행하는 동안 같은 JWT 키·OAuth 값을 써야 토큰이 양쪽에서 통한다 → V2 Secret을 그대로 읽는다.
+externalSecrets:
+  items:
+    - name: env
+      asEnv: true
+      data:
+        - { secretKey: GOOGLE_CLIENT_SECRET, remoteRef: { key: Secret-v1-BE, property: GOOGLE_CLIENT_SECRET } }
+        - { secretKey: GOOGLE_LOGIN_CLIENT_ID, remoteRef: { key: Secret-v1-BE, property: GOOGLE_LOGIN_CLIENT_ID } }
+        - { secretKey: GOOGLE_LOGIN_CLIENT_SECRET, remoteRef: { key: Secret-v1-BE, property: GOOGLE_LOGIN_CLIENT_SECRET } }
+        - { secretKey: VWORLD_API_KEY, remoteRef: { key: Secret-v1-BE, property: VWORLD_API_KEY } }
+        # [가정] V2 RDS 관리 Secret의 이름. 실제 ARN/이름으로 바꾼다.
+        - { secretKey: DB_USERNAME, remoteRef: { key: keepgo/prod/rds, property: username } }
+        - { secretKey: DB_PASSWORD, remoteRef: { key: keepgo/prod/rds, property: password } }
+    - name: jwt
+      asFiles:
+        mountPath: /run/secrets/jwt
+        items:
+          - { key: JWT_PUBLIC_KEY, path: jwt_public_key.pem }
+          - { key: JWT_PRIVATE_KEY, path: jwt_private_key.pem }
+      data:
+        - { secretKey: JWT_PUBLIC_KEY, remoteRef: { key: Secret-v1-BE, property: JWT_PUBLIC_KEY } }
+        - { secretKey: JWT_PRIVATE_KEY, remoteRef: { key: Secret-v1-BE, property: JWT_PRIVATE_KEY } }
+
+httpRoute:
+  parentRefs:
+    # [가정] prod Gateway 이름(A가 dev3와 같은 방식으로 만든다)
+    - { name: keepgo-prod-gateway, namespace: gateway-system, sectionName: https }
+  hostnames:
+    - keepgo.kr
+    # V2 API 도메인. 기존 앱·북마크가 쓰므로 병행 기간 동안 유지한다.
+    - api.keepgo.kr
+
+networkPolicy:
+  # V2 VPC public 서브넷(10.20.0.0/24, 10.20.1.0/24)
+  gatewayCIDRs: [10.20.0.0/24, 10.20.1.0/24]
+
+metrics:
+  podMonitorLabels:
+    release: kube-prometheus-stack

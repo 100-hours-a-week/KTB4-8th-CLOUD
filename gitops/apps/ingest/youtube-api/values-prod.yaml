@@ -1,0 +1,4 @@
+# prod: 5-3 5.2는 1~2개. 동기화 요청은 짧은 접수만 하므로 1개부터 시작하고 PDB는 걸리지 않는다.
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 2

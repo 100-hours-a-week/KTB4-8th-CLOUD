@@ -1,0 +1,23 @@
+# auth-api — 로그인(Google OAuth)·토큰 재발급
+# 경로·포트 근거: KTB4-8th-BE 컨트롤러, 자원: 5-3 3.3, 확장: 5-3 5.2
+
+# 핵심 API(5-3 6.6)
+priorityClassName: keepgo-high
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 768Mi
+  limits:
+    memory: 768Mi
+
+autoscaling:
+  type: hpa
+
+httpRoute:
+  enabled: true
+  pathPrefixes:
+    - /oauth2
+    - /login/oauth2
+    - /api/v1/user/auth-session
+    - /api/v1/auth

@@ -1,0 +1,58 @@
+# recommend-api — 코스 추천 (SSE)
+# 경로 근거: KTB4-8th-BE 컨트롤러(v2는 text/event-stream, 180초 타임아웃)
+priorityClassName: keepgo-high
+
+resources:
+  requests:
+    cpu: 300m
+    memory: 1Gi
+  limits:
+    memory: 1Gi
+
+# 종료(5-3 4.5 SSE): preStop 10초 동안 대상에서 빠지고, 앱이 재연결을 유도한 뒤 닫는다.
+# 모든 연결이 끝날 때까지 기다리지 않는다. 클라이언트는 다른 Pod로 재연결해 Redis·RDS에서 상태를 복구한다.
+terminationGracePeriodSeconds: 60
+env:
+  SPRING_LIFECYCLE_TIMEOUTPERSHUTDOWNPHASE: 45s
+
+# 활성 SSE 연결 수로 확장(5-3 5.5). Scale-to-Zero는 쓰지 않는다.
+# [가정] 개발팀이 keepgo_sse_active_connections 게이지를 내보낸다(아직 없음). 지표가 없으면
+#        Prometheus 트리거는 값을 못 읽고 CPU 트리거만 동작한다.
+autoscaling:
+  type: keda
+  keda:
+    triggers:
+      - type: prometheus
+        metadata:
+          serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
+          query: sum(keepgo_sse_active_connections{namespace="recommend", app_kubernetes_io_name="recommend-api"})
+          # Pod 하나가 맡을 연결 수(가정). 연결당 메모리를 재고 정한다.
+          threshold: "200"
+          ignoreNullValues: "true"
+      - type: cpu
+        metricType: Utilization
+        metadata:
+          value: "70"
+  # 줄일 때 그 Pod의 연결이 모두 끊기므로 천천히, 한 번에 하나씩(5-3 5.5)
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - { type: Pods, value: 1, periodSeconds: 300 }
+
+httpRoute:
+  enabled: true
+  pathPrefixes:
+    - /api/v2/member/recommendation
+    - /api/v1/user/recommendation
+    - /api/v1/places
+    - /api/v1/events
+    - /api/v1/advertisements
+  targetGroup:
+    # 빠질 때 기존 연결을 정리할 시간. 종료 상한(60초)보다 짧게.
+    deregistrationDelaySeconds: 50
+
+# 오래 열린 요청이라 p95 지연 알림은 의미가 없다.
+alerts:
+  http:
+    p95Seconds: 300

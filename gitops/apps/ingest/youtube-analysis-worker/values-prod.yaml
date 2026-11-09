@@ -1,0 +1,14 @@
+# [가정] V2 분석 큐를 그대로 쓴다. 최대값은 DB 커넥션 예산·ai-api 배치 상한 안에서(5-3 5.6 C안).
+autoscaling:
+  maxReplicas: 2
+  keda:
+    triggers:
+      - type: aws-sqs-queue
+        useAuthentication: true
+        metadata:
+          queueURL: https://sqs.ap-northeast-2.amazonaws.com/602601433533/keepgo-v2-analysis
+          awsRegion: ap-northeast-2
+          # Pod 하나가 맡을 대기 메시지 수(가정). 처리 시간을 재고 조정한다.
+          queueLength: "5"
+          # 처리 중인 메시지도 센다. 작업 중인 Worker가 줄어드는 것을 막는다(5-3 5.5).
+          scaleOnInFlight: "true"

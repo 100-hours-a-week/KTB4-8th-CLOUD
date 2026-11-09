@@ -1,0 +1,4 @@
+# dev: 최소 1개(5-4 5.1). 1개면 PDB를 만들지 않는다.
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 2

@@ -1,0 +1,25 @@
+image:
+  # [가정] KTB4-8th-FE main 커밋. 첫 V3 빌드부터 CI가 바꾼다.
+  # NEXT_PUBLIC_* 값은 이미지 빌드 때 들어가므로 dev·prod 이미지가 다를 수 있다(문서 참고).
+  tag: "b21465f0e55054691bff9187e6c8e75d9816afa0"
+
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 2
+
+httpRoute:
+  parentRefs:
+    - { name: keepgo-dev3-gateway, namespace: gateway-system, sectionName: https }
+  hostnames:
+    - dev3.keepgo.kr
+
+networkPolicy:
+  gatewayCIDRs: [10.47.0.0/24, 10.47.1.0/24]
+
+# [가정] 서버 전용 키(BFF 라우트용). 키 이름은 FE .env.example
+externalSecrets:
+  items:
+    - name: env
+      asEnv: true
+      dataFrom:
+        - extract: { key: keepgo/dev3/web }

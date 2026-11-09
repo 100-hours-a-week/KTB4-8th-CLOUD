@@ -1,0 +1,9 @@
+# prod: 5-3 정책 그대로. 최대값은 DB 커넥션 예산(check-budget.py) 안에서.
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 3
+
+# 2-AZ에 반드시 나눠 띄운다(5-3 6.6 핵심 API Hard). dev는 Pod가 1개라 끈다.
+topologySpread:
+  zone:
+    enabled: true

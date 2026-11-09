@@ -1,0 +1,44 @@
+# Spring 7개 서비스 공통(환경 무관). 값의 근거는 V2 ECS 설정(infrastructure/terraform-v2/services.tf)과 5-3.
+component: api
+
+image:
+  # V2와 같은 ECR 저장소. dev에서 검증한 이미지를 prod에 그대로 올린다(5-4 5.2).
+  repository: 602601433533.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend
+
+probes:
+  preset: spring
+
+env:
+  DB_VENDOR: mysql
+  DB_PORT: "3306"
+  DB_NAME: keepgo
+  DB_TIMEZONE: Asia/Seoul
+  DB_DRIVER: com.mysql.cj.jdbc.Driver
+  DB_DIALECT: MySQL
+  # Pod당 DB 커넥션 수. 기본 10을 쓰지 않는다(5-3 3.4). 예산 계산은 gitops/scripts/check-budget.py
+  SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE: "3"
+  # V2와 같은 스키마 관리 방식. backend에 Flyway 스크립트가 생기면 migration Job으로 옮기고 이 값을 바꾼다(5-4 8.3).
+  SPRING_JPA_HIBERNATE_DDL_AUTO: update
+  SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
+  SPRING_FLYWAY_BASELINE_VERSION: "1"
+  SPRING_SQL_INIT_MODE: always
+  SPRING_SQL_INIT_CONTINUE_ON_ERROR: "true"
+  # 클러스터 안 ai-api(ai Namespace). V2는 Cloud Map 주소였다.
+  AI_SERVER_API_ADDRESS: http://ai-api.ai.svc.cluster.local:8000
+  SPRING_SERVLET_MULTIPART_MAXFILESIZE: 10MB
+  SPRING_SERVLET_MULTIPART_MAXREQUESTSIZE: 10MB
+  # JWT 키는 ExternalSecret(jwt)을 파일로 붙인다.
+  KEEPGO_SECURITY_JWT_PUBLICKEY: file:/run/secrets/jwt/jwt_public_key.pem
+  KEEPGO_SECURITY_JWT_PRIVATEKEY: file:/run/secrets/jwt/jwt_private_key.pem
+  # 채팅 요청 상태를 Pod 메모리가 아니라 Redis에 둔다(여러 Pod·SSE 재연결, 5-3 2.4).
+  EPHEMERAL_DATABASE: redis
+  REDIS_PORT: "6379"
+  # 클러스터 안 Redis StatefulSet은 TLS 없이 쓴다(ElastiCache와 다름).
+  REDIS_SSL_ENABLED: "false"
+  # 업로드를 Pod 디스크가 아니라 S3에 둔다. 로컬 저장은 Pod가 여러 개면 파일이 흩어진다.
+  FILE_STORAGE_PROVIDER: s3
+  FILE_STORAGE_S3_REGION: ap-northeast-2
+
+# 앱 Pod는 Application NodePool(On-Demand)에만(partA NodePool 라벨). worker는 서비스 values에서 바꾼다.
+nodeSelector:
+  workload: application

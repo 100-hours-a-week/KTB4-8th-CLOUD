@@ -1,0 +1,22 @@
+image:
+  tag: "b21465f0e55054691bff9187e6c8e75d9816afa0"
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 4
+
+httpRoute:
+  parentRefs:
+    - { name: keepgo-prod-gateway, namespace: gateway-system, sectionName: https }
+  hostnames:
+    - keepgo.kr
+
+networkPolicy:
+  gatewayCIDRs: [10.20.0.0/24, 10.20.1.0/24]
+
+externalSecrets:
+  items:
+    - name: env
+      asEnv: true
+      dataFrom:
+        - extract: { key: keepgo/prod/web }

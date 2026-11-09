@@ -1,0 +1,4 @@
+# prod: 5-3 정책. 최대값은 DB 커넥션 예산 안에서.
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 2

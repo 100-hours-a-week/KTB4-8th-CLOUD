@@ -1,0 +1,73 @@
+# youtube-analysis-worker — SQS 분석 작업 소비(5-2, 5-3 5.5)
+# [사실] 지금 backend에는 SQS 소비 코드가 없다. 같은 이미지가 떠 있을 뿐 큐를 읽지 않는다.
+#        코드가 생기면 values는 그대로 두고 동작한다.
+component: worker
+
+# 요청을 받지 않으므로 Service·HTTPRoute·readiness가 없다. liveness는 관리 포트로 본다(5-3 4.3).
+service:
+  enabled: false
+containerPorts:
+  - name: management
+    port: 8081
+probes:
+  readiness:
+    enabled: false
+
+# 재처리로 복구되는 작업이라 가장 낮은 등급, 다른 Pod를 밀어내지 않는다(5-3 6.6).
+priorityClassName: keepgo-low
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 1Gi
+
+# Worker NodePool(Spot 우선)에만. Toleration만 있으면 Application 노드에도 갈 수 있어 nodeSelector를 같이 건다(5-3 6.5).
+# [가정] worker NodePool Taint는 workload=worker:NoSchedule (partA에 키·값이 없음)
+nodeSelector:
+  workload: worker
+tolerations:
+  - { key: workload, operator: Equal, value: worker, effect: NoSchedule }
+
+# 배포 중 가용성보다 처리량. 쿠버네티스 기본 롤링(5-3 5.3)
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 25%
+    maxUnavailable: 25%
+# Spot에서 노드가 자주 바뀌므로 노드 분산·PDB를 걸지 않는다(5-3 6.9)
+topologySpread:
+  node:
+    enabled: false
+pdb:
+  enabled: false
+
+# 종료: 새 메시지 수신 중단 → 진행 중 작업 마무리. Spot 경고는 2분이라 그 안에서(5-3 4.6).
+# 끝내지 못한 메시지는 지우지 않고 Visibility Timeout(300초) 뒤 재처리된다.
+lifecycle:
+  preStopSleepSeconds: 0
+terminationGracePeriodSeconds: 110
+env:
+  SPRING_LIFECYCLE_TIMEOUTPERSHUTDOWNPHASE: 100s
+
+# SQS 메시지 수로 0~N(5-3 5.5). 트리거는 큐 주소가 환경마다 달라 values-<env>.yaml에 둔다.
+autoscaling:
+  type: keda
+  minReplicas: 0
+  keda:
+    pollingInterval: 30
+    cooldownPeriod: 300
+    # 서비스 자기 IAM 역할(Pod Identity)로 큐 길이를 읽는다 → 역할에 sqs:GetQueueAttributes 필요
+    authentication:
+      enabled: true
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - { type: Pods, value: 2, periodSeconds: 30 }
+
+# 들어오는 통신이 없다(모니터링만). 송신은 ai-api·SQS·RDS라 제한하지 않는다.
+alerts:
+  http:
+    enabled: false

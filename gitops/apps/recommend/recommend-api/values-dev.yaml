@@ -1,0 +1,4 @@
+# dev: 최소 1개(5-4 5.1)
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 2

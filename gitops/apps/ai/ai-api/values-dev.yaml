@@ -1,0 +1,15 @@
+image:
+  # V2 운영 ai 이미지로 시작한다. 첫 V3 빌드부터 CI가 바꾼다.
+  tag: "6e9c5cf7b2993238b613804fb1a6fdd7bf04657b"
+
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 2
+
+# [가정] Secrets Manager 경로. 키 이름은 V2 Secret-v1-AI와 같다.
+externalSecrets:
+  items:
+    - name: env
+      asEnv: true
+      dataFrom:
+        - extract: { key: keepgo/dev3/ai }

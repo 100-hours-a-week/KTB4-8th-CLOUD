@@ -1,0 +1,8 @@
+# prod: 5-3 정책(최소 2, AZ Hard)
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 3
+
+topologySpread:
+  zone:
+    enabled: true

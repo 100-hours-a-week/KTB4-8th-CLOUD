@@ -1,0 +1,25 @@
+# prod 클러스터의 시작점(app-of-apps). Argo CD 설치 직후 사람이 한 번 kubectl apply 한다.
+# 이후로는 Git만 바꾼다. 순서: 프로젝트(-30) → rbac, priority(-20) → KEDA, ESO(-15) → tenancy(-10) → monitoring(-5) → 서비스(0)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+    targetRevision: main
+    path: argocd
+    directory:
+      recurse: true
+      include: "{projects/*.yaml,platform/prod/*.yaml,applicationsets/apps-prod.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,75 @@
+# 서비스 Application 자동 생성(5-4 6.2). apps/<namespace>/<서비스>/ 폴더 하나 = Application 하나.
+# 서비스를 추가할 때는 폴더만 만든다. 프로젝트와 Namespace는 폴더 1단계 이름이다.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: apps-prod
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    # Spring 7개: 공통 values(_shared/spring*.yaml)를 먼저 겹친다
+    - git:
+        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        revision: main
+        directories:
+          - path: apps/account/*
+          - path: apps/ingest/*
+          - path: apps/content/*
+          - path: apps/recommend/*
+        values:
+          stack: spring
+    # 공통 values가 없는 서비스
+    - git:
+        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        revision: main
+        directories:
+          - path: apps/ai/*
+          - path: apps/frontend/*
+        values:
+          stack: standalone
+  template:
+    metadata:
+      name: "{{.path.basename}}"
+      labels:
+        keepgo.io/env: prod
+        keepgo.io/team: "{{index .path.segments 1}}"
+    spec:
+      project: "{{index .path.segments 1}}"
+      sources:
+        # prod는 차트를 git 태그로 고정한다(5-4 7.5). dev에서 검증한 뒤 태그를 올린다.
+        # ECR OCI로 옮기면: repoURL: 602601433533.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-charts, chart: keepgo-app, targetRevision: 0.3.0
+        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+          targetRevision: keepgo-app-0.3.0
+          path: charts/keepgo-app
+          helm:
+            releaseName: "{{.path.basename}}"
+            # standalone은 _shared 파일이 없으므로 없는 파일은 건너뛴다
+            ignoreMissingValueFiles: true
+            valueFiles:
+              - $values/apps/_shared/{{.values.stack}}.yaml
+              - $values/apps/_shared/{{.values.stack}}-prod.yaml
+              - $values/{{.path.path}}/values.yaml
+              - $values/{{.path.path}}/values-prod.yaml
+        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{index .path.segments 1}}"
+      # 5-4 6.4: dev·prod 모두 자동 sync. prod 승인은 PR merge 단계에서 한다.
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          # Namespace는 tenancy 차트가 만든다
+          - CreateNamespace=false
+          - PruneLast=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

@@ -1,0 +1,152 @@
+# Argo CD(argo/argo-cd 10.17.1, Argo CD v3.6.1) 설치 값. 클러스터마다 한 번 사람이 helm으로 설치한다(README).
+# Argo CD가 자기 자신을 관리하게 하지는 않는다(결정 기록 참고). 값을 바꾸면 같은 helm 명령으로 다시 적용한다.
+
+# System 노드에만(partA, 5-4 6.1)
+global:
+  nodeSelector:
+    workload: system
+  tolerations:
+    - { key: workload, operator: Equal, value: system, effect: NoSchedule }
+
+configs:
+  cm:
+    # [가정] 사용자에게 보이는 주소. 접속 방법이 정해지면 바꾼다(지금은 port-forward).
+    url: https://argocd.dev3.keepgo.kr
+    # 팀 Namespace 배포는 Namespace마다 있는 argocd-deployer 계정을 빌려 쓴다(5-2 application-deployer).
+    # Argo CD 3.5부터 beta. 컨트롤러 자체 권한과 배포 권한을 나눈다.
+    application.sync.impersonation.enabled: "true"
+    # 차트 렌더링 결과를 Argo CD가 직접 적용하므로 helm 릴리스 기록은 없다(5-4 8장).
+    # Application의 Health를 계산해 root 앱의 sync-wave가 앞 단계가 Healthy가 될 때까지 기다리게 한다.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+    # GitHub 로그인(5-4 6.3). Client Secret은 argocd-dex-github Secret에 사람이 넣는다(사용자 할 일).
+    dex.config: |
+      connectors:
+        - type: github
+          id: github
+          name: GitHub
+          config:
+            clientID: $argocd-dex-github:clientID
+            clientSecret: $argocd-dex-github:clientSecret
+            orgs:
+              - name: 100-hours-a-week
+  rbac:
+    # 로그인만 한 사람은 아무것도 못 본다. 팀 권한은 AppProject의 role(projects/*.yaml)로 준다.
+    policy.default: ""
+    scopes: "[groups]"
+    # [가정] GitHub 팀 이름. 클라우드 담당팀만 전체 관리.
+    policy.csv: |
+      g, 100-hours-a-week:keepgo-cloud, role:admin
+  params:
+    # 동시에 처리하는 Application 수. 서비스 9개 + 플랫폼 앱 규모에 맞춘 작은 값
+    controller.status.processors: "10"
+    controller.operation.processors: "5"
+
+# partA System 노드 자원 산정값
+controller:
+  resources:
+    requests: { cpu: 250m, memory: 384Mi }
+    limits: { memory: 768Mi }
+repoServer:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+server:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+redis:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+dex:
+  enabled: true
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 256Mi }
+applicationSet:
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+# 배포 알림(5-4 6.6). 5-4는 Slack이지만 V2 운영 알림이 Discord라 Discord webhook을 쓴다(가정).
+# webhook 주소는 argocd-notifications-secret의 discord-webhook-url 키에 사람이 넣는다(사용자 할 일).
+notifications:
+  enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+  notifiers:
+    service.webhook.discord: |
+      url: $discord-webhook-url
+      headers:
+        - name: Content-Type
+          value: application/json
+  templates:
+    template.keepgo-sync-failed: |
+      webhook:
+        discord:
+          method: POST
+          body: |
+            {"content": "❌ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 동기화 실패\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: {{ .app.status.operationState.syncResult.revision }}\n{{ .app.status.operationState.message }}"}
+    template.keepgo-degraded: |
+      webhook:
+        discord:
+          method: POST
+          body: |
+            {"content": "⚠️ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 상태 Degraded\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: {{ .app.status.sync.revision }}"}
+    template.keepgo-deployed: |
+      webhook:
+        discord:
+          method: POST
+          body: |
+            {"content": "✅ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 배포 완료\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: {{ .app.status.sync.revision }}"}
+  triggers:
+    trigger.keepgo-sync-failed: |
+      - when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+        send: [keepgo-sync-failed]
+    trigger.keepgo-degraded: |
+      - when: app.status.health.status == 'Degraded'
+        send: [keepgo-degraded]
+    trigger.keepgo-deployed: |
+      - when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        oncePer: app.status.sync.revision
+        send: [keepgo-deployed]
+  subscriptions:
+    # 실패·Degraded는 모든 앱
+    - recipients: [discord]
+      triggers: [keepgo-sync-failed, keepgo-degraded]
+    # 배포 완료는 prod 앱만(dev는 merge마다라 소음이 크다)
+    - recipients: [discord]
+      triggers: [keepgo-deployed]
+      selector: keepgo.io/env=prod
+
+# platform 프로젝트가 빌려 쓰는 계정. CRD·ClusterRole·Namespace를 만들어야 하므로 cluster-admin이다.
+# platform 앱이 만들 수 없는(닭과 달걀) 유일한 권한이라 설치 때 같이 만든다.
+extraObjects:
+  - apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: argocd-platform-deployer
+      namespace: argocd
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: argocd-platform-deployer
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: cluster-admin
+    subjects:
+      - kind: ServiceAccount
+        name: argocd-platform-deployer
+        namespace: argocd

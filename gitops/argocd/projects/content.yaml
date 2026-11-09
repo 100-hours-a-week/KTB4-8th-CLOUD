@@ -1,0 +1,39 @@
+# 팀 프로젝트(5-4 6.3): 자기 Namespace에만 배포하고, 클러스터 범위 리소스와 권한·Quota는 못 만든다.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: content
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-30"
+spec:
+  description: 보관함(wishlist-api)
+  sourceRepos:
+    - https://github.com/100-hours-a-week/keepgo-gitops.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: content
+  clusterResourceWhitelist: []
+  # 플랫폼이 정하는 것과 비밀값은 Git에서 만들 수 없다(Secret은 ExternalSecret이 만든다).
+  namespaceResourceBlacklist:
+    - { group: "", kind: ResourceQuota }
+    - { group: "", kind: LimitRange }
+    - { group: "", kind: Secret }
+    - { group: rbac.authorization.k8s.io, kind: Role }
+    - { group: rbac.authorization.k8s.io, kind: RoleBinding }
+  # 쿠버네티스 쓰기는 tenancy 차트가 만든 argocd-deployer(keepgo-application-deployer 권한)로만 한다.
+  destinationServiceAccounts:
+    - server: https://kubernetes.default.svc
+      namespace: content
+      defaultServiceAccount: argocd-deployer
+  # 팀 화면 권한: 자기 프로젝트 조회, 수동 sync, 로그(5-4 6.3)
+  roles:
+    - name: team
+      description: content 담당 팀
+      policies:
+        - p, proj:content:team, applications, get, content/*, allow
+        - p, proj:content:team, applications, sync, content/*, allow
+        - p, proj:content:team, logs, get, content/*, allow
+      # [가정] GitHub 팀(Dex GitHub 연동)
+      groups:
+        - 100-hours-a-week:keepgo-fullstack

@@ -1,0 +1,42 @@
+# KEDA(CRD 포함). ScaledObject보다 먼저(5-4 6.5). [가정] 설치 소유권 B
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-keda
+  namespace: argocd
+  labels:
+    keepgo.io/env: prod
+    keepgo.io/team: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-15"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kedacore.github.io/charts
+      chart: keda
+      targetRevision: 2.21.0
+      helm:
+        releaseName: keda
+        valueFiles:
+          - $values/platform/keda/values.yaml
+    - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keda
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

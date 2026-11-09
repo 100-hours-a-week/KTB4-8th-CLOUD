@@ -1,4 +1,4 @@
-{{- if .Values.service.enabled }}
+{{- if and .Values.tests.enabled .Values.service.enabled }}
 {{- $port := (index .Values.service.ports 0).port }}
 # helm test 로 실행한다. 클러스터 안에서 Service 이름으로 HTTP 요청이 되는지만 확인한다.
 apiVersion: v1

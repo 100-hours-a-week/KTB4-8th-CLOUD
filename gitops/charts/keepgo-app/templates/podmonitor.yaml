@@ -1,0 +1,28 @@
+{{- /*
+지표 수집(5-5, WBS 18). Prometheus Operator(A 설치)가 이 PodMonitor를 보고 Pod를 직접 긁는다.
+Service가 없는 worker도 같은 방식으로 수집하려고 ServiceMonitor 대신 PodMonitor를 쓴다.
+*/}}
+{{- $m := .Values.metrics }}
+{{- if $m.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "keepgo-app.fullname" . }}
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+    {{- with $m.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "keepgo-app.selectorLabels" . | nindent 6 }}
+  # 대시보드·알림에서 서비스 이름으로 묶을 수 있게 라벨을 지표에 옮긴다.
+  podTargetLabels:
+    - app.kubernetes.io/name
+    - app.kubernetes.io/component
+  podMetricsEndpoints:
+    - port: {{ $m.port }}
+      path: {{ $m.path }}
+      interval: {{ $m.interval }}
+{{- end }}

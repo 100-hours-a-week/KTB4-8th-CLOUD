@@ -1,0 +1,58 @@
+{{- /*
+서비스 기본 알림(5-3 7.2, WBS 18). 임계값은 values로 바꾼다.
+kube-state-metrics(재시작·OOM·Replica 부족)는 모든 서비스, HTTP 오류율·지연은 http 지표가 있는 서비스만.
+*/}}
+{{- $a := .Values.alerts }}
+{{- if $a.enabled }}
+{{- $name := include "keepgo-app.fullname" . }}
+{{- $ns := .Release.Namespace }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: {{ $name }}.pods
+      rules:
+        - alert: KeepgoPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="{{ $ns }}", pod=~"{{ $name }}-.*"}[15m]) > {{ $a.restartsIn15m }}
+          for: 5m
+          labels: {severity: warning, service: {{ $name }}}
+          annotations:
+            summary: "{{ $name }} Pod가 15분 동안 {{ $a.restartsIn15m }}회 넘게 재시작"
+        - alert: KeepgoPodOOMKilled
+          expr: max by (pod) (kube_pod_container_status_last_terminated_reason{namespace="{{ $ns }}", pod=~"{{ $name }}-.*", reason="OOMKilled"}) > 0
+          labels: {severity: warning, service: {{ $name }}}
+          annotations:
+            summary: "{{ $name }} 컨테이너가 메모리 부족(OOMKilled)으로 종료됨. resources.limits.memory 확인"
+        - alert: KeepgoReplicasUnavailable
+          expr: kube_deployment_status_replicas_unavailable{namespace="{{ $ns }}", deployment="{{ $name }}"} > 0
+          for: {{ $a.unavailableFor }}
+          labels: {severity: critical, service: {{ $name }}}
+          annotations:
+            summary: "{{ $name }} Ready가 아닌 Pod가 {{ $a.unavailableFor }} 넘게 있음(배포 멈춤·Pending·CrashLoop)"
+    {{- if $a.http.enabled }}
+    - name: {{ $name }}.http
+      rules:
+        - alert: KeepgoHighErrorRate
+          expr: |
+            sum(rate({{ $a.http.requestsMetric }}_count{namespace="{{ $ns }}", app_kubernetes_io_name="{{ $name }}", {{ $a.http.statusLabel }}=~"5.."}[5m]))
+              / sum(rate({{ $a.http.requestsMetric }}_count{namespace="{{ $ns }}", app_kubernetes_io_name="{{ $name }}"}[5m])) > {{ $a.http.errorRatio }}
+          for: 5m
+          labels: {severity: critical, service: {{ $name }}}
+          annotations:
+            summary: "{{ $name }} 5xx 비율이 {{ $a.http.errorRatio }}를 넘음"
+        - alert: KeepgoHighLatencyP95
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate({{ $a.http.requestsMetric }}_bucket{namespace="{{ $ns }}", app_kubernetes_io_name="{{ $name }}"}[5m]))) > {{ $a.http.p95Seconds }}
+          for: 10m
+          labels: {severity: warning, service: {{ $name }}}
+          annotations:
+            summary: "{{ $name }} p95 응답 시간이 {{ $a.http.p95Seconds }}초를 넘음"
+    {{- end }}
+{{- end }}

@@ -1,4 +1,7 @@
 # frontend 저장소: main에 merge되면 이미지를 만들고 dev에 배포한다(5-4 2장).
+# 빌드 인자는 현재 V2 CI(.github/workflows/frontend-ci.yml)와 같은 저장소 변수(vars)를 쓴다.
+# NEXT_PUBLIC_* 는 빌드 때 이미지에 들어간다. dev에서 확인한 같은 이미지를 prod로 올리므로(5-4 5.2)
+# 환경마다 달라야 하는 값이 생기면 런타임 설정으로 옮기거나 prod용 빌드를 따로 둔다(구현 기록 §9).
 name: deploy-dev
 
 on:
@@ -17,13 +20,21 @@ jobs:
       ecr-repository: keepgo-web
       value-files: |
         apps/frontend/web/values-dev.yaml
-      # NEXT_PUBLIC_* 는 빌드 때 이미지에 들어간다. dev 값으로 빌드한 이미지를 prod에 올리면 dev 값이 남으므로
-      # 환경별로 다른 값이 생기면 런타임 설정으로 옮기거나 prod용 빌드를 따로 둔다(문서 참고).
       build-args: |
-        NEXT_PUBLIC_API_BASE_URL=/api/v1
-        NEXT_PUBLIC_CHAT_V2=true
-        NEXT_PUBLIC_WISHLIST_V2=true
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+        NEXT_PUBLIC_NAVER_MAP_CLIENT_ID=${{ vars.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID }}
+        NEXT_PUBLIC_CLARITY_PROJECT_ID=${{ vars.NEXT_PUBLIC_CLARITY_PROJECT_ID }}
+        NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT=production
+        NEXT_PUBLIC_CHAT_V2=on
+        NEXT_PUBLIC_WISHLIST_V2=on
+        SENTRY_ORG=${{ vars.SENTRY_ORG }}
+        SENTRY_PROJECT=${{ vars.SENTRY_PROJECT }}
+        SENTRY_RELEASE=${{ github.sha }}
     secrets:
       ECR_PUSH_ROLE_ARN: ${{ secrets.ECR_PUSH_ROLE_ARN }}
       GITOPS_APP_ID: ${{ secrets.GITOPS_APP_ID }}
       GITOPS_APP_PRIVATE_KEY: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+      # 소스맵 업로드 토큰은 build-arg가 아니라 BuildKit secret으로(이미지에 남기지 않음, V2와 같음)
+      DOCKER_SECRETS: |
+        sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}

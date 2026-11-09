@@ -1,4 +1,5 @@
 # dev 클러스터의 시작점(app-of-apps). Argo CD 설치 직후 사람이 한 번 kubectl apply 한다.
+# 먼저 bootstrap/project.yaml을 적용한다(root 앱의 프로젝트).
 # 이후로는 Git만 바꾼다. 순서: 프로젝트(-30) → rbac, priority(-20) → KEDA, ESO(-15) → tenancy(-10) → monitoring(-5) → 서비스(0)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -8,7 +9,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: bootstrap
   source:
     repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
     targetRevision: main

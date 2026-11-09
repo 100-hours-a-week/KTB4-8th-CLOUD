@@ -1,0 +1,24 @@
+# root 앱 전용 프로젝트. root-<env>.yaml과 함께 사람이 한 번 kubectl apply 한다.
+# sync impersonation을 켜면 모든 프로젝트에 배포 계정이 있어야 해서 default 프로젝트는 쓸 수 없다.
+# root 앱은 argocd Namespace에 AppProject·Application·ApplicationSet만 만든다.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: bootstrap
+  namespace: argocd
+spec:
+  description: root app-of-apps(argocd Namespace의 Argo CD 객체만)
+  sourceRepos:
+    - https://github.com/100-hours-a-week/keepgo-gitops.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - { group: argoproj.io, kind: AppProject }
+    - { group: argoproj.io, kind: Application }
+    - { group: argoproj.io, kind: ApplicationSet }
+  destinationServiceAccounts:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+      defaultServiceAccount: argocd-platform-deployer

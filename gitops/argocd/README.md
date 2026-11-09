@@ -7,7 +7,7 @@
 | 경로 | 내용 |
 |---|---|
 | `bootstrap/values.yaml` | Argo CD Helm 설치 값(System 노드, impersonation, GitHub 로그인, Discord 알림, platform 배포 계정) |
-| `bootstrap/root-<env>.yaml` | app-of-apps 시작점. 아래 세 폴더를 읽는다 |
+| `bootstrap/project.yaml`, `bootstrap/root-<env>.yaml` | root 앱 전용 프로젝트와 app-of-apps 시작점. 아래 세 폴더를 읽는다 |
 | `projects/` | AppProject: `platform` + 팀 6개(5-4 6.3) |
 | `platform/<env>/` | 플랫폼 Application: rbac → priority-classes → KEDA·ESO → tenancy → monitoring |
 | `applicationsets/apps-<env>.yaml` | `apps/<namespace>/<서비스>/` 폴더마다 Application 생성(5-4 6.2) |
@@ -42,7 +42,7 @@ helm upgrade --install argocd argo/argo-cd --version 10.17.1 \
 # 비밀값 2개는 Git에 두지 않는다(사용자 할 일 문서 참고)
 #   argocd-dex-github        : clientID, clientSecret (GitHub OAuth App)
 #   argocd-notifications-secret: discord-webhook-url
-kubectl apply -f argocd/bootstrap/root-dev.yaml     # prod 클러스터는 root-prod.yaml
+kubectl apply -f argocd/bootstrap/project.yaml -f argocd/bootstrap/root-dev.yaml   # prod는 root-prod.yaml
 ```
 
 저장소가 private이면 repo 자격 증명(GitHub App)을 먼저 등록한다.

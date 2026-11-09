@@ -1,0 +1,34 @@
+{{- if eq (include "keepgo-app.autoscalingType" .) "hpa" }}
+{{- $a := .Values.autoscaling }}
+{{- if gt (int $a.minReplicas) (int $a.maxReplicas) }}
+{{- fail (printf "autoscaling.minReplicas(%v)가 maxReplicas(%v)보다 큽니다" $a.minReplicas $a.maxReplicas) }}
+{{- end }}
+{{- if lt (int $a.minReplicas) 1 }}
+{{- fail "HPA는 0까지 줄일 수 없습니다. 0까지 줄이려면 autoscaling.type: keda를 씁니다" }}
+{{- end }}
+# CPU 사용률 기준 확장(5-3 5.4). 사용률은 requests.cpu 대비 비율이다.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "keepgo-app.fullname" . }}
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "keepgo-app.fullname" . }}
+  minReplicas: {{ $a.minReplicas }}
+  maxReplicas: {{ $a.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $a.hpa.targetCPUUtilizationPercentage }}
+  {{- with (include "keepgo-app.hpaBehavior" .) }}
+  behavior:
+    {{- . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -127,3 +127,35 @@ timeoutSeconds: {{ $p.timeoutSeconds }}
 failureThreshold: {{ $p.failureThreshold }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+오토스케일러 종류. none | hpa | keda 외의 값이면 렌더링을 멈춘다.
+*/}}
+{{- define "keepgo-app.autoscalingType" -}}
+{{- $t := .Values.autoscaling.type | default "none" -}}
+{{- if not (has $t (list "none" "hpa" "keda")) -}}
+{{- fail (printf "autoscaling.type은 none, hpa, keda 중 하나입니다: %s" $t) -}}
+{{- end -}}
+{{- $t -}}
+{{- end -}}
+
+{{/*
+평소 최소 Pod 수. PDB를 걸지 판단할 때 쓴다.
+오토스케일러가 없으면 replicaCount, 있으면 autoscaling.minReplicas
+*/}}
+{{- define "keepgo-app.minReplicas" -}}
+{{- if eq (include "keepgo-app.autoscalingType" .) "none" -}}
+{{- .Values.replicaCount | int -}}
+{{- else -}}
+{{- .Values.autoscaling.minReplicas | int -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+HPA 확장 속도(behavior). HPA와 KEDA가 같은 값을 쓴다.
+*/}}
+{{- define "keepgo-app.hpaBehavior" -}}
+{{- with .Values.autoscaling.behavior -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end -}}

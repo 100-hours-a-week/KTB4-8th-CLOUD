@@ -1,0 +1,59 @@
+{{- if eq (include "keepgo-app.autoscalingType" .) "keda" }}
+{{- $a := .Values.autoscaling }}
+{{- $k := $a.keda }}
+{{- $name := include "keepgo-app.fullname" . }}
+{{- if not $k.triggers }}
+{{- fail "autoscaling.type: keda에는 autoscaling.keda.triggers가 하나 이상 필요합니다" }}
+{{- end }}
+{{- if gt (int $a.minReplicas) (int $a.maxReplicas) }}
+{{- fail (printf "autoscaling.minReplicas(%v)가 maxReplicas(%v)보다 큽니다" $a.minReplicas $a.maxReplicas) }}
+{{- end }}
+# 이벤트 기준 확장(5-3 5.5). KEDA가 이 객체로 HPA를 만들어 관리하므로 HPA를 따로 만들지 않는다.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ $name }}
+  minReplicaCount: {{ $a.minReplicas }}
+  maxReplicaCount: {{ $a.maxReplicas }}
+  pollingInterval: {{ $k.pollingInterval }}
+  cooldownPeriod: {{ $k.cooldownPeriod }}
+  {{- with (include "keepgo-app.hpaBehavior" .) }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        {{- . | nindent 8 }}
+  {{- end }}
+  {{- /* useAuthentication: true인 트리거에는 아래 TriggerAuthentication을 자동으로 붙인다 */}}
+  {{- $triggers := list }}
+  {{- range $k.triggers }}
+  {{- $t := omit . "useAuthentication" }}
+  {{- if .useAuthentication }}
+  {{- if not $k.authentication.enabled }}
+  {{- fail "트리거에 useAuthentication: true를 쓰려면 autoscaling.keda.authentication.enabled: true가 필요합니다" }}
+  {{- end }}
+  {{- $_ := set $t "authenticationRef" (dict "name" $name) }}
+  {{- end }}
+  {{- $triggers = append $triggers $t }}
+  {{- end }}
+  triggers:
+    {{- toYaml $triggers | nindent 4 }}
+{{- if $k.authentication.enabled }}
+---
+# KEDA가 SQS 같은 AWS 지표를 읽을 때 쓰는 신원.
+# identityOwner: workload → 이 서비스의 ServiceAccount(Pod Identity로 연결된 IAM 역할)를 그대로 쓴다.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+spec:
+  podIdentity:
+    {{- toYaml $k.authentication.podIdentity | nindent 4 }}
+{{- end }}
+{{- end }}

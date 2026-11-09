@@ -24,8 +24,63 @@ image:
 # ECR은 노드 IAM 역할로 받으므로 보통 비워 둔다.
 imagePullSecrets: []
 
-# HPA·KEDA를 붙이는 서비스는 차트가 replicas를 그리지 않게 바뀐다(5-4 6.4, 다음 단계).
+# autoscaling.type: none 일 때만 쓴다. HPA·KEDA를 쓰면 차트가 replicas를 그리지 않는다(5-4 6.4).
 replicaCount: 1
+
+# Pod 수 자동 조절(5-3 5.2·5.4·5.5)
+#   none : replicaCount 고정
+#   hpa  : CPU 사용률 기준 (auth·member·youtube·wishlist)
+#   keda : 이벤트 기준 (worker: SQS, chat·recommend: SSE 연결 수, ai-api: 처리 중 요청 수)
+# 한 Deployment에 HPA와 KEDA를 같이 걸지 않는다(KEDA가 HPA를 만들기 때문).
+autoscaling:
+  type: none
+  # KEDA는 0까지 가능(worker). HPA는 1 이상.
+  minReplicas: 2
+  # 최대값은 DB 커넥션 예산(5-3 3.4)과 외부 AI 한도 안에서 서비스 values로 정한다.
+  maxReplicas: 4
+  hpa:
+    # requests.cpu 대비 비율. CPU limit이 없으므로 100%를 넘을 수 있다(5-3 3.5).
+    targetCPUUtilizationPercentage: 70
+  keda:
+    # 지표를 읽는 주기(초). 기본 30초 = worker Cold Start의 첫 단계(5-3 5.5)
+    pollingInterval: 30
+    # 마지막 트리거 활성 후 0으로 줄이기까지 기다리는 시간(초). minReplicas가 0일 때만 의미가 있다.
+    cooldownPeriod: 300
+    # KEDA 트리거 정의를 그대로 쓴다. useAuthentication: true를 적으면 아래 TriggerAuthentication이 붙는다.
+    triggers: []
+    #  - type: aws-sqs-queue
+    #    useAuthentication: true
+    #    metadata:
+    #      queueURL: https://sqs.ap-northeast-2.amazonaws.com/<계정>/<큐>
+    #      queueLength: "5"
+    #      awsRegion: ap-northeast-2
+    authentication:
+      enabled: false
+      podIdentity:
+        provider: aws
+        # 서비스 자기 ServiceAccount의 IAM 역할로 지표를 읽는다. KEDA 운영자에게 넓은 AWS 권한을 주지 않는다.
+        identityOwner: workload
+  # 확장·축소 속도. JVM 기동 직후 CPU 급증으로 과잉 확장되지 않게 올라갈 때도 60초 지켜보고,
+  # 내려갈 때는 5분 동안 낮게 유지돼야 1개씩 줄인다(5-3 5.4, SSE는 끊김 최소화).
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+
+# 노드 교체 같은 계획된 중단에서 동시에 내려갈 수 있는 Pod 수(5-3 6.9).
+# 평소 최소 Pod 수가 2 이상일 때만 만든다. worker는 끈다(재처리로 복구).
+pdb:
+  enabled: true
+  maxUnavailable: 1
 
 # 이미지의 ENTRYPOINT·CMD를 덮어쓸 때만 쓴다. 예: ai-api의 uvicorn 실행 명령
 command: []

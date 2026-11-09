@@ -8,7 +8,10 @@ metadata:
   labels:
     {{- include "keepgo-app.labels" . | nindent 4 }}
 spec:
+  {{- /* HPA·KEDA를 쓰면 replicas를 그리지 않는다. Git 값과 오토스케일러 값이 서로 덮어쓰지 않게(5-4 6.4) */}}
+  {{- if eq (include "keepgo-app.autoscalingType" .) "none" }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   strategy:

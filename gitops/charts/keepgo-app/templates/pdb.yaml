@@ -1,0 +1,18 @@
+{{- /*
+평소 최소 Pod 수가 2 이상일 때만 만든다(5-3 6.9).
+1개뿐인 서비스에 걸면 노드 교체(Consolidation·expireAfter)가 멈추기 때문이다.
+minAvailable이 아니라 maxUnavailable: 1을 쓴다.
+*/}}
+{{- if and .Values.pdb.enabled (ge (int (include "keepgo-app.minReplicas" .)) 2) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "keepgo-app.fullname" . }}
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "keepgo-app.selectorLabels" . | nindent 6 }}
+{{- end }}

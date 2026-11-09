@@ -1,0 +1,14 @@
+# DB 커넥션 예산(5-3 3.4)
+#   합계(서비스별 (maxReplicas + maxSurge) x HikariCP maximumPoolSize) + reserved <= rdsMaxConnections
+# MySQL max_connections 기본값은 인스턴스 메모리로 정해진다(DBInstanceClassMemory / 12582880).
+dev:
+  # [가정] dev3 RDS = db.t4g.micro(1GiB) → 약 85. 여유를 두고 80으로 본다.
+  rdsMaxConnections: 80
+  # 운영자 접속·마이그레이션 Job
+  reservedConnections: 10
+prod:
+  # [가정] V2 RDS(db.t4g.micro, 약 80)는 EKS 최대 확장 + ECS 병행을 못 받는다.
+  #        prod 전환 전에 db.t4g.small(2GiB, 약 170)로 올린다는 전제(사용자 할 일).
+  rdsMaxConnections: 170
+  # ECS backend 병행 기간(Task 1개 x 기본 풀 10) + 운영자·마이그레이션 10
+  reservedConnections: 20

@@ -1,0 +1,77 @@
+{{- /*
+외부 요청 경로(5-2 3.4 Gateway API). 공통 Gateway·Listener는 A가 관리하고(gateway-system),
+서비스는 자기 Namespace에 HTTPRoute만 둔다.
+같은 backend 이미지가 모든 API를 처리하므로, 이 경로 목록이 서비스 분리 역할을 한다.
+여러 HTTPRoute가 겹치면 Gateway API 규칙대로 더 긴 경로가 우선한다.
+*/}}
+{{- $r := .Values.httpRoute }}
+{{- if $r.enabled }}
+{{- if not .Values.service.enabled }}
+{{- fail "httpRoute를 쓰려면 service.enabled: true가 필요합니다" }}
+{{- end }}
+{{- if not $r.parentRefs }}
+{{- fail "httpRoute.parentRefs(연결할 Gateway)가 필요합니다. 환경별 values에 둡니다" }}
+{{- end }}
+{{- if not $r.pathPrefixes }}
+{{- fail "httpRoute.pathPrefixes가 하나 이상 필요합니다" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "keepgo-app.fullname" . }}
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- toYaml $r.parentRefs | nindent 4 }}
+  {{- with $r.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - matches:
+        {{- range $r.pathPrefixes }}
+        - path:
+            type: PathPrefix
+            value: {{ . }}
+        {{- end }}
+      backendRefs:
+        - name: {{ include "keepgo-app.fullname" . }}
+          port: {{ (index .Values.service.ports 0).port }}
+{{- with $r.targetGroup }}
+{{- if .enabled }}
+---
+# ALB 대상 그룹 설정(AWS Load Balancer Controller 전용). Pod IP로 직접 보내고(IP target),
+# 헬스체크는 앱 포트가 아니라 관리 포트의 readiness로 본다(5-3 4.3).
+# deregistration delay는 기본 300초를 서비스에 맞게 줄인다(5-3 4.5).
+apiVersion: gateway.k8s.aws/v1
+kind: TargetGroupConfiguration
+metadata:
+  name: {{ include "keepgo-app.fullname" $ }}
+  labels:
+    {{- include "keepgo-app.labels" $ | nindent 4 }}
+spec:
+  targetReference:
+    name: {{ include "keepgo-app.fullname" $ }}
+  defaultConfiguration:
+    targetType: ip
+    healthCheckConfig:
+      healthCheckPath: {{ .healthCheck.path }}
+      healthCheckPort: {{ .healthCheck.port | toString | quote }}
+      healthCheckProtocol: HTTP
+      healthCheckInterval: {{ .healthCheck.intervalSeconds }}
+      healthCheckTimeout: {{ .healthCheck.timeoutSeconds }}
+      healthyThresholdCount: {{ .healthCheck.healthyThreshold }}
+      unhealthyThresholdCount: {{ .healthCheck.unhealthyThreshold }}
+      matcher:
+        httpCode: {{ .healthCheck.httpCode | quote }}
+    targetGroupAttributes:
+      - key: deregistration_delay.timeout_seconds
+        value: {{ .deregistrationDelaySeconds | toString | quote }}
+      {{- range .extraAttributes }}
+      - key: {{ .key }}
+        value: {{ .value | toString | quote }}
+      {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

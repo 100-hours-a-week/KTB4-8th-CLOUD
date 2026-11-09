@@ -1,0 +1,68 @@
+{{- /*
+이 Pod로 들어오는 통신 중 허용할 것만 연다(5-2 3.4, partA NetworkPolicy).
+Namespace의 기본 차단(default-deny ingress)은 tenancy 차트가 만들고, 여기서는 서비스별 예외만 연다.
+  1) allowFrom   : 앱 포트(http)로 부르는 내부 서비스
+  2) gatewayCIDRs: ALB가 Pod IP로 직접 보낸다(IP target). 앱 포트 + 헬스체크 포트
+  3) 모니터링     : Prometheus가 지표 포트를 긁어 간다
+egress를 적으면 송신도 제한하고 DNS 조회는 자동으로 허용한다.
+*/}}
+{{- $np := .Values.networkPolicy }}
+{{- if $np.enabled }}
+{{- $rules := list }}
+{{- if $np.allowFrom }}
+{{- $rules = append $rules (dict "from" $np.allowFrom "ports" (list (dict "protocol" "TCP" "port" "http"))) }}
+{{- end }}
+{{- if and .Values.httpRoute.enabled $np.gatewayCIDRs }}
+{{- $peers := list }}
+{{- range $np.gatewayCIDRs }}
+{{- $peers = append $peers (dict "ipBlock" (dict "cidr" .)) }}
+{{- end }}
+{{- $ports := list (dict "protocol" "TCP" "port" "http") }}
+{{- with .Values.httpRoute.targetGroup.healthCheck.port }}
+{{- $ports = append $ports (dict "protocol" "TCP" "port" .) }}
+{{- end }}
+{{- $rules = append $rules (dict "from" $peers "ports" $ports) }}
+{{- end }}
+{{- if and .Values.metrics.enabled $np.monitoringNamespace }}
+{{- $rules = append $rules (dict "from" (list (dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $np.monitoringNamespace)))) "ports" (list (dict "protocol" "TCP" "port" .Values.metrics.port))) }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "keepgo-app.fullname" . }}
+  labels:
+    {{- include "keepgo-app.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "keepgo-app.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    {{- if $np.egress }}
+    - Egress
+    {{- end }}
+  {{- if $rules }}
+  ingress:
+    {{- toYaml $rules | nindent 4 }}
+  {{- else }}
+  # 허용 대상이 없으면 아무도 들어오지 못한다(예: Service가 없는 worker).
+  ingress: []
+  {{- end }}
+  {{- if $np.egress }}
+  egress:
+    # 이름 조회(CoreDNS)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- toYaml $np.egress | nindent 4 }}
+  {{- end }}
+{{- end }}

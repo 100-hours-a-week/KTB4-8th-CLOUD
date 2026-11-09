@@ -120,6 +120,10 @@ env:
   # (Spring 환경변수 규칙상 timeout-per-shutdown-phase는 하이픈 없이 TIMEOUTPERSHUTDOWNPHASE로 쓴다)
   SERVER_SHUTDOWN: graceful
   SPRING_LIFECYCLE_TIMEOUTPERSHUTDOWNPHASE: 25s
+  # liveness·readiness 그룹을 명시적으로 켠다(쿠버네티스에서는 자동이지만 앱 설정에 없어서 분명히 둔다, 5-3 4.3).
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+  # p95 알림·대시보드용 히스토그램(기본은 꺼져 있다)
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HTTP_SERVER_REQUESTS: "true"
 
 # valueFrom 등 맵으로 표현하기 어려운 환경변수. 쿠버네티스 env 형식 그대로 쓴다.
 extraEnv: []
@@ -271,3 +275,73 @@ topologySpread:
   zone:
     enabled: false
     maxSkew: 1
+
+# 들어오는 통신 허용 목록(5-2 3.4). Namespace 기본 차단은 tenancy 차트가 건다.
+networkPolicy:
+  enabled: true
+  # 앱 포트(http)로 이 서비스를 부르는 내부 서비스. NetworkPolicyPeer 형식 그대로.
+  # 예) - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: recommend } }
+  #       podSelector: { matchLabels: { app.kubernetes.io/name: chat-api } }
+  allowFrom: []
+  # ALB가 Pod IP로 직접 보내므로 ALB가 놓인 Public 서브넷 대역을 연다(httpRoute.enabled일 때). 환경별 values에 둔다.
+  gatewayCIDRs: []
+  # Prometheus가 있는 Namespace. metrics.enabled일 때 지표 포트를 연다. 비우면 열지 않는다.
+  monitoringNamespace: monitoring
+  # 송신 제한. 비우면 제한하지 않는다. 적으면 DNS 허용이 자동으로 붙는다. NetworkPolicyEgressRule 형식 그대로.
+  egress: []
+
+# 외부 노출 경로(5-2 3.4). 공통 Gateway는 A가 관리하고 여기서는 경로만 연결한다.
+httpRoute:
+  enabled: false
+  # 연결할 Gateway. 환경별 values에 둔다.
+  # 예) - { name: keepgo-dev3-gateway, namespace: gateway-system, sectionName: https }
+  parentRefs: []
+  hostnames: []
+  # 이 서비스로 보낼 경로 앞부분. 더 긴 경로가 우선한다.
+  pathPrefixes: []
+  # ALB 대상 그룹 설정(AWS Load Balancer Controller TargetGroupConfiguration)
+  targetGroup:
+    enabled: true
+    healthCheck:
+      # Spring readiness. ai-api·web은 서비스 values에서 바꾼다.
+      path: /actuator/health/readiness
+      port: 8081
+      intervalSeconds: 15
+      timeoutSeconds: 5
+      healthyThreshold: 2
+      unhealthyThreshold: 2
+      httpCode: "200"
+    # Pod가 빠질 때 ALB가 기존 연결을 기다려 주는 시간. preStop(10초)보다 길고 종료 상한(40초)보다 짧게.
+    # SSE는 서비스 values에서 재연결 유도 시간에 맞춘다.
+    deregistrationDelaySeconds: 30
+    # 그 밖의 대상 그룹 속성. 예) - { key: load_balancing.algorithm.type, value: least_outstanding_requests }
+    extraAttributes: []
+
+# 지표 수집(PodMonitor). Spring은 관리 포트의 /actuator/prometheus를 쓴다.
+metrics:
+  enabled: true
+  port: management
+  path: /actuator/prometheus
+  interval: 30s
+  # Prometheus가 PodMonitor·PrometheusRule을 고르는 라벨(kube-prometheus-stack 기본은 release 라벨). 환경별 values에 둔다.
+  podMonitorLabels: {}
+
+# 서비스 기본 알림(PrometheusRule)
+alerts:
+  enabled: true
+  # 15분 동안 재시작 횟수가 이 값을 넘으면
+  restartsIn15m: 3
+  # Ready가 아닌 Pod가 이 시간 넘게 있으면(배포 멈춤 포함)
+  unavailableFor: 10m
+  http:
+    # Spring(Micrometer) 기준. 지표가 없는 서비스(ai-api 등)는 끈다.
+    enabled: true
+    requestsMetric: http_server_requests_seconds
+    statusLabel: status
+    errorRatio: 0.05
+    # SSE처럼 오래 열린 요청은 지연 알림이 의미가 없으므로 서비스 values에서 끈다.
+    p95Seconds: 1
+
+# helm test용 연결 확인 Pod. Argo CD는 helm test를 쓰지 않으므로 기본은 끈다(kind·CI에서 켠다).
+tests:
+  enabled: false

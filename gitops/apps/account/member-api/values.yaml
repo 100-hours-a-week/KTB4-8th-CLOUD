@@ -18,3 +18,12 @@ httpRoute:
     - /api/v1/user
     - /public
     - /api
+
+# web(Next.js)의 서버 쪽 rewrite(/api, /public 등)가 BACKEND_ORIGIN으로 이 서비스를 부른다.
+# 브라우저 요청은 HTTPRoute로 바로 오므로 평소에는 거의 쓰이지 않지만, 막아 두면 SSR·rewrite가 실패한다.
+networkPolicy:
+  allowFrom:
+    - namespaceSelector:
+        matchLabels: { kubernetes.io/metadata.name: frontend }
+      podSelector:
+        matchLabels: { app.kubernetes.io/name: web }

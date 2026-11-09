@@ -11,9 +11,16 @@
 | Deployment | 항상 | Pod 실행, 헬스체크, 롤링 배포, 종료 처리 |
 | Service | `service.enabled: true` | 클러스터 안 고정 주소. worker는 끈다 |
 | ServiceAccount | 항상 | Pod 신원. EKS Pod Identity로 서비스별 IAM 역할을 연결한다 |
-| 테스트 Pod | `helm test` 실행 시 | Service 이름으로 HTTP 통신이 되는지 확인 |
-
-5-4 7.2의 나머지(HPA, KEDA ScaledObject, PDB, ExternalSecret, NetworkPolicy, HTTPRoute)는 다음 단계에서 추가한다.
+| HorizontalPodAutoscaler | `autoscaling.type: hpa` | CPU 사용률 기준 확장 |
+| ScaledObject (+TriggerAuthentication) | `autoscaling.type: keda` | SQS·Prometheus 지표 기준 확장, worker는 0까지 |
+| PodDisruptionBudget | 최소 Pod 수 2 이상 + `pdb.enabled` | 노드 교체 때 동시에 1개까지만 내림 |
+| ExternalSecret | `externalSecrets.items` | Secrets Manager 값을 Secret으로 받음 |
+| ConfigMap | `configFiles.files` | 파일 설정. 바뀌면 롤링 재시작 |
+| NetworkPolicy | `networkPolicy.enabled`(기본 켬) | 들어오는 통신 허용 목록(Namespace 기본 차단은 tenancy) |
+| HTTPRoute (+TargetGroupConfiguration) | `httpRoute.enabled` | 공통 Gateway에 경로 연결, ALB 대상 그룹 헬스체크·해제 지연 |
+| PodMonitor | `metrics.enabled`(기본 켬) | Prometheus 수집 |
+| PrometheusRule | `alerts.enabled`(기본 켬) | 재시작·OOM·Replica 부족·5xx·p95 알림 |
+| 테스트 Pod | `tests.enabled` + `helm test` | Service 이름으로 HTTP 통신 확인(kind용) |
 
 ## 차트가 강제하는 규칙
 
@@ -25,6 +32,10 @@ values에 아래가 빠지거나 규칙을 어기면 렌더링이 실패한다. 
 | `resources.requests.cpu`, `requests.memory`, `limits.memory` 필수 | 5-4 7.3 |
 | 메모리 `requests` = `limits` | 5-3 3.2 |
 | `probes.preset`은 `spring`, `fastapi`, `nextjs` 중 하나 | 5-4 7.3 |
+| `autoscaling.type`은 `none`·`hpa`·`keda`, HPA는 최소 1, min ≤ max | 5-3 5.2 |
+| KEDA는 트리거 1개 이상, `useAuthentication`은 인증 설정이 켜져 있어야 함 | 5-3 5.5 |
+| HTTPRoute는 Service·parentRefs·경로가 있어야 함 | 5-2 3.4 |
+| 모르는 키·잘못된 타입은 `values.schema.json`이 거부 | 5-4 4.6 |
 
 ## 기본값
 
@@ -63,13 +74,16 @@ probes:
 
 ## 서비스별로 바꿀 값
 
+실제 9개 서비스 values는 `gitops/apps/<namespace>/<서비스>/`에 있고, Spring 7개 공통값은 `gitops/apps/_shared/spring*.yaml`에 있다.
+
 | 서비스 | 바꿀 값 |
 |---|---|
-| 핵심 API (auth, chat, recommend, ai-api) | `priorityClassName: keepgo-high`, 2-AZ 확정 후 `topologySpread.zone.enabled: true` |
-| SSE (chat, recommend) | `terminationGracePeriodSeconds`를 재연결 유도 시간만큼 늘림 |
-| ai-api | `probes.preset: fastapi`, 포트 8000, `command`(uvicorn), Spring 환경변수 `null` |
-| web | `probes.preset: nextjs`, 포트 3000, `component: web`, Spring 환경변수 `null` |
-| worker | `component: worker`, `service.enabled: false`, `probes.readiness.enabled: false`, `containerPorts`는 management만, `strategy`는 쿠버네티스 기본값(25%/25%), `priorityClassName: keepgo-low`, `topologySpread.node.enabled: false`, 종료 시간은 SQS Visibility Timeout 기준 |
+| 핵심 API (auth, chat, recommend, ai-api) | `priorityClassName: keepgo-high`, prod는 `topologySpread.zone.enabled: true` |
+| 일반 API (auth, member, youtube, wishlist) | `autoscaling.type: hpa` |
+| SSE (chat, recommend) | `autoscaling.type: keda`(Prometheus 연결 수), 종료 상한·ALB 해제 지연을 재연결 유도 시간만큼 늘림, p95 알림 끔 |
+| ai-api | `probes.preset: fastapi` + 경로 `/health`, 포트 8000, UID 10002, `extraVolumes`(/app/chroma), KEDA(처리 중 요청 수) |
+| web | `probes.preset: nextjs`, 포트 3000, UID 1000, `component: web` |
+| worker | `component: worker`, Service·readiness·PDB 끔, KEDA SQS(0까지), `priorityClassName: keepgo-low`, worker 노드 Taint 허용 |
 
 리소스 초기값은 5-3 3.3 표를 따른다.
 

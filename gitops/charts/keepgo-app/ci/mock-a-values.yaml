@@ -39,3 +39,11 @@ resources:
     memory: 32Mi
   limits:
     memory: 32Mi
+
+# Mock은 지표 엔드포인트가 없으므로 수집·알림을 끄고, kind에서 helm test로 통신을 확인한다.
+metrics:
+  enabled: false
+alerts:
+  enabled: false
+tests:
+  enabled: true

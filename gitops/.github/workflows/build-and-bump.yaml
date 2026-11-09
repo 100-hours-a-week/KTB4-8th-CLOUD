@@ -1,0 +1,135 @@
+# 앱 저장소(backend·ai·frontend)가 main merge 후 호출하는 재사용 workflow(5-4 2장·4장).
+#   1) 이미지 빌드 → ECR 푸시(태그 = 커밋 SHA, latest 금지)
+#   2) GitOps 저장소의 dev values에 태그 커밋 → dev Argo CD가 반영
+# CI는 클러스터 권한이 없다. AWS는 OIDC로 ECR push 역할만, GitOps 쓰기는 GitHub App 토큰만 쓴다(5-4 4.4).
+# 호출 예시는 docs/ci-callers/ 참고.
+name: build-and-bump
+
+on:
+  workflow_call:
+    inputs:
+      ecr-repository:
+        description: "ECR 저장소 이름(keepgo-backend, keepgo-ai, keepgo-web)"
+        type: string
+        required: true
+      context:
+        description: "docker build 경로"
+        type: string
+        default: "."
+      dockerfile:
+        type: string
+        default: "Dockerfile"
+      build-args:
+        description: "docker build-args(줄마다 KEY=VALUE). NEXT_PUBLIC_* 같은 빌드 시점 값"
+        type: string
+        default: ""
+      value-files:
+        description: "태그를 바꿀 GitOps values 파일(줄마다 하나). 예: apps/_shared/spring-dev.yaml"
+        type: string
+        required: true
+    secrets:
+      GITOPS_APP_ID:
+        required: true
+      GITOPS_APP_PRIVATE_KEY:
+        required: true
+      ECR_PUSH_ROLE_ARN:
+        required: true
+      DOCKER_SECRETS:
+        description: "BuildKit secret(id=값 줄 목록). 예: sentry_auth_token=..."
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  # 같은 values 파일을 동시에 고치지 않게 저장소·이미지별로 순서대로
+  group: build-and-bump-${{ inputs.ecr-repository }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.ECR_PUSH_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      # ECR은 tag immutability가 켜져 있다(5-4 4.3). 같은 커밋 재실행이면 이미 있는 이미지를 그대로 쓴다.
+      - name: 이미 있는 태그인지
+        id: exists
+        run: |
+          if aws ecr describe-images --repository-name "${{ inputs.ecr-repository }}" \
+               --image-ids imageTag="${{ steps.meta.outputs.tag }}" >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.exists.outputs.found != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.context }}/${{ inputs.dockerfile }}
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ inputs.ecr-repository }}:${{ steps.meta.outputs.tag }}
+          build-args: ${{ inputs.build-args }}
+          secrets: ${{ secrets.DOCKER_SECRETS }}
+          cache-from: type=gha,scope=${{ inputs.ecr-repository }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.ecr-repository }}
+
+  bump-dev:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: keepgo-gitops
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/keepgo-gitops
+          token: ${{ steps.app-token.outputs.token }}
+          path: gitops
+
+      # main 직접 push는 이 봇의 dev 태그 커밋만 허용한다(5-4 4.4, 브랜치 보호 예외).
+      # 다른 커밋과 겹치면 rebase 후 다시 시도한다.
+      - name: dev values 태그 커밋
+        working-directory: gitops
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          FILES: ${{ inputs.value-files }}
+          SOURCE: ${{ github.repository }}
+        run: |
+          git config user.name "keepgo-gitops-bot"
+          git config user.email "keepgo-gitops-bot@users.noreply.github.com"
+          mapfile -t files < <(printf '%s\n' "$FILES" | sed '/^[[:space:]]*$/d')
+          bash scripts/set-image-tag.sh "$TAG" "${files[@]}"
+          if git diff --quiet; then
+            echo "이미 같은 태그다. 커밋할 것이 없다."; exit 0
+          fi
+          git add "${files[@]}"
+          git commit -m "release(dev): ${{ inputs.ecr-repository }} ${TAG:0:12}" \
+                     -m "source: ${SOURCE}@${TAG}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          echo "push 실패"; exit 1

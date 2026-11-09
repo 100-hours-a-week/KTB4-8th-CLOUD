@@ -1,0 +1,34 @@
+# GitOps 저장소 PR 검증(5-4 4.6). 실패하면 merge를 막는다(브랜치 보호에서 필수 체크로 지정).
+# 이 파일은 keepgo-gitops 저장소 루트로 옮긴 뒤에 동작한다(Cloud 레포의 gitops/ 아래에서는 돌지 않는다).
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.1
+
+      - name: kubeconform 설치
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C /usr/local/bin kubeconform
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+
+      - name: 렌더링·스키마·규칙·예산 검사
+        run: bash scripts/validate.sh

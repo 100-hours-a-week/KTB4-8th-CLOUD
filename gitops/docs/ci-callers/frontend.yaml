@@ -1,0 +1,29 @@
+# frontend 저장소: main에 merge되면 이미지를 만들고 dev에 배포한다(5-4 2장).
+name: deploy-dev
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # 테스트는 기존 CI(PR 단계)에서 통과한 커밋만 main에 들어온다는 전제
+  release:
+    uses: 100-hours-a-week/keepgo-gitops/.github/workflows/build-and-bump.yaml@main
+    with:
+      ecr-repository: keepgo-web
+      value-files: |
+        apps/frontend/web/values-dev.yaml
+      # NEXT_PUBLIC_* 는 빌드 때 이미지에 들어간다. dev 값으로 빌드한 이미지를 prod에 올리면 dev 값이 남으므로
+      # 환경별로 다른 값이 생기면 런타임 설정으로 옮기거나 prod용 빌드를 따로 둔다(문서 참고).
+      build-args: |
+        NEXT_PUBLIC_API_BASE_URL=/api/v1
+        NEXT_PUBLIC_CHAT_V2=true
+        NEXT_PUBLIC_WISHLIST_V2=true
+    secrets:
+      ECR_PUSH_ROLE_ARN: ${{ secrets.ECR_PUSH_ROLE_ARN }}
+      GITOPS_APP_ID: ${{ secrets.GITOPS_APP_ID }}
+      GITOPS_APP_PRIVATE_KEY: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}

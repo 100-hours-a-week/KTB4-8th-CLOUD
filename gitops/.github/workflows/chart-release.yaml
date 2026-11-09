@@ -1,0 +1,55 @@
+# 공통 차트 버전 고정(5-4 7.5). Chart.yaml의 version이 바뀐 커밋이 main에 들어오면
+#   1) git 태그 keepgo-app-<version>을 만든다 → prod ApplicationSet이 이 태그를 targetRevision으로 쓴다
+#   2) (선택) ECR OCI 저장소에 차트를 올린다. vars.CHART_OCI_REPO가 있을 때만
+# prod가 새 차트를 쓰려면 apps-prod.yaml의 targetRevision을 새 태그로 바꾸는 PR을 따로 올린다(dev에서 먼저 검증).
+name: chart-release
+
+on:
+  push:
+    branches: [main]
+    paths: [charts/keepgo-app/Chart.yaml]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 버전 읽기
+        id: v
+        run: echo "version=$(awk '/^version:/{print $2}' charts/keepgo-app/Chart.yaml)" >> "$GITHUB_OUTPUT"
+
+      - name: git 태그
+        env:
+          TAG: keepgo-app-${{ steps.v.outputs.version }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "$TAG 이미 있음. 같은 버전으로 차트를 바꾸지 않는다(버전을 올린다)."; exit 0
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - if: vars.CHART_OCI_REPO != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.CHART_PUSH_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - if: vars.CHART_OCI_REPO != ''
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.3.1
+
+      - if: vars.CHART_OCI_REPO != ''
+        name: ECR OCI 푸시
+        run: |
+          registry="${{ vars.CHART_OCI_REPO }}"
+          aws ecr get-login-password | helm registry login --username AWS --password-stdin "${registry%%/*}"
+          helm package charts/keepgo-app -d /tmp/chart
+          helm push /tmp/chart/keepgo-app-${{ steps.v.outputs.version }}.tgz "oci://${registry}"

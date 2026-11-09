@@ -1,0 +1,26 @@
+# 변경 승인 규칙(5-4 3.3). 브랜치 보호에서 "Require review from Code Owners"를 켠다.
+# [가정] GitHub 팀 이름. 실제 팀으로 바꾼다.
+
+# 기본: 플랫폼팀
+*                                   @100-hours-a-week/keepgo-cloud
+
+# 서비스 values: 해당 팀
+/apps/account/                      @100-hours-a-week/keepgo-fullstack
+/apps/ingest/                       @100-hours-a-week/keepgo-fullstack
+/apps/content/                      @100-hours-a-week/keepgo-fullstack
+/apps/recommend/                    @100-hours-a-week/keepgo-fullstack
+/apps/frontend/                     @100-hours-a-week/keepgo-fullstack
+/apps/ai/                           @100-hours-a-week/keepgo-ai
+/apps/_shared/                      @100-hours-a-week/keepgo-fullstack
+
+# prod values: 해당 팀 + 플랫폼팀 공동(Replica·Resources가 노드 용량·DB 커넥션 예산에 영향)
+/apps/**/values-prod.yaml           @100-hours-a-week/keepgo-fullstack @100-hours-a-week/keepgo-cloud
+/apps/ai/**/values-prod.yaml        @100-hours-a-week/keepgo-ai @100-hours-a-week/keepgo-cloud
+/apps/_shared/spring-prod.yaml      @100-hours-a-week/keepgo-fullstack @100-hours-a-week/keepgo-cloud
+
+# 차트·플랫폼·Argo CD·CI: 플랫폼팀만
+/charts/                            @100-hours-a-week/keepgo-cloud
+/platform/                          @100-hours-a-week/keepgo-cloud
+/argocd/                            @100-hours-a-week/keepgo-cloud
+/scripts/                           @100-hours-a-week/keepgo-cloud
+/.github/                           @100-hours-a-week/keepgo-cloud

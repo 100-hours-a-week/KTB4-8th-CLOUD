@@ -1,0 +1,23 @@
+# ai 저장소: main에 merge되면 이미지를 만들고 dev에 배포한다(5-4 2장).
+name: deploy-dev
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # 테스트는 기존 CI(PR 단계)에서 통과한 커밋만 main에 들어온다는 전제
+  release:
+    uses: 100-hours-a-week/keepgo-gitops/.github/workflows/build-and-bump.yaml@main
+    with:
+      ecr-repository: keepgo-ai
+      value-files: |
+        apps/ai/ai-api/values-dev.yaml
+    secrets:
+      ECR_PUSH_ROLE_ARN: ${{ secrets.ECR_PUSH_ROLE_ARN }}
+      GITOPS_APP_ID: ${{ secrets.GITOPS_APP_ID }}
+      GITOPS_APP_PRIVATE_KEY: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}

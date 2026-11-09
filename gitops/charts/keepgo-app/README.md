@@ -89,47 +89,47 @@ probes:
 
 ## 서비스 values 예시
 
-5-4 3.2 구조에 맞춰 `apps/<namespace>/<서비스>/`에 둔다.
+실제 파일은 `gitops/apps/`에 있다. Argo CD ApplicationSet은 아래 순서로 values를 겹친다(뒤가 이김).
+Spring 서비스만 1·2번 공통 파일을 쓴다.
+
+1. `apps/_shared/spring.yaml` — 이미지 저장소, Spring 공통 환경변수, 배치
+2. `apps/_shared/spring-<env>.yaml` — 이미지 태그(한 곳), DB·Redis 주소, ExternalSecret 경로, Gateway
+3. `apps/<namespace>/<서비스>/values.yaml` — 자원, 확장 방식, 경로, 우선순위
+4. `apps/<namespace>/<서비스>/values-<env>.yaml` — 환경별 Replica 범위, AZ 분산
 
 ```yaml
-# gitops/apps/account/auth-api/values.yaml (환경 공통)
-image:
-  repository: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-auth-api
-
+# apps/account/auth-api/values.yaml (요약)
 priorityClassName: keepgo-high
-
 resources:
-  requests:
-    cpu: 250m
-    memory: 768Mi
-  limits:
-    memory: 768Mi
-
-envFrom:
-  - secretRef:
-      name: auth-api-env      # ExternalSecret이 만든 Secret
-
-secretFiles:
-  - name: jwt
-    secretName: backend-jwt
-    mountPath: /run/secrets
-    items:
-      - key: JWT_PUBLIC_KEY
-        path: jwt_public_key.pem
-      - key: JWT_PRIVATE_KEY
-        path: jwt_private_key.pem
+  requests: { cpu: 250m, memory: 768Mi }
+  limits: { memory: 768Mi }
+autoscaling:
+  type: hpa
+httpRoute:
+  enabled: true
+  pathPrefixes: [/oauth2, /login/oauth2, /api/v1/user/auth-session, /api/v1/auth]
 ```
 
 ```yaml
-# gitops/apps/account/auth-api/values-dev.yaml (CI가 태그를 커밋)
+# apps/_shared/spring-dev.yaml (요약) — Secret 이름은 차트가 "<서비스>-<name>"으로 만든다(auth-api-env, auth-api-jwt)
 image:
-  tag: "f6760bc7b98e"
-
-env:
-  SPRING_PROFILES_ACTIVE: dev
-  EPHEMERAL_DATABASE: redis
-  REDIS_HOST: redis.data.svc.cluster.local
+  tag: "503a23686080485cae89c0cae152a33e3aac8528"   # CI가 커밋
+externalSecrets:
+  items:
+    - name: env
+      asEnv: true                                   # 모든 키를 환경변수로
+      data:
+        - { secretKey: GOOGLE_CLIENT_SECRET, remoteRef: { key: keepgo/dev3/backend, property: GOOGLE_CLIENT_SECRET } }
+    - name: jwt
+      asFiles:                                      # 파일로 마운트
+        mountPath: /run/secrets/jwt
+        items:
+          - { key: JWT_PUBLIC_KEY, path: jwt_public_key.pem }
+      data:
+        - { secretKey: JWT_PUBLIC_KEY, remoteRef: { key: keepgo/dev3/backend, property: JWT_PUBLIC_KEY } }
 ```
+
+`envFrom`·`secretFiles`는 차트 밖에서 만든 Secret을 직접 가리킬 때만 쓴다.
 
 ## 로컬 검증 (kind)
 

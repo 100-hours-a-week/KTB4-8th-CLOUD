@@ -15,7 +15,7 @@ fullnameOverride: ""
 component: api
 
 image:
-  # 필수. 서비스별 ECR 저장소(5-4 4.3). 예: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-auth-api
+  # 필수. ECR 저장소(5-4 4.3). 예: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-backend(Spring 7개 공통)
   repository: ""
   # 필수. 커밋 SHA. latest는 쓰지 않는다(5-4 4.3).
   tag: ""
@@ -134,15 +134,16 @@ extraEnv: []
 #      fieldRef:
 #        fieldPath: metadata.name
 
-# ConfigMap·Secret 전체를 환경변수로 넣는다. Secret은 ExternalSecret이 만든 것을 가리킨다.
+# 차트 밖에서 만든 ConfigMap·Secret 전체를 환경변수로 넣는다.
+# ExternalSecret으로 받는 값은 externalSecrets.items[].asEnv를 쓴다(이름을 적을 필요 없음).
 envFrom: []
 #  - secretRef:
-#      name: auth-api-env
+#      name: some-existing-secret
 
-# Secret을 파일로 붙인다. JWT PEM처럼 앱이 파일 경로로 읽는 값에 쓴다.
+# 차트 밖에서 만든 Secret을 파일로 붙인다. ExternalSecret으로 받는 값은 externalSecrets.items[].asFiles를 쓴다.
 secretFiles: []
 #  - name: jwt
-#    secretName: backend-jwt
+#    secretName: some-existing-secret
 #    mountPath: /run/secrets
 #    items:                     # 생략하면 Secret의 모든 키가 파일이 된다
 #      - key: JWT_PUBLIC_KEY

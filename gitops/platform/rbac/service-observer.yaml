@@ -1,0 +1,46 @@
+# 서비스 상태 조회(풀스택·AI팀). Namespace별 RoleBinding으로만 붙인다(ClusterRoleBinding 금지).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: keepgo-service-observer
+  labels:
+    app.kubernetes.io/part-of: keepgo
+rules:
+  # 설정값(ConfigMap)은 비밀을 넣지 않는다는 전제로 연다. 비밀은 Secret(조회 불가)에만 둔다.
+  - apiGroups: [""]
+    resources: [pods, services, endpoints, events, configmaps, serviceaccounts]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, watch]
+  - apiGroups: [keda.sh]
+    resources: [scaledobjects]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: [get, list, watch]
+  # 동기화 상태만 본다. 실제 값은 Secret에 있고 Secret은 열지 않는다.
+  - apiGroups: [external-secrets.io]
+    resources: [externalsecrets]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]

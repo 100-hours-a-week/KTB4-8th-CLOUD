@@ -1,0 +1,76 @@
+# 클라우드 담당팀(5-2 2.3 platform-operator): 공통 인프라 관리
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: keepgo-platform-operator
+  labels:
+    app.kubernetes.io/part-of: keepgo
+rules:
+  # Namespace·Quota·LimitRange·ServiceAccount
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas, limitranges, serviceaccounts]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+  # 권한. bind·escalate가 있어 사실상 관리자 권한이다(README 참고).
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+    verbs: [get, list, watch, create, update, patch, delete, bind, escalate]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [scheduling.k8s.io]
+    resources: [priorityclasses]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Gateway·LBC 설정
+  - apiGroups: [gateway.networking.k8s.io, gateway.k8s.aws]
+    resources: ["*"]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Karpenter NodePool·EC2NodeClass
+  - apiGroups: [karpenter.sh, karpenter.k8s.aws]
+    resources: ["*"]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # 플랫폼 컨트롤러 설정(KEDA·ESO·모니터링·Argo CD)
+  - apiGroups: [keda.sh, external-secrets.io, monitoring.coreos.com, argoproj.io]
+    resources: ["*"]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # CRD는 Argo CD(platform 프로젝트)로만 바꾼다. 사람은 조회만.
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods, nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keepgo-platform-operator
+  labels:
+    app.kubernetes.io/part-of: keepgo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: keepgo-platform-operator
+subjects:
+  # [가정] A의 Access Entry(keepgo-dev3-platform-operator 역할) kubernetesGroups
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: keepgo:platform-operators
+---
+# 전체 조회. 쿠버네티스 기본 view는 Secret을 뺀다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keepgo-platform-operator-view
+  labels:
+    app.kubernetes.io/part-of: keepgo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: keepgo:platform-operators

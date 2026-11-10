@@ -4,8 +4,8 @@ image:
   tag: "503a23686080485cae89c0cae152a33e3aac8528"
 
 env:
-  # [가정] dev3 RDS(A 소유, Data 서브넷). 실제 주소가 나오면 바꾼다.
-  DB_HOST: keepgo-dev3-mysql.cluster-placeholder.ap-northeast-2.rds.amazonaws.com
+  # dev3 RDS keepgo-dev3-mysql(dice 소유, Data 서브넷, MySQL 8.4, DB keepgo)
+  DB_HOST: keepgo-dev3-mysql.c9c2syg08nfm.ap-northeast-2.rds.amazonaws.com
   # [가정] Redis StatefulSet(A 소유)이 data Namespace의 redis Service
   REDIS_HOST: redis.data.svc.cluster.local
   FRONTEND_SERVER_ADDRESS: https://dev3.keepgo.kr

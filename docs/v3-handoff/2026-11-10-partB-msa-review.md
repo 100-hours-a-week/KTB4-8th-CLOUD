@@ -112,3 +112,39 @@
 1. §1 조직 권한 확인 → 2.1·2.2·2.10의 방향이 정해진다.
 2. 조직 권한과 무관한 것(2.3·2.5 처리 수·2.7·2.9)부터 구현할지 결정.
 3. 컴포넌트가 늘어나는 것(2.1 Image Updater, 2.6 자기 관리, 2.8 Reloader)은 dev EKS 적용(사용자 할 일 §4) 전에 할지 후에 할지 결정.
+
+## 5. 결정 사항 (2026-11-10, dice·rowan)
+
+dice = A파트, rowan = B파트. 이 절은 위 검토와 별개로 실제로 정한 것과 이미 한 일을 적는다. 구현 기록·사용자 할 일의 해당 가정은 아직 고치지 않았다(아래 "바뀌는 가정" 열).
+
+### 5.1 레포
+
+| 결정 | 내용 | 바뀌는 가정 |
+|---|---|---|
+| GitOps 레포 이름 | `100-hours-a-week/KTB4-8th-CLOUD-GITOPS`(조직 규칙 `KTB4-8th-<이름>`). gitops·k8s-local·문서의 `keepgo-gitops`를 모두 바꿨다(`c2c8892`, `8d73cd1`, `e8d4a41`) | A19 |
+| Cloud 레포와 분리 유지 | 이유: 변경 주체·빈도가 다르고(Terraform은 플랫폼팀이 가끔, values는 여러 팀·봇이 수시로), GitHub 권한·브랜치 보호는 레포 단위라 같은 레포에 두면 팀 쓰기 권한·main 보호·봇 예외가 인프라 코드까지 걸린다. Cloud main은 V2 auto-release가 자동 병합하므로 GitOps 수준의 보호를 걸 수 없다. "CI가 클러스터 권한을 갖지 않는다"는 GitOps 원칙이지 분리 이유가 아니다(5-4 §3.1·§11 정정 제안) | — |
+| 레포 공개 여부·권한(확인) | Cloud·BE·AI·FE 모두 public, rowan은 4개 레포 Admin. GitOps 레포도 public으로 만들면 Argo CD 읽기 자격 증명이 필요 없다(§2.2) | §1 |
+
+### 5.2 클러스터 구성요소 담당
+
+기준: 쿠버네티스 기본 API를 채우고 EKS 버전과 함께 올리는 것, AWS 리소스와 한 묶음인 것 = dice. 그 위에서 팀들이 쓰는 플랫폼 서비스 = rowan(Argo CD platform 앱).
+
+| 구성요소 | 담당·방식 | 상태 | 이유·감수 | 바뀌는 가정 |
+|---|---|---|---|---|
+| Prometheus Operator CRD | dice | **설치됨**(kubectl 적용, operator 0.95.1, PodMonitor·PrometheusRule·AlertmanagerConfig 포함) | 관측 스택을 Argo CD로 넘길 때 같은 버전의 CRD 앱(ServerSideApply)으로 이어받는다. helm 릴리스가 아니라 `helm uninstall` 위험은 없다 | — |
+| 관측 스택(Prometheus·Alertmanager·Grafana·트레이싱) | **rowan, Argo CD platform 앱** | **보류**(비용: 관측용 NodePool 필요). 자원 규모는 구축 때 정한다 | 수집(차트 PodMonitor)~알림(AlertmanagerConfig)~KEDA 트리거를 한 담당자가 맡아 팀 간 계약(release 라벨, matcher 전략, 주소)이 values가 된다. 감수: Argo CD 장애 시 설정 변경 불가(실행 중인 것은 영향 없음), CRD는 ServerSideApply, PVC에 `Prune=false,Delete=false` | A10, A17, 사용자 할 일 §1 #11·#12a |
+| metrics-server | **dice, EKS 애드온** | **미설치**(애드온·Pod·API 모두 없음) → 설치 요청함 | CoreDNS처럼 기본 API(`metrics.k8s.io`)를 채우고 EKS 버전과 함께 올린다. 버전 호환을 AWS가 맞추고, 업그레이드 담당자가 하나이며, Argo CD보다 먼저 있어 첫 sync부터 HPA가 동작한다. 감수: Git 이력·selfHeal 없음(설정을 바꿀 일이 거의 없음). 기본 애드온 전체를 IaC로 옮길 때 같이 옮긴다. System 노드 toleration·nodeSelector는 애드온 설정값으로 준다 | 사용자 할 일 §1에 계약 한 줄 추가 필요 |
+| EBS CSI 드라이버 | dice | dice는 "있다"고 했으나 클러스터에 CSI 드라이버가 없다(StorageClass는 in-tree `gp2`뿐) → 확인 요청 | 지금 서비스에는 PVC가 없어 dev 기동에는 영향 없음. Redis·Prometheus 때 필요 | — |
+| KEDA·ESO | rowan, Argo CD platform 앱 | 기존 계획 그대로 | — | A17 유지 |
+
+### 5.3 dice 설정과 맞춘 것
+
+| 항목 | 결정·조치 | 상태 |
+|---|---|---|
+| rowan 클러스터 접근 | `user/ktb8-rowan` Access Entry, 그룹 `keepgo:platform-operators` + 임시 `AmazonEKSClusterAdminPolicy`(cluster) | **완료**(dice). Argo CD platform-rbac이 Synced되면 정책을 뗀다 |
+| ALB idle timeout | `keepgo-dev3-alb-config`에 `idle_timeout.timeout_seconds: 200`(SSE 서버 타임아웃 180초보다 길게) | **적용 완료**(rowan, ALB 속성 200 확인). dice 브랜치 `EKS/keepgo-v3-part-a-yaml`에 커밋 `20a1c0c`, push 전 |
+| NetworkPolicy 수신 규칙 | 차트(tenancy 기본 차단 + 서비스별 허용)로 통일하고 dice 초안(`default-deny-ingress`·`ai-ingress`·`allow-alb`·`allow-wishlist`)은 클러스터에 직접 적용하지 않는다. dice 초안의 ALB 허용은 Spring 헬스체크 포트 8081이 빠져 있다 | 제안(dice README의 "관리 경로 하나로"와 같은 방향) |
+| NetworkPolicy 송신 제한 | dice 송신 허용표를 서비스 values `networkPolicy.egress`로 옮겨 dev가 뜬 뒤 한 PR로 켠다 | 제안 |
+| 그대로 맞은 것 | Gateway(`gateway-system/keepgo-dev3-gateway`, 리스너 `https`, `dev3.keepgo.kr`), 허용 Namespace(ai 제외), ALB 서브넷 CIDR, 노드 라벨·worker Taint(A2), TargetGroupConfiguration `v1`, 라벨 `app.kubernetes.io/name`·포트 이름 `http` | 확인 |
+| 둘이 정할 것 | Redis Namespace(`data` + `keepgo.kr/network-zone: data` 제안), web→member-api 직접 호출(FE 확인), worker·recommend→wishlist 호출(코드에 없음, 생기면 추가), worker 노드 통합과 `do-not-disrupt`(D20) | 미정 |
+| dev RDS | dice가 생성 중(`rds-bootstrap-dev3`). 주소·Secret 이름을 받으면 `spring-dev.yaml` 수정 | 대기 |

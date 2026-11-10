@@ -1,0 +1,5 @@
+# 공통 외부 진입점 설정을 관리할 Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway-system

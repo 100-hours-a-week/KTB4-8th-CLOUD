@@ -1,0 +1,67 @@
+# 서비스별 수신 허용 정책과 함께 적용할 초안입니다.
+# Egress는 변경하지 않습니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: account
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ingest
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: content
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: recommend
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ai
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: frontend
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress: []

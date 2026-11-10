@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: network-policy-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: np-server
+  namespace: network-policy-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: np-server
+  template:
+    metadata:
+      labels:
+        app: np-server
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        workload: application
+        karpenter.sh/nodepool: keepgo-dev3-application
+      containers:
+      - name: server
+        image: public.ecr.aws/docker/library/busybox:1.37.0
+        command:
+        - sh
+        - -c
+        - mkdir -p /tmp/www && echo network-policy-ok > /tmp/www/index.html && exec
+          httpd -f -p 8080 -h /tmp/www
+        ports:
+        - name: http
+          containerPort: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            memory: 64Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: np-client
+  namespace: network-policy-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: np-client
+  template:
+    metadata:
+      labels:
+        app: np-client
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        workload: application
+        karpenter.sh/nodepool: keepgo-dev3-application
+      containers:
+      - name: client
+        image: public.ecr.aws/docker/library/busybox:1.37.0
+        command:
+        - sleep
+        - '86400'
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            memory: 64Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault

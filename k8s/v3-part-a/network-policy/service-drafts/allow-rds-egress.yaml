@@ -1,0 +1,96 @@
+# 초안: RDS를 dev Data 서브넷 10.47.20.0/24 및 10.47.21.0/24에 배치하고 MySQL 3306을 사용하는 경우의 기준입니다. DB 생성 후 실제 서브넷·포트·SG를 확인합니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rds-mysql-egress
+  namespace: account
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - auth-api
+      - member-api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 10.47.20.0/24
+    - ipBlock:
+        cidr: 10.47.21.0/24
+    ports:
+    - protocol: TCP
+      port: 3306
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rds-mysql-egress
+  namespace: ingest
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - youtube-api
+      - youtube-analysis-worker
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 10.47.20.0/24
+    - ipBlock:
+        cidr: 10.47.21.0/24
+    ports:
+    - protocol: TCP
+      port: 3306
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rds-mysql-egress
+  namespace: content
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: wishlist-api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 10.47.20.0/24
+    - ipBlock:
+        cidr: 10.47.21.0/24
+    ports:
+    - protocol: TCP
+      port: 3306
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rds-mysql-egress
+  namespace: recommend
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - chat-api
+      - recommend-api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 10.47.20.0/24
+    - ipBlock:
+        cidr: 10.47.21.0/24
+    ports:
+    - protocol: TCP
+      port: 3306

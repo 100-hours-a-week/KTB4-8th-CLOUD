@@ -1,0 +1,52 @@
+# 초안: 특정 Google/SQS 도메인이 아닌 사설·링크로컬 대역을 제외한 모든 IPv4 목적지의 TCP 443을 허용합니다. 현재 NAT와 public AWS endpoint 경로 기준입니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-auth-external-https
+  namespace: account
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: auth-api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 169.254.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-youtube-api-and-worker-external-https
+  namespace: ingest
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - youtube-api
+      - youtube-analysis-worker
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 169.254.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443

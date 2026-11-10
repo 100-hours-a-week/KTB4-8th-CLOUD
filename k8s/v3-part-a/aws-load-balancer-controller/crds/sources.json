@@ -1,0 +1,76 @@
+[
+  {
+    "file": "gateway-api-standard-v1.6.0.yaml",
+    "source": "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml",
+    "sha256": "a557172e8348f758479e9ee4000bbbb4b4aa48302a6b73461823ea5349bad56d",
+    "resources": [
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "backendtlspolicies.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "gatewayclasses.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "gateways.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "grpcroutes.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "httproutes.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "listenersets.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "referencegrants.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "tcproutes.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "tlsroutes.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "udproutes.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicy",
+        "name": "safe-upgrades.gateway.networking.k8s.io"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicyBinding",
+        "name": "safe-upgrades.gateway.networking.k8s.io"
+      }
+    ]
+  },
+  {
+    "file": "lbc-gateway-v3.6.2.yaml",
+    "source": "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v3.6.2/config/crd/gateway/gateway-crds.yaml",
+    "sha256": "3a4264e2a7cf132944fd095b04ce86299385f26ea31b1e89d0ac21761e1865a0",
+    "resources": [
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "listenerruleconfigurations.gateway.k8s.aws"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "loadbalancerconfigurations.gateway.k8s.aws"
+      },
+      {
+        "kind": "CustomResourceDefinition",
+        "name": "targetgroupconfigurations.gateway.k8s.aws"
+      }
+    ]
+  }
+]

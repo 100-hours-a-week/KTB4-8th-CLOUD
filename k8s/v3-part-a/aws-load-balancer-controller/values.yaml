@@ -1,0 +1,50 @@
+clusterName: keepgo-dev3-eks
+region: ap-northeast-2
+vpcId: vpc-0e3ef4c978f3d65e0
+
+replicaCount: 2
+
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations: {}
+
+rbac:
+  create: true
+
+nodeSelector:
+  workload: system
+
+tolerations:
+  - key: workload
+    operator: Equal
+    value: system
+    effect: NoSchedule
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: aws-load-balancer-controller
+        app.kubernetes.io/instance: aws-load-balancer-controller
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podDisruptionBudget:
+  maxUnavailable: 1
+
+controllerConfig:
+  featureGates:
+    ALBGatewayAPI: true
+    NLBGatewayAPI: false
+
+defaultTargetType: ip
+
+enableServiceMutatorWebhook: false

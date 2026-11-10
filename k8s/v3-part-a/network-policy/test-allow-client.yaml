@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-client-to-server
+  namespace: network-policy-test
+spec:
+  podSelector:
+    matchLabels:
+      app: np-server
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: np-client
+    ports:
+    - protocol: TCP
+      port: 8080

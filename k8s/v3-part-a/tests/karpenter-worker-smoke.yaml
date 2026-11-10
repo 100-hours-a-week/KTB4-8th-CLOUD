@@ -1,0 +1,44 @@
+# Worker 전용 노드 생성·배치 검증. 적용 시 실제 EC2·EBS 비용 발생.
+# Spot을 우선하되 On-Demand 대체를 막는 selector는 추가하지 않음.
+# Worker Taint와 일치하는 toleration을 포함함.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: karpenter-worker-smoke
+  namespace: default
+  labels:
+    app.kubernetes.io/name: karpenter-worker-smoke
+spec:
+  nodeSelector:
+    workload: worker
+    karpenter.sh/nodepool: keepgo-dev3-worker
+  automountServiceAccountToken: false
+  terminationGracePeriodSeconds: 10
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: pause
+    image: registry.k8s.io/pause:3.10
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
+  tolerations:
+  - key: workload
+    operator: Equal
+    value: worker
+    effect: NoSchedule

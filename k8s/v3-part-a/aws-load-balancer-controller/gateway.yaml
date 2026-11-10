@@ -1,0 +1,40 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: keepgo-dev3-gateway
+  namespace: gateway-system
+spec:
+  # AWS LBC가 ALB로 구현하도록 GatewayClass 참조
+  gatewayClassName: keepgo-dev3-alb
+
+  # 같은 Namespace에 있는 ACM 인증서 포함 ALB 설정 참조
+  infrastructure:
+    parametersRef:
+      group: gateway.k8s.aws
+      kind: LoadBalancerConfiguration
+      name: keepgo-dev3-alb-config
+
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: dev3.keepgo.kr
+
+      # 아래 Namespace의 HTTPRoute만 연결 허용
+      allowedRoutes:
+        kinds:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - gateway-system
+                  - account
+                  - ingest
+                  - content
+                  - recommend
+                  - frontend

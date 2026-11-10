@@ -1,0 +1,25 @@
+apiVersion: gateway.k8s.aws/v1
+kind: LoadBalancerConfiguration
+metadata:
+  name: keepgo-dev3-alb-config
+  namespace: gateway-system
+spec:
+  # 인터넷에서 접근할 수 있는 ALB
+  scheme: internet-facing
+
+  # 이번 dev 네트워크의 주소 체계
+  ipAddressType: ipv4
+
+  # ALB가 사용할 Public 서브넷. 노드/Pod는 Private에 유지합니다.
+  loadBalancerSubnets:
+    - identifier: subnet-061e173fafc26cbe2 # dev3-public-a
+    - identifier: subnet-0fa8ff2876088e795 # dev3-public-c
+
+  # HTTPS 443에서 사용할 서울 리전 ACM 인증서
+  listenerConfigurations:
+    - protocolPort: HTTPS:443
+      defaultCertificate: arn:aws:acm:ap-northeast-2:602601433533:certificate/2018d07e-dac7-4c12-8480-919dd6797eeb
+
+  tags:
+    Project: keepgo
+    Environment: dev3

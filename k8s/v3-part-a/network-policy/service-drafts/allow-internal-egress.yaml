@@ -1,0 +1,79 @@
+# 초안: 기존 ai-ingress.yaml 및 보관함 수신 허용 정책과 함께 사용합니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-to-ai-and-wishlist
+  namespace: ingest
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: youtube-analysis-worker
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ai
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ai-api
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: content
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: wishlist-api
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-chat-and-recommend-to-ai
+  namespace: recommend
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - chat-api
+      - recommend-api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ai
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ai-api
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-recommend-to-wishlist
+  namespace: recommend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: recommend-api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: content
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: wishlist-api
+    ports:
+    - protocol: TCP
+      port: http

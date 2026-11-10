@@ -1,0 +1,42 @@
+# 초안: AI의 실제 외부 호출과 DB/AWS 권한 사용 여부 확인 후 적용합니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ai-api-dns-and-external-https
+  namespace: ai
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-api
+
+  policyTypes:
+    - Egress
+
+  egress:
+    # CoreDNS로 DNS 조회 허용
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # 사설/링크로컬 대역을 제외한 IPv4 목적지의 TCP 443 허용
+    # 특정 AI 제공자 도메인만 허용하는 규칙은 아닙니다.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

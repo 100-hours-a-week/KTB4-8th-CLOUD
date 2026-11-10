@@ -1,0 +1,49 @@
+# 선택 초안: web 서버가 SSR/서버 액션 등으로 내부 API를 직접 호출할 때만 적용합니다. 브라우저의 API 호출에는 이 경로가 필요하지 않습니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-server-to-public-apis
+  namespace: frontend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: account
+      podSelector:
+        matchExpressions:
+        - key: app.kubernetes.io/name
+          operator: In
+          values:
+          - auth-api
+          - member-api
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingest
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: youtube-api
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: content
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: wishlist-api
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: recommend
+      podSelector:
+        matchExpressions:
+        - key: app.kubernetes.io/name
+          operator: In
+          values:
+          - chat-api
+          - recommend-api
+    ports:
+    - protocol: TCP
+      port: http

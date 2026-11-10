@@ -1,0 +1,29 @@
+# 초안: 보관함의 실제 Pod 라벨 및 http named port를 맞춘 뒤 적용합니다. URL별 내부 API 권한 검사는 별도입니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-wishlist-from-worker-and-recommend
+  namespace: content
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: wishlist-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingest
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: youtube-analysis-worker
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: recommend
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: recommend-api
+    ports:
+    - protocol: TCP
+      port: http

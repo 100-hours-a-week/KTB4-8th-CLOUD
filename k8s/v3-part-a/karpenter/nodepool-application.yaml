@@ -1,0 +1,68 @@
+# YAML 들여쓰기·필드명·generation 조건 수정. 원본은 .bak으로 보관.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: keepgo-dev3-application
+  labels:
+    app.kubernetes.io/part-of: keepgo
+    environment: dev
+spec:
+  template:
+    metadata:
+      labels:
+        workload: application
+        environment: dev
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: keepgo-dev3-application
+      requirements:
+      - key: kubernetes.io/os
+        operator: In
+        values:
+        - linux
+      - key: kubernetes.io/arch
+        values:
+        - amd64
+        operator: In
+      - key: topology.kubernetes.io/zone
+        operator: In
+        values:
+        - ap-northeast-2a
+        - ap-northeast-2c
+      - key: karpenter.sh/capacity-type
+        operator: In
+        values:
+        - on-demand
+      # T(버스트)·C(연산)·M(범용)·R(메모리) 계열을 폭넓게 허용
+      - key: karpenter.k8s.aws/instance-category
+        operator: In
+        values: [t, c, m, r]
+
+      # 세대 번호 제한은 제거. amd64·Nitro 호환 조건은 유지
+
+      - key: karpenter.k8s.aws/instance-hypervisor
+        operator: In
+        values:
+        - nitro
+      - key: karpenter.k8s.aws/instance-cpu
+        operator: In
+        values:
+        - '2'
+        - '4'
+      # t3.medium 수준의 최소 메모리 4GiB 확보 (단위 MiB)
+      - key: karpenter.k8s.aws/instance-memory
+        operator: Gt
+        values: ["4095"]
+
+      expireAfter: 720h
+      terminationGracePeriod: 30m
+  limits:
+    cpu: '16'
+    memory: 64Gi
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30m
+    budgets:
+    - nodes: '1'

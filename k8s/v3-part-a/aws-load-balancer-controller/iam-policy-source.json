@@ -1,0 +1,9 @@
+{
+  "controllerVersion": "v3.6.2",
+  "source": "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v3.6.2/docs/install/iam_policy.json",
+  "sha256": "16f232c9d9f79366fe949c4550ad517a202380058a9e48d45a4e215044a20a6a",
+  "statementCount": 16,
+  "modified": false,
+  "awsPolicyCreated": false,
+  "role": "keepgo-dev3-lbc-controller-role"
+}

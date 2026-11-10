@@ -1,0 +1,42 @@
+# 초안: B의 Pod 라벨과 AI 컨테이너 named port(http)를 맞춘 뒤 적용합니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ai-api-from-approved-callers
+  namespace: ai
+spec:
+  # 적용 대상: ai-api Pod
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-api
+
+  # 수신만 제한합니다. 외부 AI 호출 등 송신 규칙은 별도 구성합니다.
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        # ingest Namespace의 영상 분석 Worker
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingest
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: youtube-analysis-worker
+
+        # recommend Namespace의 채팅/추천 API
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: recommend
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - chat-api
+                  - recommend-api
+
+      ports:
+        # 대상 AI 컨테이너의 포트 이름이 http여야 합니다.
+        - protocol: TCP
+          port: http

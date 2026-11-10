@@ -1,0 +1,27 @@
+# 초안: Redis Namespace에 keepgo.kr/network-zone=data 라벨, Redis Pod에 app.kubernetes.io/name=redis 라벨 및 redis named port가 필요합니다. Redis 수신/복제/Sentinel 정책은 Redis 구축 시 별도 구성합니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-chat-and-recommend-to-redis
+  namespace: recommend
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - chat-api
+      - recommend-api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          keepgo.kr/network-zone: data
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: redis
+    ports:
+    - protocol: TCP
+      port: redis

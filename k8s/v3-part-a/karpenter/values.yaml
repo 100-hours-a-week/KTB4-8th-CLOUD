@@ -1,0 +1,47 @@
+# Karpenter 1.15.1, keepgo-dev3-eks, Controller on Fargate.
+replicas: 2
+
+serviceAccount:
+  create: true
+  name: karpenter
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::602601433533:role/keepgo-dev3-karpenter-controller-role
+    eks.amazonaws.com/sts-regional-endpoints: "true"
+
+podLabels:
+  eks.amazonaws.com/fargate-profile: keepgo-dev3-karpenter
+
+nodeSelector:
+  kubernetes.io/os: linux
+  eks.amazonaws.com/compute-type: fargate
+
+# Fargate does not implement the chart's node/pod affinity and topology spread rules.
+# A profile with two subnets does not guarantee one Controller per AZ.
+affinity: null
+topologySpreadConstraints: []
+
+controller:
+  env:
+    - name: AWS_REGION
+      value: ap-northeast-2
+    - name: AWS_DEFAULT_REGION
+      value: ap-northeast-2
+    - name: AWS_EC2_METADATA_DISABLED
+      value: "true"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+settings:
+  clusterName: keepgo-dev3-eks
+  clusterEndpoint: https://9D77C55BB8BF2965833549FC9F54B682.gr7.ap-northeast-2.eks.amazonaws.com
+  eksControlPlane: true
+  interruptionQueue: keepgo-dev3-karpenter-interruption
+  enableZonalShift: false
+
+serviceMonitor:
+  enabled: false

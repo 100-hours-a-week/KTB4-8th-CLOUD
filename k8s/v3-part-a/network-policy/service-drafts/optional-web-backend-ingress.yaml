@@ -1,0 +1,100 @@
+# 선택 초안: optional-web-backend-egress.yaml과 함께 사용합니다. web 서버의 내부 API 직접 호출이 필요할 때만 적용합니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-api-from-web-server
+  namespace: account
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - auth-api
+      - member-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: frontend
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: web
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-api-from-web-server
+  namespace: ingest
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: youtube-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: frontend
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: web
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-api-from-web-server
+  namespace: content
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: wishlist-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: frontend
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: web
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-api-from-web-server
+  namespace: recommend
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - chat-api
+      - recommend-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: frontend
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: web
+    ports:
+    - protocol: TCP
+      port: http

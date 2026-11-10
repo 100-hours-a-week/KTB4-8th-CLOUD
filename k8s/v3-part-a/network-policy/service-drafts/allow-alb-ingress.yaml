@@ -1,0 +1,124 @@
+# 초안: 대상 Pod의 app.kubernetes.io/name 라벨과 http named port를 맞춘 뒤 적용합니다.
+# ALB 전용 식별이 아닌 Public 서브넷 CIDR 허용입니다. Backend SG 제한과 함께 사용합니다.
+# ALB -> Pod의 전달/헬스 체크 포트가 http named port와 일치하는지 확인합니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-public-http
+  namespace: account
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - auth-api
+      - member-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 10.47.0.0/24
+    - ipBlock:
+        cidr: 10.47.1.0/24
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-public-http
+  namespace: ingest
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - youtube-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 10.47.0.0/24
+    - ipBlock:
+        cidr: 10.47.1.0/24
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-public-http
+  namespace: content
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - wishlist-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 10.47.0.0/24
+    - ipBlock:
+        cidr: 10.47.1.0/24
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-public-http
+  namespace: recommend
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - chat-api
+      - recommend-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 10.47.0.0/24
+    - ipBlock:
+        cidr: 10.47.1.0/24
+    ports:
+    - protocol: TCP
+      port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-public-http
+  namespace: frontend
+spec:
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - web
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 10.47.0.0/24
+    - ipBlock:
+        cidr: 10.47.1.0/24
+    ports:
+    - protocol: TCP
+      port: http

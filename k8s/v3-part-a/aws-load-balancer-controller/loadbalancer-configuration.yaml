@@ -20,6 +20,11 @@ spec:
     - protocolPort: HTTPS:443
       defaultCertificate: arn:aws:acm:ap-northeast-2:602601433533:certificate/2018d07e-dac7-4c12-8480-919dd6797eeb
 
+  # SSE(chat·recommend) 서버 타임아웃 180초보다 길게. 기본 60초면 연결이 60초마다 끊깁니다.
+  loadBalancerAttributes:
+    - key: idle_timeout.timeout_seconds
+      value: "200"
+
   tags:
     Project: keepgo
     Environment: dev3

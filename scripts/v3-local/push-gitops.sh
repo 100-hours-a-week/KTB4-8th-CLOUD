@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 LOCAL="$HERE/k8s/v3-local"
 : "${GITOPS_DIR:?GITOPS_DIR=<gitops 폴더 경로>가 필요합니다}"
 : "${WORK:?WORK=<작업 폴더>가 필요합니다}"
-GITHUB_URL="https://github.com/100-hours-a-week/keepgo-gitops.git"
+GITHUB_URL="https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git"
 LOCAL_URL="http://git-server.git-server.svc.cluster.local:23232/gitops.git"
 PORT="${GIT_SSH_PORT:-23231}"
 

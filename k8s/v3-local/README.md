@@ -11,7 +11,7 @@ GitOps 저장소(`feat/v3-helm-app-chart` 브랜치의 `gitops/`)를 **실제와
 | Worker NodePool `workload=worker` + Taint([가정] 키) | worker 노드 1대 |
 | Metrics Server 애드온 | metrics-server 차트 |
 | kube-prometheus-stack(CRD) | prometheus-operator-crds 차트 |
-| GitHub keepgo-gitops | 클러스터 안 Git 서버(soft-serve) |
+| GitHub KTB4-8th-CLOUD-GITOPS | 클러스터 안 Git 서버(soft-serve) |
 | ECR 이미지 | busybox Mock(`overlay/values/`) |
 
 로컬에서 끄는 것(AWS가 있어야 동작): SecretStore·ExternalSecret, HTTPRoute·TargetGroupConfiguration, SQS·Prometheus KEDA 트리거(→ CPU 트리거), GitHub 로그인·Discord 알림.

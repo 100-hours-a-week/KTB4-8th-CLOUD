@@ -11,7 +11,7 @@ spec:
   goTemplateOptions: ["missingkey=error"]
   generators:
     - git:
-        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
         revision: main
         directories:
           - path: apps/account/*
@@ -21,7 +21,7 @@ spec:
         values:
           stack: spring
     - git:
-        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
         revision: main
         directories:
           - path: apps/ai/*
@@ -37,7 +37,7 @@ spec:
     spec:
       project: "{{index .path.segments 1}}"
       sources:
-        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        - repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
           targetRevision: main
           path: charts/keepgo-app
           helm:
@@ -50,7 +50,7 @@ spec:
               - $values/{{.path.path}}/values-dev.yaml
               - $values/local/values/{{.values.stack}}.yaml
               - $values/local/values/{{.path.basename}}.yaml
-        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        - repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
           targetRevision: main
           ref: values
       destination:

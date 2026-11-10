@@ -12,12 +12,12 @@
 
 | 지금 설계 | 필요한 권한 | 확인 |
 |---|---|---|
-| GitHub App을 keepgo-gitops에 설치(CI 태그 커밋, Argo CD 레포 읽기) | 조직 Owner 승인 | 미확인 |
+| GitHub App을 KTB4-8th-CLOUD-GITOPS에 설치(CI 태그 커밋, Argo CD 레포 읽기) | 조직 Owner 승인 | 미확인 |
 | GitHub 팀 `keepgo-cloud`·`keepgo-fullstack`·`keepgo-ai`(CODEOWNERS, AppProject role, Argo CD RBAC) | 팀 생성 권한 | 미확인 |
 | Argo CD GitHub 로그인(Dex `orgs`)이 조직·팀 소속을 읽음 | 조직이 OAuth App을 제한하면 Owner 승인 | 미확인 |
 | 조직 Secret(키 한 곳 보관) | 조직 Owner | 없음으로 가정 |
 | 앱 레포(KTB4-8th-BE·AI·FE)에 Secret·workflow 추가 | 해당 레포 Admin(개발팀 레포) | 미확인 |
-| 레포 안 설정: 브랜치 보호, Deploy key, 레포 Secret | keepgo-gitops를 우리가 만들면 우리가 Admin | 가능(레포 생성 가능) |
+| 레포 안 설정: 브랜치 보호, Deploy key, 레포 Secret | KTB4-8th-CLOUD-GITOPS를 우리가 만들면 우리가 Admin | 가능(레포 생성 가능) |
 
 확인할 것
 
@@ -32,22 +32,22 @@
 각 항목: 지금 → 문제(MSA 규모에서) → 추천 → 조직 권한 → 바꿀 곳
 
 ### 2.1 CI가 GitOps 레포에 쓰는 방법 (구현 기록 5-4 4.4, 사용자 할 일 §3)
-- 지금: 앱 레포의 CI가 GitHub App 토큰으로 keepgo-gitops main에 dev 태그를 직접 push. App 키는 앱 레포마다 Secret으로 복사.
+- 지금: 앱 레포의 CI가 GitHub App 토큰으로 KTB4-8th-CLOUD-GITOPS main에 dev 태그를 직접 push. App 키는 앱 레포마다 Secret으로 복사.
 - 문제: 레포가 늘수록 키 사본이 늘고(교체 시 N곳 갱신), App 설치에 Owner 승인이 필요하다.
 - 추천 **(b) 끌어오는 방식**
   - CI는 ECR에 이미지만 올린다(클러스터·GitOps 권한 모두 없음).
-  - dev: Argo CD Image Updater가 ECR 새 태그를 보고 keepgo-gitops에 커밋(write-back). 쓰기는 keepgo-gitops의 **쓰기용 Deploy key** 하나.
-  - prod: keepgo-gitops 안의 `promote-prod`가 기본 `GITHUB_TOKEN`으로 PR을 만든다(같은 레포라 App 불필요).
-  - 레포끼리 주고받는 자격 증명이 없어, 레포가 늘어도 키를 나눠 줄 일이 없다. 조직 권한 없이 keepgo-gitops Admin만으로 된다.
+  - dev: Argo CD Image Updater가 ECR 새 태그를 보고 KTB4-8th-CLOUD-GITOPS에 커밋(write-back). 쓰기는 KTB4-8th-CLOUD-GITOPS의 **쓰기용 Deploy key** 하나.
+  - prod: KTB4-8th-CLOUD-GITOPS 안의 `promote-prod`가 기본 `GITHUB_TOKEN`으로 PR을 만든다(같은 레포라 App 불필요).
+  - 레포끼리 주고받는 자격 증명이 없어, 레포가 늘어도 키를 나눠 줄 일이 없다. 조직 권한 없이 KTB4-8th-CLOUD-GITOPS Admin만으로 된다.
 - 대안
   - (a) GitHub App 유지: Owner가 설치해 주면. 키는 레포별 Secret.
   - PAT: 발급은 되지만 사람 계정에 묶인다(그 사람이 빠지면 끊김, 오래 사는 토큰). 임시로만.
 - 감수: Image Updater라는 컴포넌트가 하나 늘고(System 노드), 태그 선택 규칙(예: 커밋 SHA 태그 중 최신 push)을 따로 정해야 한다. "어떤 커밋이 dev에 올라갔나"는 Image Updater 커밋으로 남는다.
 - 바꿀 곳: `.github/workflows/build-and-bump.yaml`(bump-dev 제거), `docs/ci-callers/*`, `argocd/platform/<env>/`(Image Updater 추가), ApplicationSet dev 템플릿(Image Updater 주석), `promote-prod.yaml`(App 토큰 → `GITHUB_TOKEN`)
 
-### 2.2 Argo CD의 keepgo-gitops 읽기 자격 증명 (사용자 할 일 §4.1)
+### 2.2 Argo CD의 KTB4-8th-CLOUD-GITOPS 읽기 자격 증명 (사용자 할 일 §4.1)
 - 지금: `argocd repo add --github-app-*`(GitHub App).
-- 추천: 읽기 전용 **Deploy key**(`argocd repo add git@github.com:100-hours-a-week/keepgo-gitops.git --ssh-private-key-path <키>`). 조직 권한이 필요 없다.
+- 추천: 읽기 전용 **Deploy key**(`argocd repo add git@github.com:100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git --ssh-private-key-path <키>`). 조직 권한이 필요 없다.
 - 감수: 레포 주소가 SSH로 바뀐다 → AppProject `sourceRepos`, ApplicationSet·root·platform Application의 `repoURL`을 같이 바꾼다.
 
 ### 2.3 배포 대상 목록 한 곳 (`build-and-bump`·`promote-prod`)

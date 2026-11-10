@@ -71,20 +71,20 @@ ServiceAccount 이름 = 서비스 이름(차트 규칙). prod는 `dev3` → `pro
 | AI | 내장 Chroma를 Pod 여러 개에서 어떻게 쓸지 | Pod마다 데이터가 다름 |
 | Frontend | 헬스 경로(`/api/health` 등), dev·prod에서 달라질 `NEXT_PUBLIC_*` 여부 | Probe, 빌드 시점 값 |
 
-## 3. keepgo-gitops 저장소 만들기
+## 3. KTB4-8th-CLOUD-GITOPS 저장소 만들기
 
 ```bash
 # Cloud 레포 루트에서: gitops/ 이력만 뽑아 새 브랜치로
 git subtree split --prefix=gitops -b gitops-export feat/v3-helm-app-chart
-# GitHub에 100-hours-a-week/keepgo-gitops(빈 저장소)를 만든 뒤
-git push https://github.com/100-hours-a-week/keepgo-gitops.git gitops-export:main
+# GitHub에 100-hours-a-week/KTB4-8th-CLOUD-GITOPS(빈 저장소)를 만든 뒤
+git push https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git gitops-export:main
 ```
 
 - [ ] 저장소 생성(private), 위 명령으로 이력째 이동
 - [ ] 브랜치 보호: main은 PR + `validate` 체크 필수 + Code Owners 승인. 예외로 GitHub App 봇의 직접 push 허용(dev 태그 커밋)
 - [ ] GitHub 팀 `keepgo-cloud`·`keepgo-fullstack`·`keepgo-ai` 만들기(이름이 다르면 `.github/CODEOWNERS`, `argocd/projects/*.yaml`, `argocd/bootstrap/values.yaml` 수정)
-- [ ] GitHub App 생성: keepgo-gitops에 Contents·Pull requests 쓰기. 앱 ID·키를 앱 저장소 3개와 keepgo-gitops의 Secret(`GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY`)에
-- [ ] keepgo-gitops → Settings → Actions → Access: 조직 저장소에서 재사용 workflow 호출 허용
+- [ ] GitHub App 생성: KTB4-8th-CLOUD-GITOPS에 Contents·Pull requests 쓰기. 앱 ID·키를 앱 저장소 3개와 KTB4-8th-CLOUD-GITOPS의 Secret(`GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY`)에
+- [ ] KTB4-8th-CLOUD-GITOPS → Settings → Actions → Access: 조직 저장소에서 재사용 workflow 호출 허용
 - [ ] A에 요청: GitHub OIDC 역할 2개 — ECR push(앱 저장소용, `ECR_PUSH_ROLE_ARN`), ECR 조회·태그 추가(promote-prod용, `ECR_PROMOTE_ROLE_ARN`). ECR tag immutability·push 스캔 켜기, lifecycle에서 `prod-*` 최근 N개 보존
 - [ ] 프런트 저장소 변수(vars) 확인: `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_NAVER_MAP_CLIENT_ID`, `NEXT_PUBLIC_CLARITY_PROJECT_ID`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, Secret `SENTRY_AUTH_TOKEN`(V2 CI가 쓰는 것과 같음)
 - [ ] 앱 저장소 3개에 `gitops/docs/ci-callers/<스택>.yaml`을 `.github/workflows/deploy-dev.yaml`로 복사(기존 V2 배포와 겹치지 않게 전환 시점에)
@@ -108,9 +108,9 @@ kubectl -n argocd patch secret argocd-notifications-secret \
   --type merge -p '{"stringData":{"discord-webhook-url":"<Discord webhook URL>"}}'
 # 알림 webhook(Alertmanager → Discord, 구현 기록 D18)
 kubectl -n monitoring create secret generic keepgo-alert-discord --from-literal=url=<Discord webhook URL>
-# 저장소 자격 증명(private keepgo-gitops). GitHub App으로 등록한다
+# 저장소 자격 증명(private KTB4-8th-CLOUD-GITOPS). GitHub App으로 등록한다
 argocd login --port-forward --port-forward-namespace argocd --plaintext --username admin   --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
-argocd repo add https://github.com/100-hours-a-week/keepgo-gitops.git --port-forward --port-forward-namespace argocd   --github-app-id <App ID> --github-app-installation-id <설치 ID> --github-app-private-key-path <키 파일>
+argocd repo add https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git --port-forward --port-forward-namespace argocd   --github-app-id <App ID> --github-app-installation-id <설치 ID> --github-app-private-key-path <키 파일>
 kubectl apply -f argocd/bootstrap/project.yaml -f argocd/bootstrap/root-dev.yaml   # root 전용 프로젝트 먼저
 ```
 

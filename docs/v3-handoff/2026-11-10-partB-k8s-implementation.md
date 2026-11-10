@@ -20,7 +20,7 @@
 
 | 브랜치 | 내용 | 나중 |
 |---|---|---|
-| `feat/v3-helm-app-chart` | `gitops/` = keepgo-gitops 저장소 루트가 될 내용 전부 | `git subtree split --prefix=gitops`로 이력째 새 저장소로 이동 |
+| `feat/v3-helm-app-chart` | `gitops/` = KTB4-8th-CLOUD-GITOPS 저장소 루트가 될 내용 전부 | `git subtree split --prefix=gitops`로 이력째 새 저장소로 이동 |
 | `feat/v3-k8s-local` | Argo CD가 동기화하지 않는 파일: kind 구성, 로컬 override, 검증·장애·부하 스크립트 | Cloud 레포에 남김 |
 | `feat/v1-central-cd-prep` | 이 문서들(`docs/v3-handoff/`) | 기존 문서 브랜치 관례 |
 
@@ -96,7 +96,7 @@ A·개발팀 확정값이 없어서 정한 값이다. 틀리면 "바꿀 곳"만 
 | A16 | web 자원 100m/256Mi, HPA | 5-3에 없음 | `apps/frontend/web/values.yaml` |
 | A17 | KEDA·ESO·Argo CD 설치 소유권 = B(Argo CD 경유) | 인수인계 §3 미정 계약 | `argocd/platform/<env>/` |
 | A18 | 알림: Discord webhook | 5-4는 Slack, V2 운영은 Discord | `argocd/bootstrap/values.yaml` notifications |
-| A19 | GitHub 팀 `keepgo-cloud`·`keepgo-fullstack`·`keepgo-ai`, 저장소 `100-hours-a-week/keepgo-gitops` | 조직 이름만 확정 | `argocd/`, `.github/CODEOWNERS` |
+| A19 | GitHub 팀 `keepgo-cloud`·`keepgo-fullstack`·`keepgo-ai`, 저장소 `100-hours-a-week/KTB4-8th-CLOUD-GITOPS` | 조직 이름만 확정 | `argocd/`, `.github/CODEOWNERS` |
 | A20 | 이미지 태그 초기값 = V2 운영 태그(backend `503a236`, ai `6e9c5cf`), web = FE main `b21465f` | 첫 V3 빌드 전 자리값 | `spring-<env>.yaml`, ai·web values |
 
 ### 앱 코드에서 확인한 사실(가정 아님)

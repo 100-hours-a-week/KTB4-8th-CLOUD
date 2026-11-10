@@ -12,7 +12,7 @@ permissions:
 jobs:
   # 테스트는 기존 CI(PR 단계)에서 통과한 커밋만 main에 들어온다는 전제
   release:
-    uses: 100-hours-a-week/keepgo-gitops/.github/workflows/build-and-bump.yaml@main
+    uses: 100-hours-a-week/KTB4-8th-CLOUD-GITOPS/.github/workflows/build-and-bump.yaml@main
     with:
       ecr-repository: keepgo-backend
       value-files: |

@@ -1,5 +1,5 @@
 # GitOps 저장소 PR 검증(5-4 4.6). 실패하면 merge를 막는다(브랜치 보호에서 필수 체크로 지정).
-# 이 파일은 keepgo-gitops 저장소 루트로 옮긴 뒤에 동작한다(Cloud 레포의 gitops/ 아래에서는 돌지 않는다).
+# 이 파일은 KTB4-8th-CLOUD-GITOPS 저장소 루트로 옮긴 뒤에 동작한다(Cloud 레포의 gitops/ 아래에서는 돌지 않는다).
 name: validate
 
 on:

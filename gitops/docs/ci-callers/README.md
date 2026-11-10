@@ -7,5 +7,5 @@
 | 종류 | 이름 | 내용 |
 |---|---|---|
 | Secret | `ECR_PUSH_ROLE_ARN` | GitHub OIDC로 받는 ECR push 전용 IAM 역할 |
-| Secret | `GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY` | keepgo-gitops에 쓰기 권한이 있는 GitHub App |
-| 설정 | keepgo-gitops → Settings → Actions → Access | 조직 안 저장소에서 재사용 workflow 호출 허용 |
+| Secret | `GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY` | KTB4-8th-CLOUD-GITOPS에 쓰기 권한이 있는 GitHub App |
+| 설정 | KTB4-8th-CLOUD-GITOPS → Settings → Actions → Access | 조직 안 저장소에서 재사용 workflow 호출 허용 |

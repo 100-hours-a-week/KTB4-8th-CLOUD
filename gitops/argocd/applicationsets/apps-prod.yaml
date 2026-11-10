@@ -11,7 +11,7 @@ spec:
   generators:
     # Spring 7개: 공통 values(_shared/spring*.yaml)를 먼저 겹친다
     - git:
-        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
         revision: main
         directories:
           - path: apps/account/*
@@ -22,7 +22,7 @@ spec:
           stack: spring
     # 공통 values가 없는 서비스
     - git:
-        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
         revision: main
         directories:
           - path: apps/ai/*
@@ -40,7 +40,7 @@ spec:
       sources:
         # prod는 차트를 git 태그로 고정한다(5-4 7.5). dev에서 검증한 뒤 태그를 올린다.
         # ECR OCI로 옮기면: repoURL: 602601433533.dkr.ecr.ap-northeast-2.amazonaws.com/keepgo-charts, chart: keepgo-app, targetRevision: 0.3.0
-        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        - repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
           targetRevision: keepgo-app-0.3.0
           path: charts/keepgo-app
           helm:
@@ -52,7 +52,7 @@ spec:
               - $values/apps/_shared/{{.values.stack}}-prod.yaml
               - $values/{{.path.path}}/values.yaml
               - $values/{{.path.path}}/values-prod.yaml
-        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        - repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
           targetRevision: main
           ref: values
       destination:

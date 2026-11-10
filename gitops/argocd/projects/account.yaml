@@ -9,7 +9,7 @@ metadata:
 spec:
   description: 계정·회원(auth-api, member-api)
   sourceRepos:
-    - https://github.com/100-hours-a-week/keepgo-gitops.git
+    - https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: account

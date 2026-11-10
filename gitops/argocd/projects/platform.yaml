@@ -9,7 +9,7 @@ metadata:
 spec:
   description: 클러스터 공통 컴포넌트와 정책(플랫폼팀)
   sourceRepos:
-    - https://github.com/100-hours-a-week/keepgo-gitops.git
+    - https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
     - https://kedacore.github.io/charts
     - https://charts.external-secrets.io
   destinations:

@@ -9,7 +9,7 @@ metadata:
 spec:
   description: 채팅·추천 SSE(chat-api, recommend-api)
   sourceRepos:
-    - https://github.com/100-hours-a-week/keepgo-gitops.git
+    - https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: recommend

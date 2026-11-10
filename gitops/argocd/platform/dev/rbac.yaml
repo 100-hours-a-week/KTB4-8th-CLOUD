@@ -14,7 +14,7 @@ metadata:
 spec:
   project: platform
   source:
-    repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+    repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
     targetRevision: main
     path: platform/rbac
   destination:

@@ -1,7 +1,7 @@
-# keepgo-gitops
+# KTB4-8th-CLOUD-GITOPS
 
 KeepGo V3(EKS) 배포 설정 저장소. Argo CD가 이 저장소를 기준으로 클러스터를 맞춘다(위키 5-4).
-지금은 Cloud 레포의 `gitops/` 폴더이고, `keepgo-gitops` 저장소를 만들면 이 폴더를 이력째 옮긴다.
+지금은 Cloud 레포의 `gitops/` 폴더이고, `KTB4-8th-CLOUD-GITOPS` 저장소를 만들면 이 폴더를 이력째 옮긴다.
 
 | 폴더 | 내용 | 승인 |
 |---|---|---|

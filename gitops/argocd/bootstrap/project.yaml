@@ -9,7 +9,7 @@ metadata:
 spec:
   description: root app-of-apps(argocd Namespace의 Argo CD 객체만)
   sourceRepos:
-    - https://github.com/100-hours-a-week/keepgo-gitops.git
+    - https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: argocd

@@ -11,7 +11,7 @@ spec:
   generators:
     # Spring 7개: 공통 values(_shared/spring*.yaml)를 먼저 겹친다
     - git:
-        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
         revision: main
         directories:
           - path: apps/account/*
@@ -22,7 +22,7 @@ spec:
           stack: spring
     # 공통 values가 없는 서비스
     - git:
-        repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
         revision: main
         directories:
           - path: apps/ai/*
@@ -39,7 +39,7 @@ spec:
       project: "{{index .path.segments 1}}"
       sources:
         # dev는 main의 최신 차트를 바로 쓴다.
-        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        - repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
           targetRevision: main
           path: charts/keepgo-app
           helm:
@@ -51,7 +51,7 @@ spec:
               - $values/apps/_shared/{{.values.stack}}-dev.yaml
               - $values/{{.path.path}}/values.yaml
               - $values/{{.path.path}}/values-dev.yaml
-        - repoURL: https://github.com/100-hours-a-week/keepgo-gitops.git
+        - repoURL: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
           targetRevision: main
           ref: values
       destination:

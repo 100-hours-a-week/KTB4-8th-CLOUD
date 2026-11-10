@@ -9,7 +9,7 @@ metadata:
 spec:
   description: AI API(ai-api)
   sourceRepos:
-    - https://github.com/100-hours-a-week/keepgo-gitops.git
+    - https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: ai

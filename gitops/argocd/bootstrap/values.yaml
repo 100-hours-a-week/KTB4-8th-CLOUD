@@ -97,19 +97,19 @@ notifications:
         discord:
           method: POST
           body: |
-            {"content": "❌ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 동기화 실패\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/keepgo-gitops/commit/{{ .app.status.operationState.syncResult.revision }}\n{{ .app.status.operationState.message }}"}
+            {"content": "❌ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 동기화 실패\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS/commit/{{ .app.status.operationState.syncResult.revision }}\n{{ .app.status.operationState.message }}"}
     template.keepgo-degraded: |
       webhook:
         discord:
           method: POST
           body: |
-            {"content": "⚠️ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 상태 Degraded\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/keepgo-gitops/commit/{{ .app.status.sync.revision }}"}
+            {"content": "⚠️ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 상태 Degraded\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS/commit/{{ .app.status.sync.revision }}"}
     template.keepgo-deployed: |
       webhook:
         discord:
           method: POST
           body: |
-            {"content": "✅ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 배포 완료\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/keepgo-gitops/commit/{{ .app.status.sync.revision }}"}
+            {"content": "✅ [{{ index .app.metadata.labels "keepgo.io/env" }}] {{ .app.metadata.name }} 배포 완료\n이미지: {{ range .app.status.summary.images }}{{ . }} {{ end }}\n커밋: https://github.com/100-hours-a-week/KTB4-8th-CLOUD-GITOPS/commit/{{ .app.status.sync.revision }}"}
   triggers:
     trigger.keepgo-sync-failed: |
       - when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']

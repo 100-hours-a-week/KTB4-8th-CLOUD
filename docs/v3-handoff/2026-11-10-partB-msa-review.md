@@ -124,6 +124,7 @@ dice = A파트, rowan = B파트. 이 절은 위 검토와 별개로 실제로 �
 | GitOps 레포 이름 | `100-hours-a-week/KTB4-8th-CLOUD-GITOPS`(조직 규칙 `KTB4-8th-<이름>`). gitops·k8s-local·문서의 `keepgo-gitops`를 모두 바꿨다(`c2c8892`, `8d73cd1`, `e8d4a41`) | A19 |
 | Cloud 레포와 분리 유지 | 이유: 변경 주체·빈도가 다르고(Terraform은 플랫폼팀이 가끔, values는 여러 팀·봇이 수시로), GitHub 권한·브랜치 보호는 레포 단위라 같은 레포에 두면 팀 쓰기 권한·main 보호·봇 예외가 인프라 코드까지 걸린다. Cloud main은 V2 auto-release가 자동 병합하므로 GitOps 수준의 보호를 걸 수 없다. "CI가 클러스터 권한을 갖지 않는다"는 GitOps 원칙이지 분리 이유가 아니다(5-4 §3.1·§11 정정 제안) | — |
 | 레포 공개 여부·권한(확인) | Cloud·BE·AI·FE 모두 public, rowan은 4개 레포 Admin. GitOps 레포도 public으로 만들면 Argo CD 읽기 자격 증명이 필요 없다(§2.2) | §1 |
+| gitops 원본 | **GitOps 레포가 원본**. Cloud `feat/v3-helm-app-chart`의 `gitops/`는 11-10 split(`7ada382`) 이후 동결한다. 다시 split해서 push하지 않는다(GitOps 레포가 앞서 있어 거부되고, 강제 push하면 다른 사람 작업이 지워진다). 변경은 GitOps 레포 clone → 브랜치 → PR | — |
 
 ### 5.2 클러스터 구성요소 담당
 
@@ -132,9 +133,9 @@ dice = A파트, rowan = B파트. 이 절은 위 검토와 별개로 실제로 �
 | 구성요소 | 담당·방식 | 상태 | 이유·감수 | 바뀌는 가정 |
 |---|---|---|---|---|
 | Prometheus Operator CRD | dice | **설치됨**(kubectl 적용, operator 0.95.1, PodMonitor·PrometheusRule·AlertmanagerConfig 포함) | 관측 스택을 Argo CD로 넘길 때 같은 버전의 CRD 앱(ServerSideApply)으로 이어받는다. helm 릴리스가 아니라 `helm uninstall` 위험은 없다 | — |
-| 관측 스택(Prometheus·Alertmanager·Grafana·트레이싱) | **rowan, Argo CD platform 앱** | **보류**(비용: 관측용 NodePool 필요). 자원 규모는 구축 때 정한다 | 수집(차트 PodMonitor)~알림(AlertmanagerConfig)~KEDA 트리거를 한 담당자가 맡아 팀 간 계약(release 라벨, matcher 전략, 주소)이 values가 된다. 감수: Argo CD 장애 시 설정 변경 불가(실행 중인 것은 영향 없음), CRD는 ServerSideApply, PVC에 `Prune=false,Delete=false` | A10, A17, 사용자 할 일 §1 #11·#12a |
-| metrics-server | **dice, EKS 애드온** | **미설치**(애드온·Pod·API 모두 없음) → 설치 요청함 | CoreDNS처럼 기본 API(`metrics.k8s.io`)를 채우고 EKS 버전과 함께 올린다. 버전 호환을 AWS가 맞추고, 업그레이드 담당자가 하나이며, Argo CD보다 먼저 있어 첫 sync부터 HPA가 동작한다. 감수: Git 이력·selfHeal 없음(설정을 바꿀 일이 거의 없음). 기본 애드온 전체를 IaC로 옮길 때 같이 옮긴다. System 노드 toleration·nodeSelector는 애드온 설정값으로 준다 | 사용자 할 일 §1에 계약 한 줄 추가 필요 |
-| EBS CSI 드라이버 | dice | dice는 "있다"고 했으나 클러스터에 CSI 드라이버가 없다(StorageClass는 in-tree `gp2`뿐) → 확인 요청 | 지금 서비스에는 PVC가 없어 dev 기동에는 영향 없음. Redis·Prometheus 때 필요 | — |
+| 관측 스택(Prometheus·Alertmanager·Grafana·로그·트레이싱) | Argo CD platform 앱(GitOps 레포) | **구현됨**(11-10~11-11, dice가 GitOps 레포 PR #3~#21로 구현): kube-prometheus-stack 93.1.1(Prometheus PVC 20Gi `keepgo-monitoring-gp3`, application 노드), CloudWatch 데이터 소스와 ALB·RDS·SQS 대시보드, Fluent Bit→CloudWatch Logs, OTel Collector→X-Ray(Spring에 OTel Java agent), Grafana `dev3.keepgo.kr/grafana`(GitHub 로그인), Discord 알림 | 11-10에는 "rowan, 비용 때문에 보류"로 정했으나 dice가 Argo CD platform 앱으로 바로 구현했다(관리 방식은 합의와 같음). 차트의 PodMonitor·PrometheusRule·대시보드가 그대로 연결됐다(11-11 확인). 담당이 바뀌었으니 관측 스택 변경은 dice와 함께 본다 | A10(설치 주체=A는 결과적으로 맞음), A17, 사용자 할 일 §1 #11·#12a 해결 |
+| metrics-server | **dice, EKS 애드온** | **설치됨**(System 노드 2개, `kubectl top` 동작) | CoreDNS처럼 기본 API(`metrics.k8s.io`)를 채우고 EKS 버전과 함께 올린다. 버전 호환을 AWS가 맞추고, 업그레이드 담당자가 하나이며, Argo CD보다 먼저 있어 첫 sync부터 HPA가 동작한다. 감수: Git 이력·selfHeal 없음(설정을 바꿀 일이 거의 없음). 기본 애드온 전체를 IaC로 옮길 때 같이 옮긴다 | 사용자 할 일 §1에 계약 한 줄 추가 필요 |
+| EBS CSI 드라이버 | dice | 11-10 확인 때는 없었으나 이후 Prometheus PVC(`keepgo-monitoring-gp3`)가 Bound됨 → 사용 가능 | Redis 등 다른 PVC도 이 StorageClass 기준으로 | — |
 | KEDA·ESO | rowan, Argo CD platform 앱 | 기존 계획 그대로 | — | A17 유지 |
 
 ### 5.3 dice 설정과 맞춘 것
@@ -147,7 +148,7 @@ dice = A파트, rowan = B파트. 이 절은 위 검토와 별개로 실제로 �
 | NetworkPolicy 송신 제한 | dice 송신 허용표를 서비스 values `networkPolicy.egress`로 옮겨 dev가 뜬 뒤 한 PR로 켠다 | 제안 |
 | 그대로 맞은 것 | Gateway(`gateway-system/keepgo-dev3-gateway`, 리스너 `https`, `dev3.keepgo.kr`), 허용 Namespace(ai 제외), ALB 서브넷 CIDR, 노드 라벨·worker Taint(A2), TargetGroupConfiguration `v1`, 라벨 `app.kubernetes.io/name`·포트 이름 `http` | 확인 |
 | 둘이 정할 것 | Redis Namespace(`data` + `keepgo.kr/network-zone: data` 제안), web→member-api 직접 호출(FE 확인), worker·recommend→wishlist 호출(코드에 없음, 생기면 추가), worker 노드 통합과 `do-not-disrupt`(D20) | 미정 |
-| dev RDS | dice가 생성 중(`rds-bootstrap-dev3`). 주소·Secret 이름을 받으면 `spring-dev.yaml` 수정 | 대기 |
+| dev RDS | `keepgo-dev3-mysql`(db.t4g.small, MySQL 8.4, DB `keepgo`). `spring-dev.yaml` DB_HOST 반영, 커넥션 한도 170 | **완료**. 스키마는 §5.6 |
 
 ### 5.4 dev 자동 CD (2026-11-11)
 
@@ -158,3 +159,22 @@ dice = A파트, rowan = B파트. 이 절은 위 검토와 별개로 실제로 �
 | ECR 조회 권한 | OIDC 역할 `keepgo-v3-gitops-release`(GITOPS main만, `ecr:DescribeImages` 3개 저장소) | 생성 완료, GITOPS 변수 `RELEASE_ROLE_ARN` 설정 |
 | 제거 | GitHub App 전제의 `build-and-bump.yaml`·`docs/ci-callers/` | PR #22에 포함 |
 | 감수 | PAT가 rowan 계정에 묶인다(만료·퇴장 시 자동 반영이 멈춤 → 실패 알람에 SNS 토픽 연결 권장). 같은 develop 이미지를 V2 dev와 함께 쓴다(web의 빌드 시점 값 `NEXT_PUBLIC_*`가 V2 dev 기준이면 dev3에서 다르게 동작할 수 있어 첫 반영 때 확인) | — |
+| 가동(11-11) | EventBridge 스택 `keepgo-v3-gitops-dispatch` 배포(Connection AUTHORIZED, 10분 rule 호출 성공·실패 0), `AUTO_DEPLOY_ENABLED=true`. 첫 실행이 backend `ce18544`·ai `e355d38`·frontend `4a399d4`를 GitOps PR #24~#26으로 자동 병합 → Argo CD 반영. ai·web은 새 이미지로 정상, Spring은 §5.5·§5.6 문제로 새 Pod가 기동 실패(기존 Pod가 `maxUnavailable: 0`이라 서비스는 계속됨) | 동작 확인 |
+
+
+### 5.5 backend Secret 전달 방식 (2026-11-11)
+
+| 결정 | 내용 | 상태 |
+|---|---|---|
+| 통째로 넣기 | Spring env Secret을 키 하나씩 고르던 방식에서 **backend Secret 통째로**(`dataFrom: extract`, dev `keepgo/dev3/backend`, prod `Secret-v1-BE`)로 바꿨다. V2 ECS와 같은 방식이다. DB 계정만 RDS 관리 Secret에서 골라 넣는다(키 이름 `username`·`password`가 달라서). JWT 파일 마운트는 그대로 | GitOps PR #27 병합 |
+| 계기 | 자동 CD로 들어온 develop 코드(`KakaoPlaceSearch`)가 기동 때 `KAKAO_REST_API_KEY`를 필수로 요구했다. 값은 Secret에 있었지만 고르는 목록에 없어 새 Pod가 CrashLoop. 키를 고르는 방식은 개발팀이 키를 추가할 때마다 values를 고쳐야 한다 | 해결(Secret에 키 9개 확인) |
+| 감수 | Spring 7개가 backend Secret의 모든 키를 받는다(같은 이미지라 지금도 거의 같음). 새 키는 ESO 갱신 주기(1h) 뒤에 들어간다. prod `Secret-v1-BE`에도 `DB_*` 키가 있는데, ESO는 `data`를 `dataFrom` 다음에 적용하므로 RDS Secret 값이 우선한다고 보고 있다(prod 전환 때 확인). prod `Secret-v1-BE`에는 `GOOGLE_LOGIN_CLIENT_ID`가 없어 prod 전환 전에 키를 추가해야 한다 | — |
+
+### 5.6 DB 스키마 마이그레이션 (미정, 2026-11-11)
+
+| 항목 | 내용 |
+|---|---|
+| 증상 | Kakao 키 해결 뒤에도 Spring 새 Pod가 `Table 'keepgo.ai_call_slot' doesn't exist`로 기동 실패 |
+| 원인 | backend는 Flyway를 기본으로 꺼 두고(`spring.flyway.enabled: false`), 스키마 변경은 `migration` 프로필로 따로 적용한다(BE `docs/database-migrations.md`). 마이그레이션은 V1~V7이 있고 `V6__ai_call_slot.sql`이 이 테이블을 만든다. dev3 DB에는 V6가 적용되지 않았다. 이전 이미지(`503a236`)는 이 테이블을 쓰지 않아 문제가 없었다 |
+| 정할 것 | (1) 누가 dev3 DB에 마이그레이션을 적용하나(DB는 dice, 앱 스키마는 개발팀) (2) 방식: 차트의 `migration` PreSync Job(같은 이미지, `SPRING_PROFILES_ACTIVE=migration`, 5-4 8.3)으로 자동화할지, 사람이 한 번 적용할지 (3) dev3 DB의 현재 상태(초기 스키마를 어떻게 만들었는지, `flyway_schema_history`가 있는지). BE 문서상 기존 DB에는 자동 baseline을 하지 않으므로 상태에 따라 baseline 또는 DB 재생성이 필요 |
+| 영향 | 그동안 Spring 7개는 이전 이미지 Pod 1개씩으로 서비스되고, 자동 CD가 올린 새 버전은 뜨지 않는다 |

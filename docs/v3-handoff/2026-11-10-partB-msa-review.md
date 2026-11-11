@@ -148,3 +148,13 @@ dice = A파트, rowan = B파트. 이 절은 위 검토와 별개로 실제로 �
 | 그대로 맞은 것 | Gateway(`gateway-system/keepgo-dev3-gateway`, 리스너 `https`, `dev3.keepgo.kr`), 허용 Namespace(ai 제외), ALB 서브넷 CIDR, 노드 라벨·worker Taint(A2), TargetGroupConfiguration `v1`, 라벨 `app.kubernetes.io/name`·포트 이름 `http` | 확인 |
 | 둘이 정할 것 | Redis Namespace(`data` + `keepgo.kr/network-zone: data` 제안), web→member-api 직접 호출(FE 확인), worker·recommend→wishlist 호출(코드에 없음, 생기면 추가), worker 노드 통합과 `do-not-disrupt`(D20) | 미정 |
 | dev RDS | dice가 생성 중(`rds-bootstrap-dev3`). 주소·Secret 이름을 받으면 `spring-dev.yaml` 수정 | 대기 |
+
+### 5.4 dev 자동 CD (2026-11-11)
+
+| 결정 | 내용 | 상태 |
+|---|---|---|
+| 방식 | **V2 auto-release를 그대로 이관**(§2.1의 Image Updater 추천에서 바뀜). 앱 레포 CI는 그대로 두고, GitOps 레포가 앱 레포 `develop` head의 CI 게시 job 성공 + ECR SHA 태그를 확인해 values-dev 태그 PR을 `GITHUB_TOKEN`으로 바로 병합한다. 반영은 Argo CD | GitOps PR #22(`release/dev.json`, `scripts/release.py`, `auto-release-dev.yaml`), 로컬 미리 보기 통과 |
+| 트리거 | GitOps 레포에서 `on.schedule`이 돌지 않아 V2처럼 EventBridge(ECR push + 10분 주기)가 `workflow_dispatch` API를 부른다. 토큰은 GITOPS 레포 하나·Actions RW만 가진 fine-grained PAT | Cloud PR #256(`infrastructure/v3-gitops-dispatch.yaml`), 스택 배포는 rowan |
+| ECR 조회 권한 | OIDC 역할 `keepgo-v3-gitops-release`(GITOPS main만, `ecr:DescribeImages` 3개 저장소) | 생성 완료, GITOPS 변수 `RELEASE_ROLE_ARN` 설정 |
+| 제거 | GitHub App 전제의 `build-and-bump.yaml`·`docs/ci-callers/` | PR #22에 포함 |
+| 감수 | PAT가 rowan 계정에 묶인다(만료·퇴장 시 자동 반영이 멈춤 → 실패 알람에 SNS 토픽 연결 권장). 같은 develop 이미지를 V2 dev와 함께 쓴다(web의 빌드 시점 값 `NEXT_PUBLIC_*`가 V2 dev 기준이면 dev3에서 다르게 동작할 수 있어 첫 반영 때 확인) | — |

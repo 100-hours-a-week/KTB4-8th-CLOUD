@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  KeepGo V3 dev 자동 반영 트리거. KTB4-8th-CLOUD-GITOPS 레포에서 on.schedule이 돌지 않아
+  EventBridge가 auto-release-dev workflow를 workflow_dispatch API로 실행한다(V2 github-dispatch.yaml과 같은 방식).
+  ECR push 이벤트로 바로 실행하고, 10분 주기는 안전망이다.
+  토큰은 파라미터(NoEcho)로만 받고 EventBridge 연결에 저장한다. Git에 넣지 않는다.
+
+Parameters:
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    MinLength: 20
+    Description: >-
+      Fine-grained PAT. 대상 레포 KTB4-8th-CLOUD-GITOPS 하나, 권한 Actions Read and write만.
+      교체할 때는 새 토큰으로 스택을 다시 배포한다.
+  Repository:
+    Type: String
+    Default: 100-hours-a-week/KTB4-8th-CLOUD-GITOPS
+    AllowedPattern: '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+  EcrRepositories:
+    Type: CommaDelimitedList
+    Default: keepgo-backend,keepgo-ai,keepgo-web
+    Description: >-
+      push되면 auto-release-dev를 바로 실행할 ECR 저장소. GitOps 레포 release/dev.json의 ecr_repository와 같게 둔다.
+  AlertsTopicArn:
+    Type: String
+    Default: ''
+    Description: >-
+      실패 알람을 보낼 SNS 토픽. 비우면 알람을 만들지 않는다.
+      토큰 만료 시 호출이 조용히 실패하므로 가능하면 넣는다.
+
+Conditions:
+  HasAlerts: !Not [!Equals [!Ref AlertsTopicArn, '']]
+
+Resources:
+  # 인증 헤더는 EventBridge가 Secrets Manager에 암호화해 저장한다.
+  GitHubConnection:
+    Type: AWS::Events::Connection
+    Properties:
+      Name: keepgo-v3-gitops-dispatch
+      Description: KTB4-8th-CLOUD-GITOPS workflow_dispatch 호출용 토큰
+      AuthorizationType: API_KEY
+      AuthParameters:
+        ApiKeyAuthParameters:
+          ApiKeyName: Authorization
+          ApiKeyValue: !Sub 'Bearer ${GitHubToken}'
+        InvocationHttpParameters:
+          HeaderParameters:
+            - Key: Accept
+              Value: application/vnd.github+json
+              IsValueSecret: false
+            - Key: X-GitHub-Api-Version
+              Value: '2022-11-28'
+              IsValueSecret: false
+
+  AutoReleaseDestination:
+    Type: AWS::Events::ApiDestination
+    Properties:
+      Name: keepgo-v3-auto-release-dev-dispatch
+      ConnectionArn: !GetAtt GitHubConnection.Arn
+      HttpMethod: POST
+      InvocationEndpoint: !Sub 'https://api.github.com/repos/${Repository}/actions/workflows/auto-release-dev.yaml/dispatches'
+      InvocationRateLimitPerSecond: 1
+
+  # EventBridge가 위 API destination만 호출할 수 있다.
+  InvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: keepgo-v3-gitops-dispatch-invoke
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: events.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: invoke-gitops-dispatch
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: events:InvokeApiDestination
+                Resource: !GetAtt AutoReleaseDestination.Arn
+
+  # 본문의 ref만 보낸다. 반영 여부는 workflow의 AUTO_DEPLOY_ENABLED 스위치가 그대로 결정한다.
+  AutoReleaseSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: keepgo-v3-auto-release-dev-every-10m
+      Description: auto-release-dev를 10분마다 실행
+      ScheduleExpression: rate(10 minutes)
+      State: ENABLED
+      Targets:
+        - Id: auto-release-dev
+          Arn: !GetAtt AutoReleaseDestination.Arn
+          RoleArn: !GetAtt InvokeRole.Arn
+          Input: '{"ref":"main"}'
+          RetryPolicy:
+            MaximumRetryAttempts: 2
+            MaximumEventAgeInSeconds: 300
+
+  # 앱 CI가 이미지를 올리면 바로 조회를 시작한다. 이벤트는 "조회하라"는 신호일 뿐이고, 반영 여부는
+  # release.py 조회와 AUTO_DEPLOY_ENABLED가 정한다. main 등 다른 브랜치 push도 오지만 조회만 하고 끝난다.
+  # push는 CI가 끝나기 직전에 일어나므로 release.py가 CI 완료를 잠시 기다린다. 유실되면 10분 조회가 잡는다.
+  # V1·V2의 같은 이벤트 규칙과는 별개 규칙이다(서로 영향 없음).
+  AutoReleaseOnEcrPush:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: keepgo-v3-auto-release-dev-on-ecr-push
+      Description: ECR 이미지 push 성공 시 auto-release-dev 실행
+      EventPattern:
+        source: [aws.ecr]
+        detail-type: [ECR Image Action]
+        detail:
+          action-type: [PUSH]
+          result: [SUCCESS]
+          repository-name: !Ref EcrRepositories
+      State: ENABLED
+      Targets:
+        - Id: auto-release-dev
+          Arn: !GetAtt AutoReleaseDestination.Arn
+          RoleArn: !GetAtt InvokeRole.Arn
+          Input: '{"ref":"main"}'
+          RetryPolicy:
+            MaximumRetryAttempts: 2
+            MaximumEventAgeInSeconds: 300
+
+  # 토큰 만료·권한 회수(401/403)는 재시도되지 않고 실패로 집계된다. 그러면 dev 자동 반영이 조용히 멈춘다.
+  DispatchFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlerts
+    Properties:
+      AlarmName: keepgo-v3-gitops-dispatch-failed
+      AlarmDescription: >-
+        EventBridge가 KTB4-8th-CLOUD-GITOPS workflow 실행 호출에 실패했다. 토큰 만료·권한 변경을 확인하고,
+        새 토큰으로 v3-gitops-dispatch 스택을 다시 배포한다.
+      Namespace: AWS/Events
+      MetricName: FailedInvocations
+      Dimensions: [{Name: RuleName, Value: !Ref AutoReleaseSchedule}]
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopicArn]
+      OKActions: [!Ref AlertsTopicArn]
+
+Outputs:
+  AutoReleaseRule:
+    Value: !Ref AutoReleaseSchedule
+  AutoReleaseOnEcrPushRule:
+    Value: !Ref AutoReleaseOnEcrPush

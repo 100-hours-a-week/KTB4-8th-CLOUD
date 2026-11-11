@@ -158,3 +158,34 @@ kubectl apply -f argocd/bootstrap/project.yaml -f argocd/bootstrap/root-dev.yaml
 ## 7. 위키 반영
 
 - [ ] 구현 기록 §10의 제안을 위키에 반영하고 `design-snapshot/`을 다시 복사
+
+## 8. 이어서 할 일 (2026-11-11 기준)
+
+현재 상태: dev3에 V3가 올라가 있고, 자동 CD(EventBridge → `auto-release-dev` → Argo CD)가 동작 중이다. Spring 7개는 develop `0de1a1f`, Application 20개 중 worker만 Degraded(SQS 큐 없음). 결정 기록은 [검토 문서](2026-11-10-partB-msa-review.md) §5.
+
+### 8.1 테스트 전 필수
+- [ ] 구글 로그인 확인: 개발팀이 OAuth 클라이언트 `451367164829-umjho06...`에 리디렉션 URI `https://dev3.keepgo.kr/login/oauth2/code/google`를 추가하기로 함 → 로그인 후 access token 확보
+- [ ] k6 설치(`winget install k6`) 후 스모크 30초: `k6 run -e BASE_URL=https://dev3.keepgo.kr -e TOKEN=<토큰> -e TARGET_RPS=2 tests/v3/load/api.js`(`feat/v3-k8s-local`) → 실패 0%인지(401·404도 실패로 셈)
+- [ ] 테스트 동안 자동 반영 끄기: `gh variable set AUTO_DEPLOY_ENABLED -R 100-hours-a-week/KTB4-8th-CLOUD-GITOPS --body false`, 팀에 테스트 시간 공지
+- [ ] 임시 ClusterAdmin 정책은 테스트 끝날 때까지 유지(drain·selfHeal 테스트용)
+
+### 8.2 테스트
+- [ ] [dev3 검증 시나리오](2026-11-11-dev3-test-scenarios.md) 순서대로: 기준선 → C8·C2·C6·C7 → C3·C4·C5 → S1~S4 → S5·S6 → C1. 결과는 그 문서 §7 표에
+- [ ] 끝나면 `AUTO_DEPLOY_ENABLED=true`로 되돌리기, 테스트 리소스 삭제
+
+### 8.3 테스트 후 정할 것
+- [ ] Prometheus 감시 장치: Prometheus가 1개라 죽으면 알림이 하나도 안 온다(`Watchdog`이 Discord로 안 감). S6 공백 길이를 보고 외부 heartbeat 도입 결정
+- [ ] 노드 교체 때 서비스 공백: S5 결과를 보고 핵심 API(auth·member·web) dev min 2 + PDB 여부 결정
+- [ ] 롤백 호환성: 옛 backend 태그 + 최신 스키마(V9)가 동작하는지 C2·C6에서 확인, 안 되면 롤백 규칙 문서화
+- [ ] (선택, 테스트 전에 해도 됨) Grafana 대시보드에 Argo CD 동기화 시각 annotation
+
+### 8.4 다른 사람에게 받을 것·알릴 것
+- [ ] dice: SQS 큐 `keepgo-dev3-youtube-analysis` 생성(worker Degraded 해결)
+- [ ] 개발팀: BE 공개 레포 `src/main/resources/application.yaml` 34줄에 Google OAuth client secret 기본값이 있음 → 교체·삭제 요청
+- [ ] web이 dev3에서 정상 동작하는지(develop 이미지의 `NEXT_PUBLIC_*`가 V2 dev 주소 기준인지) 브라우저로 확인
+
+### 8.5 안정화 후
+- [ ] 임시 `AmazonEKSClusterAdminPolicy` 떼기(`aws eks disassociate-access-policy --cluster-name keepgo-dev3-eks --principal-arn arn:aws:iam::602601433533:user/ktb8-rowan --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy`). 이후 Argo CD helm 업그레이드 때만 다시 붙인다
+- [ ] Argo CD 로그인 정리: admin 초기 비밀번호 Secret 삭제·교체, GitHub 로그인(Dex)은 dice가 Grafana에 쓴 방식과 맞춤
+- [ ] DB 마이그레이션 자동화: [backlog](../backlog/v3-db-schema-migration-job.md)
+- [ ] prod: `Secret-v1-BE`에 `GOOGLE_LOGIN_CLIENT_ID` 추가, DB 계정 우선순위(ESO data vs dataFrom) 확인, `promote-prod`를 GitHub App 대신 `GITHUB_TOKEN`으로

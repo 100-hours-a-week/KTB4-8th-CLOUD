@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadAppImages",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:DescribeImages"
+      ],
+      "Resource": [
+        "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-backend",
+        "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-ai",
+        "arn:aws:ecr:ap-northeast-2:602601433533:repository/keepgo-web"
+      ]
+    }
+  ]
+}

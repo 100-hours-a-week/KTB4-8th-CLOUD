@@ -45,7 +45,8 @@ resource "aws_iam_role_policy" "exec" {
         Action = "secretsmanager:GetSecretValue"
         Resource = concat(
           [data.aws_secretsmanager_secret.app[local.service_secret[each.key]].arn],
-          contains(["backend", "worker"], each.key) ? [aws_db_instance.main.master_user_secret[0].secret_arn] : []
+          contains(["backend", "worker"], each.key) ? [aws_db_instance.main.master_user_secret[0].secret_arn] : [],
+          each.key == "ai-api" ? [data.aws_secretsmanager_secret.v2_ai.arn] : []
         )
       },
     ]
@@ -87,6 +88,11 @@ resource "aws_iam_role_policy" "task" {
         Effect   = "Allow"
         Action   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
         Resource = [for queue in aws_sqs_queue.main : queue.arn]
+      }] : [],
+      each.key == "backend" ? [{
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.uploads.arn}/profile/*"
       }] : [],
       each.key == "worker" ? [{
         Effect   = "Allow"

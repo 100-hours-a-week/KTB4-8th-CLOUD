@@ -9,6 +9,11 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
+resource "aws_ecs_account_setting_default" "awsvpc_trunking" {
+  name  = "awsvpcTrunking"
+  value = "enabled"
+}
+
 locals {
   # 호스트당 Task 최대 2개(ENI 3개 - 호스트용 1개). max는 "서비스 최대 Task + 배포 중 추가분" 기준이다.
   pools = {
@@ -174,5 +179,5 @@ resource "aws_ecs_capacity_provider" "pool" {
 
 resource "aws_ecs_cluster_capacity_providers" "main" {
   cluster_name       = aws_ecs_cluster.main.name
-  capacity_providers = [for provider in aws_ecs_capacity_provider.pool : provider.name]
+  capacity_providers = concat([for provider in aws_ecs_capacity_provider.pool : provider.name], ["FARGATE"])
 }

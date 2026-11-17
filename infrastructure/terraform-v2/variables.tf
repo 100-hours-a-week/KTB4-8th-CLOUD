@@ -62,6 +62,16 @@ variable "web_certificate_arn" {
   }
 }
 
+variable "web_alb_certificate_arn" {
+  type    = string
+  default = ""
+
+  validation {
+    condition     = var.web_alb_certificate_arn == "" || startswith(var.web_alb_certificate_arn, "arn:aws:acm:ap-northeast-2:")
+    error_message = "ALB용 웹 인증서는 서울 ACM에서 발급받아야 합니다."
+  }
+}
+
 variable "health_check_paths" {
   type = map(string)
   default = {
@@ -96,8 +106,8 @@ variable "enabled_services" {
   default = []
 
   validation {
-    condition     = alltrue([for service in var.enabled_services : contains(["backend", "ai-api", "sse", "worker"], service)])
-    error_message = "서비스 이름은 backend, ai-api, sse, worker 중에서 고르세요."
+    condition     = alltrue([for service in var.enabled_services : contains(["backend", "ai-api", "sse", "worker", "frontend"], service)])
+    error_message = "서비스 이름은 backend, ai-api, sse, worker, frontend 중에서 고르세요."
   }
 }
 
@@ -132,4 +142,10 @@ variable "github_deploy_subjects" {
     "repo:100-hours-a-week@167328634/KTB4-8th-FE@1344685464:environment:dev",
     "repo:100-hours-a-week@167328634/KTB4-8th-CLOUD@1344688950:environment:dev",
   ]
+}
+
+variable "web_extra_aliases" {
+  description = "웹 도메인 외에 CloudFront가 함께 받을 이름(인증서에 모두 들어 있어야 함)"
+  type        = list(string)
+  default     = []
 }
